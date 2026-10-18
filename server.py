@@ -29,6 +29,7 @@ OPENAI_KEY = os.environ.get('OPENAI_API_KEY', '').strip()
 SEARCH_KEY = os.environ.get('BRAVE_SEARCH_API_KEY', '').strip()
 FEED_PATH = os.environ.get('LISTINGS_FEED_PATH', '').strip()
 FEED_URL = os.environ.get('LISTINGS_FEED_URL', '').strip()
+SUUMO_REUSE_PERMITTED = os.environ.get('SUUMO_REUSE_PERMITTED', '') == '1'
 PORT = int(os.environ.get('PORT', '8765'))
 ALLOWED_DOMAINS = ('suumo.jp', 'homes.co.jp', 'athome.co.jp')
 USER_AGENT = 'PropertyFinderLocal/2.0 (+browser-side user initiated search)'
@@ -357,6 +358,7 @@ class Handler(SimpleHTTPRequestHandler):
                     'has_brave_key':bool(SEARCH_KEY), 'decisions_enabled':bool(OPENAI_KEY),
                     'feed_enabled':bool(FEED_PATH or FEED_URL), 'routing_enabled':True,
                     'public_sources':['tokyo', 'tsubata'] + (['permitted'] if os.environ.get('PUBLIC_HOUSING_FEED_PATH') else []),
+                    'suumo_reuse_permitted': SUUMO_REUSE_PERMITTED,
                     'listing_max_age_seconds':3600})
         if u.path == '/api/suumo-search':
             q = parse_qs(u.query, keep_blank_values=True)
@@ -368,6 +370,8 @@ class Handler(SimpleHTTPRequestHandler):
                                                     q['layout'][0] if 'layout' in q else None)
             except ValueError as exc:
                 return self.respond(400, {'error': str(exc)})
+            if not SUUMO_REUSE_PERMITTED:
+                return self.respond(403, {'error': 'SUUMOの取得・再利用許諾が未設定のため接続を停止しています'})
             key = (lat, lon, radius, max_rent, layout)
             with _cache_lock:
                 cached = _suumo_cache.get(key)

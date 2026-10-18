@@ -27,7 +27,10 @@ function evaluateConditions(record,filters,origins,distance){
  const price=number(filters.maxPrice);
  if(price!=null){
   const total=monthlyPrice(record);
-  if(!filters.type||total==null)unknown.push('月額総額・価格');
+  if(!filters.type||total==null){
+   unknown.push('月額総額・価格');
+   if(filters.type&&number(record.price)!=null&&number(record.price)>price)failures.push('価格条件外');
+  }
   else if(total>price)failures.push('価格条件外');
  }
  for(const [field,filter,minimum,label] of [['area','minArea',true,'面積'],['age','maxAge',false,'築年数']]){

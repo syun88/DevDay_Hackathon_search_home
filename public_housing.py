@@ -18,7 +18,6 @@ from urllib.request import Request, urlopen
 
 TOKYO = 'https://www.juutakuseisaku.metro.tokyo.lg.jp'
 TOKYO_PAGE = TOKYO + '/toei_jutaku/kanri/toeidanchi'
-TOKYO_CSV = TOKYO + '/documents/d/juutakuseisaku/r6_all_opendate'
 TOKYO_LICENSE = 'https://creativecommons.org/licenses/by/4.0/'
 TOKYO_CATALOG = 'https://catalog.data.metro.tokyo.lg.jp/dataset/t000030d0000000009'
 TSUBATA = 'https://catalog-data.city.kanazawa.ishikawa.jp'
@@ -126,7 +125,7 @@ def normalize_tokyo(data, date, fetched):
         item = record('tokyo', identity, row['団地名'], address, date, fetched, TOKYO_PAGE, 'CC BY 4.0 / 東京都住宅政策本部', TOKYO_LICENSE)
         item.update(municipality=row['区市名'], layout_text=row.get('間取'), area_text=row.get('面積'),
                     construction_year_text=row.get('建設年度'), managed_units=amount(row.get('管理戸数')),
-                    station=row.get('主な駅'), data_url=TOKYO_CSV,
+                    station=row.get('主な駅'),
                     catalog_url=TOKYO_CATALOG)
         if re.fullmatch(r'\d+(?:R|K|DK|LDK)', row.get('間取', '')):
             item['layout'] = row['間取']
@@ -175,7 +174,7 @@ def permitted_feed(path):
     feed = json.loads(raw)
     if not isinstance(feed, dict) or feed.get('permitted') is not True or not isinstance(feed.get('records'), list) or len(feed['records']) > 500:
         raise ValueError('Permitted public feed required')
-    if not feed.get('license') or not safe_url(feed.get('license_url')):
+    if not isinstance(feed.get('license'), str) or not feed['license'].strip() or not safe_url(feed.get('license_url')):
         raise ValueError('License and HTTPS license URL required')
     output = []
     fetched = now()

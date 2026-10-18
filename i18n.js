@@ -362,6 +362,8 @@ Object.assign(english, {
  '件。最新の空室確認ではありません。':' records. This is not a live vacancy check.', '取得できません：':'Could not fetch: ',
  '万/月':' × ¥10,000/mo', '公開ファイル更新日：':'Published file updated: ', '管理戸数：':'Managed units: ', '最寄駅：':'Nearest station: ', '取得元CSV・資料':'Source CSV / document'
 });
+Object.assign(english, {'利用許諾が未設定のため接続を停止しています。公式検索リンクをご利用ください。':'Connection disabled: reuse permission is not configured. Use official search links.','未検索。半径は0.1〜2km、地点Aは東京都内にしてください。':'Not searched. Set a 0.1–2 km radius and an origin in Tokyo.'});
+Object.assign(english, {'件の公開資料':' public records'});
 const storageKey = 'property_map_language';
 let language = 'ja';
 try { if (localStorage.getItem(storageKey) === 'en') language = 'en'; } catch {}

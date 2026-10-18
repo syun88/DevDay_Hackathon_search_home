@@ -149,4 +149,19 @@ test('public filtering rejects far approximate pins, expired offers and budget m
  assert.equal(publicHousing.check(record,core,{...filters,maxPrice:'319'},origins,()=>2).match,false);
  const old={...record,layer:'recruitment',availability_status:'confirmed',official_url:'https://example.com/test-only',last_verified_at:new Date(Date.now()-3600001).toISOString()};
  assert.equal(publicHousing.check(old,core,filters,origins,()=>2).match,false);
+ const rent={...record,kind:'rent',price_yen:90000,management_fee_yen:null,mandatory_fee_yen:null};
+ assert.equal(publicHousing.check(rent,core,{...filters,type:'rent',maxPrice:'8'},origins,()=>2).match,false);
+});
+
+test('coincident public locations remain individually selectable from a grouped pin',async()=>{
+ const harness=app();
+ const record={source:'tokyo',address:'TEST ONLY',layer:'inventory',kind:'rent',price_yen:null,geo_precision:'approximate',lat:35.681236,lon:139.767125,data_as_of:'2025-03-31',fetched_at:new Date().toISOString(),official_url:'https://example.com/test-only',license:'TEST ONLY',license_url:'https://example.com/permission',availability_status:'unknown'};
+ harness.context.publicRecords=[{...record,id:'tokyo:test-1',name:'TEST ONLY one'},{...record,id:'tokyo:test-2',name:'TEST ONLY two'}];
+ await harness.element('publicLoad').onclick();harness.flush();
+ const pin=()=>harness.allNodes(harness.element('pins')).find(node=>node.className?.includes('public inventory'));
+ assert.equal(pin().textContent,'2件の公開資料');
+ pin().onclick({stopPropagation(){}});harness.flush();
+ assert.ok(harness.element('publicResults').children[0].textContent.startsWith('TEST ONLY one'));
+ pin().onclick({stopPropagation(){}});harness.flush();
+ assert.ok(harness.element('publicResults').children[0].textContent.startsWith('TEST ONLY two'));
 });

@@ -14,10 +14,11 @@ function check(record,core,filters,origins,distance,now=Date.now()){
 }
 function mount(hooks){
  const {$,t,setText,core,filters,origins,distance,makeEl,makeButton,makeLink,refresh,focus}=hooks;
- const records=new Map();let generation=0,next=null,loadedQuery=null,busy=false,selectedId=null,summary='';
+ const records=new Map();let generation=0,next=null,loadedQuery=null,busy=false,selectedId=null,summary=null;
  const layers={inventory:'団地台帳',vacancy:'空き住戸数',recruitment:'確認済み募集',municipal:'自治体空き家'};
  const sources={tokyo:'東京都',tsubata:'津幡町',permitted:'許諾済みフィード'};
- const text=(node,value)=>setText(node,()=>value);
+ const text=(node,value)=>setText(node,typeof value==='function'?value:()=>value);
+ const summaryText=()=>summary?t('地域内の公開資料：')+summary.total+t('件 / 成約・終了を除外：')+summary.ended_excluded+t('件。最新の空室確認ではありません。'):'';
  function choose(record){selectedId=record.id;focus(record);$('publicResults').scrollTop=0;}
  function evaluation(record){return check(record,core,filters(),origins(),distance);}
  function visible(){return [...records.values()].filter(record=>{
@@ -62,14 +63,14 @@ function mount(hooks){
   try{
    for(const record of items.slice(0,5)){
     if(token!==generation)break;
-    text($('publicStatus'),t('住所の位置を照会中：')+record.address);
+    text($('publicStatus'),()=>t('住所の位置を照会中：')+record.address);
     const response=await fetch('/api/public-geocode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:record.source,id:record.id}),signal:AbortSignal.timeout(25000)});
     const data=await response.json();if(!response.ok)throw Error(data.error||response.status);
     if(token!==generation)break;
     Object.assign(record,data);refresh();
    }
-   if(token===generation)text($('publicStatus'),summary+' '+t('位置検索完了。概略座標は厳密な条件一致を保証しません。'));
-  }catch(error){if(token===generation)text($('publicStatus'),t('位置を取得できません：')+error.message)}finally{busy=false;refresh()}
+   if(token===generation)text($('publicStatus'),()=>summaryText()+' '+t('位置検索完了。概略座標は厳密な条件一致を保証しません。'));
+  }catch(error){if(token===generation)text($('publicStatus'),()=>t('位置を取得できません：')+error.message)}finally{busy=false;refresh()}
  }
  async function load(append=false){
   const source=$('publicProvider').value,area=$('publicArea').value.trim(),query=JSON.stringify([source,area]);
@@ -77,7 +78,7 @@ function mount(hooks){
   const token=++generation;
   $('publicLoad').disabled=true;$('publicNext').disabled=true;
   if(!append)for(const [identity,record] of records)if(record.source===source)records.delete(identity);
-  refresh();text($('publicStatus'),t('公式の公開データを取得中…'));
+  refresh();text($('publicStatus'),()=>t('公式の公開データを取得中…'));
   try{
    const response=await fetch('/api/public-housing?'+new URLSearchParams({source,area,offset}),{signal:AbortSignal.timeout(45000)});
    const data=await response.json();if(!response.ok)throw Error(data.error||response.status);
@@ -86,10 +87,10 @@ function mount(hooks){
    while(records.size>500)records.delete(records.keys().next().value);
    next=data.next_offset;loadedQuery=query;$('publicSource_'+source).checked=true;
    $('publicAreas').replaceChildren(...data.municipalities.map(value=>{const option=makeEl('option');option.value=value;return option}));
-   summary=t('地域内の公開資料：')+data.total+t('件 / 成約・終了を除外：')+data.ended_excluded+t('件。最新の空室確認ではありません。');text($('publicStatus'),summary);
+   summary={total:data.total,ended_excluded:data.ended_excluded};text($('publicStatus'),summaryText);
    refresh();
    await locate(data.records.filter(record=>record.geo_precision==='unknown').slice(0,5).map(record=>records.get(record.id)));
-  }catch(error){if(token===generation){next=null;text($('publicStatus'),t('取得できません：')+error.message)}}finally{
+  }catch(error){if(token===generation){next=null;text($('publicStatus'),()=>t('取得できません：')+error.message)}}finally{
    if(token===generation){$('publicLoad').disabled=false;$('publicNext').disabled=next==null;refresh()}
   }
  }
@@ -98,7 +99,19 @@ function mount(hooks){
  $('publicProvider').onchange=()=>{generation++;next=null;$('publicNext').disabled=true;$('publicLoad').disabled=false;$('publicArea').value=$('publicProvider').value==='tokyo'?'千代田区':'';};
  $('publicArea').oninput=()=>{generation++;next=null;$('publicNext').disabled=true;$('publicLoad').disabled=false;};
  for(const id of ['publicUseFilters',...Object.keys(sources).map(value=>'publicSource_'+value),...Object.keys(layers).map(value=>'publicLayer_'+value)])$(id).addEventListener('change',refresh);
- return {renderList,renderPins(add){for(const record of visible().filter(record=>Number.isFinite(record.lat)&&Number.isFinite(record.lon)).slice(0,500))add(record,'public '+record.layer,record.price_yen==null?t('価格未確認'):(record.price_yen/10000).toLocaleString()+t(record.kind==='rent'?'万/月':'万'),()=>choose(record));}};
+ return {renderList,renderPins(add){
+  const groups=new Map();
+  for(const record of visible().filter(record=>Number.isFinite(record.lat)&&Number.isFinite(record.lon)).slice(0,500)){
+   const position=record.lat+','+record.lon;
+   if(!groups.has(position))groups.set(position,[]);
+   groups.get(position).push(record);
+  }
+  for(const group of groups.values()){
+   const record=group[0];
+   const label=group.length>1?group.length+t('件の公開資料'):record.price_yen==null?t('価格未確認'):(record.price_yen/10000).toLocaleString()+t(record.kind==='rent'?'万/月':'万');
+   add({...record,name:group.map(item=>item.name).join(' / ')},'public '+record.layer,label,()=>choose(group[(group.findIndex(item=>item.id===selectedId)+1)%group.length]));
+  }
+ }};
 }
 const api={candidate,check,mount};
 if(typeof module==='object'&&module.exports)module.exports=api;else root.publicHousing=api;

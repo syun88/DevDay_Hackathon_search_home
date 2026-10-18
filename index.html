@@ -10,6 +10,7 @@
 .marker.listing{background:#175cd3;border-radius:8px;font-size:11px;max-width:110px;overflow:hidden;text-overflow:ellipsis}.listing-price{font-size:15px;font-weight:850;color:#174bc9}.listing-details{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}.listing-details span{padding:3px 6px;background:#edf2fb;border-radius:5px;font-size:10px}.listing-ok{color:#08734d}.listing-uncertain{color:#98601d}.listing-out{color:#b3261e}.external-item.out-of-range{opacity:.6}.external-item p{overflow-wrap:anywhere}
 .header-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.language-toggle{display:flex;gap:2px;padding:3px;background:#eef3fa;border:1px solid var(--border);border-radius:9px}.language-toggle button{border:0;border-radius:6px;padding:5px 9px;background:transparent;color:#536279;font-size:11px;font-weight:750}.language-toggle button[aria-pressed="true"]{background:#fff;color:#1d4ed8;box-shadow:0 1px 4px #0001}html[lang="en"] .btn{white-space:normal}html[lang="en"] .sidebar .columns{grid-template-columns:repeat(2,minmax(0,1fr))}
 .marker.public{background:#7c3d8c;max-width:150px;overflow:hidden;text-overflow:ellipsis}.marker.public.municipal{background:#9a4c0d}.marker.public.vacancy{background:#566171}.marker.public.recruitment{background:#17694c}.public-controls{display:grid;gap:8px}.public-controls fieldset{border:1px solid var(--border);border-radius:8px;padding:8px;min-width:0}.public-controls legend{font-size:11px}.public-controls .checkrow{font-size:11px;gap:8px}.public-results{max-height:480px;overflow:auto}.public-card .line-actions>*{min-width:0;overflow-wrap:anywhere}.public-card h4{overflow-wrap:anywhere}
+.public-card .line-actions>*{display:block;padding:8px;border:0;border-radius:7px;background:#edf3fa;color:#244b79;text-decoration:none;font-size:11px;font-weight:700}.public-card.selected{border-color:#7c3d8c;box-shadow:0 0 0 1px #7c3d8c}.public-card .listing-price{font-size:15px;color:#174bc9;font-weight:800}
 </style></head><body>
 <div class="wrap"><aside class="sidebar"><div class="header"><div class="header-top"><p class="kicker">PROPERTY DISTANCE FINDER</p><div class="language-toggle" role="group" aria-label="Language / 言語"><button type="button" data-language="en" lang="en" aria-pressed="false">EN</button><button type="button" data-language="ja" lang="ja" aria-pressed="true">JP</button></div></div><h1>住まいの地図</h1><p>住所・会社を検索 → 半径内の実在する建物・掲載ページを表示 → 条件比較</p></div><div class="scroll">
 <section class="section"><h2>場所を横断検索 <span class="pill">住所・会社・駅名</span></h2>
@@ -67,8 +68,8 @@
 <div class="live-search">
 <h3>SUUMO実データ接続（ローカル試作）</h3>
 <p class="muted">地点Aの中心・半径と、上の家賃上限・間取りをSUUMOの賃貸検索に送ります（最大5件）。家賃上限はSUUMO地図の選択値のみ対応します。取得後も各物件の家賃・間取りを確認し、不明・条件外は除外します。面積など他の条件、半径内かどうか、正確な位置、空室、その他費用は未確認です。地図ピンにはしません。</p>
-<div class="field"><button class="btn" id="suumoSearch" style="flex:1">SUUMOの賃貸データを取得</button></div>
-<div id="suumoStatus" class="live-count" role="status">未検索。半径は0.1〜2km、地点Aは東京都内にしてください。</div>
+<div class="field"><button class="btn" id="suumoSearch" style="flex:1" disabled>SUUMOの賃貸データを取得</button></div>
+<div id="suumoStatus" class="live-count" role="status">利用許諾が未設定のため接続を停止しています。公式検索リンクをご利用ください。</div>
 <div id="suumoResults"></div>
 </div>
 <div class="live-search">
@@ -332,6 +333,8 @@ function renderExternalPages(){
 async function getListingHealth(){
  if(location.protocol==='file:'){listingsReady=false;listingHealthChecked=true;setText($('listingsStatus'), () => t('検索結果を読み込むにはZIP内のサーバーを起動してください：python3 property-server.py。HTML単体で外部ページの内容を取得することはできません。'));return}
  try{const response=await fetch('/api/health',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('backend');const j=await response.json();$('listingProvider').querySelector('option[value="feed"]').disabled=!j.feed_enabled;listingsReady=!!j.listings_enabled;decisionsReady=!!j.decisions_enabled;listingHealthChecked=true;setText($('listingsStatus'), () => listingsReady?t("外部検索が有効：{0}。検索ボタンで掲載ページを取得します。", [t(j.provider)]):t('検索サーバーは起動していますが、検索エンジンが利用できません。'));if(!j.has_brave_key)$('listingProvider').querySelector('option[value="brave"]').disabled=true;
+ $('suumoSearch').disabled=j.suumo_reuse_permitted!==true;
+ if(j.suumo_reuse_permitted===true)setText($('suumoStatus'),()=>t('未検索。半径は0.1〜2km、地点Aは東京都内にしてください。'));
  }catch{listingsReady=false;listingHealthChecked=true;setText($('listingsStatus'), () => t('検索結果の取得にはローカルサーバーが必要です（README参照）。この画面だけを開いた場合は外部検索リンクをご利用ください。'))}
 }
 async function searchListingPages(){
@@ -360,7 +363,12 @@ renderMap=function(){baseRenderMap();const r=$('map').getBoundingClientRect(),pi
  for(const hit of filteredBuildings().slice(0,220))addPin(hit,'building',hit.label.length>8?hit.label.slice(0,8)+'…':hit.label);
  for(let i=0;i<locationHits.length;i++)addPin(locationHits[i],'find',String(i+1));
  for(const hit of propertyPageHits.filter(h=>h.lat!=null&&resultFlags(h).match).slice(0,30))addPin(hit,'listing',hit.extracted?.price!=null?hit.extracted.price+t('万'):t('掲載情報'));
- publicView?.renderPins((record,kind,label,action)=>{const pos=screen(record);if(pos.x< -150||pos.x>r.width+150||pos.y< -60||pos.y>r.height+60)return;const pin=makeEl('button','marker '+kind,label);pin.style.left=pos.x+'px';pin.style.top=pos.y+'px';pin.title=record.name+' / '+t('資料基準日：')+record.data_as_of;pin.onclick=event=>{event.stopPropagation();action()};pins.append(pin)});
+ publicView?.renderPins((record,kind,label,action)=>{
+  const pos=screen(record);if(pos.x< -150||pos.x>r.width+150||pos.y< -60||pos.y>r.height+60)return;
+  const pin=makeEl('button','marker '+kind,label);pin.style.left=pos.x+'px';pin.style.top=pos.y+'px';
+  pin.title=record.name+' / '+t('資料基準日：')+(record.data_as_of||t('未確認'));
+  pin.onclick=event=>{event.stopPropagation();action()};pins.append(pin);
+ });
 };
 const originalSetAnchor=setAnchor;
 setAnchor=function(which,p){listingGeneration++;buildingGeneration++;commuteResults.clear();originalSetAnchor(which,p);if(which==='a')clearSuumoPrototype();refreshPortals();if(which==='a'&&propertyPageHits.length){propertyPageHits=[];renderExternalPages();setText($('listingsStatus'), () => t('地点Aが変わりました。新しい地域で掲載物件を再検索してください。'));}if(which==='a'&&buildingHits.length){buildingHits=[];buildingSearchRadius=0;$('buildingResults').replaceChildren();setText($('buildingStatus'), () => t('地点Aを変更しました。「半径内の集合住宅を探す」で新しい地点から再検索してください。'));renderSoon()}else if(buildingHits.length)showBuildings()};
@@ -435,6 +443,10 @@ window.addEventListener('home-language-change', () => {
   if(buildingHits.length)showBuildings();
   renderExternalPages();renderSoon();
 });
-if(window.publicHousing)publicView=window.publicHousing.mount({$,t,setText,core:propertyCore,filters:currentFilters,origins:commuteOrigins,distance:dist,makeEl,makeButton,makeLink,refresh:renderSoon,focus:record=>{center={lat:record.lat,lon:record.lon};zoom=Math.max(zoom,14);renderSoon();toast(record.name+' / '+t('資料基準日：')+record.data_as_of);requestAnimationFrame(()=>$('publicResults').querySelector(`[data-public-id="${record.id}"]`)?.scrollIntoView({block:'nearest'}));}});
+if(window.publicHousing)publicView=window.publicHousing.mount({$,t,setText,core:propertyCore,filters:currentFilters,origins:commuteOrigins,distance:dist,makeEl,makeButton,makeLink,refresh:renderSoon,focus:record=>{
+ center={lat:record.lat,lon:record.lon};zoom=Math.max(zoom,14);renderSoon();
+ toast(record.name+' / '+t('資料基準日：')+(record.data_as_of||t('未確認')));
+ requestAnimationFrame(()=>$('publicResults').querySelector(`[data-public-id="${record.id}"]`)?.scrollIntoView({block:'nearest'}));
+}});
 sync();bind();renderSoon();})();
 </script></body></html>
