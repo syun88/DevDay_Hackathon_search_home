@@ -160,7 +160,7 @@ class SessionHTTPTest(unittest.TestCase):
     def test_chat_endpoint_is_cookie_bound_and_hides_provider_state(self):
         from home_agent import HomeAgent
         agent = HomeAgent(server.SESSION_STORE, 'synthetic-test-key', lambda *args: {})
-        agent.resume = lambda token: None
+        agent.resume = lambda token, **kwargs: None
         with patch.object(server, 'HOME_AGENT', agent):
             _, headers, _ = self.request('GET', '/api/session')
             cookie = headers['Set-Cookie'].split(';')[0]

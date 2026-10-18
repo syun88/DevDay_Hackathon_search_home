@@ -290,6 +290,8 @@ class PostgresSessionStore(SessionStore):
         # No server-side prepared statements: the pooled Neon endpoint runs in transaction mode.
         with self.psycopg.connect(self.url, connect_timeout=10, autocommit=False, prepare_threshold=None) as connection:
             if not self.ready:
+                # Concurrent cold starts may race on CREATE TABLE IF NOT EXISTS; serialize it.
+                connection.execute('SELECT pg_advisory_xact_lock(724501)')
                 connection.execute('CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
                 connection.execute('CREATE TABLE IF NOT EXISTS archived_chats (owner TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, '
                                    'data TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner,id))')

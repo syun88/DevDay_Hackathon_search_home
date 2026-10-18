@@ -22,6 +22,7 @@ import web_search as web_search_module
 
 AGENT_CONFIG_VERSION = 6
 INSTANCE = uuid4().hex  # Identifies this process for worker leases.
+_worker = threading.local()  # The lease token of the worker running on this thread.
 LEASE_SECONDS = 20
 WEB_SEARCHES_PER_MESSAGE = 3  # A fallback plus one refinement, or explicit searches.
 RELIABLE_TARGET = 2  # Refine once when fewer verified listing pages are found.
@@ -651,6 +652,8 @@ class HomeAgent:
         self.detail_reader = detail_reader
         self.public_search, self.public_geocode = public_search, public_geocode
         self.web_search = web_search
+        self.turn_quota = None  # Optional callable returning False once a shared allowance is spent.
+        self.stream_owned = False  # True on serverless platforms: only the chat stream claims turns.
         self.page_verifier = page_verifier
         self.lock = threading.Lock()
         self.workers = set()
@@ -671,6 +674,15 @@ class HomeAgent:
             return self.versions.get(session_id, (0, 0))
 
     def mutate(self, session_id, operation):
+        token = getattr(_worker, 'token', None)
+        if token:
+            # Every write from a worker thread requires its own lease: a worker that lost the
+            # lease (for example on a thawed instance) can never overwrite newer state.
+            inner = operation
+            def operation(s):
+                if (s['chat'].get('lease') or {}).get('token') != token:
+                    raise AgentError('lease_lost')
+                return inner(s)
         try:
             return self.store.mutate(session_id, operation)
         finally:
@@ -736,11 +748,22 @@ class HomeAgent:
                                'language': payload['language'], 'progress': 'thinking', 'submitted': False,
                                'expected_revision': session['revision'], 'expected_map_revision':session['map_view'].get('user_revision',0), 'started_at': time.time(),
                                'visible_results': {'result_set_id':payload.get('result_set_id'), 'display_order':payload.get('visible_listing_ids',[])}}
+        if self.turn_quota:
+            # Count the shared allowance only for a turn that would really start now.
+            trial = deepcopy(self.store.get(session_id))
+            before = len(trial['conversation'])
+            begin(trial)
+            if len(trial['conversation']) > before and not self.turn_quota():
+                raise AgentError('daily_limit')
         session, _ = self.mutate(session_id, begin)
         self.resume(session_id)
         return session
 
-    def resume(self, session_id):
+    def resume(self, session_id, from_stream=False):
+        # On a serverless platform only a long-lived request (the chat stream) may own a turn:
+        # a short request's instance can be frozen as soon as it responds.
+        if self.stream_owned and not from_stream:
+            return
         session = self.store.get(session_id)
         if not session or session['chat'].get('status') not in ('running', 'resetting', 'cancelling'):
             return
@@ -749,11 +772,14 @@ class HomeAgent:
                 return
         # Several stateless instances may serve one session: a durable lease lets exactly one
         # run the turn. A worker on a frozen instance loses it and another open request takes over.
+        token = uuid4().hex
         def claim(s):
             lease = s['chat'].get('lease') or {}
-            if lease.get('owner') not in (None, INSTANCE) and lease.get('until', 0) > time.time():
+            if s['chat'].get('status') != session['chat']['status']:
                 return False
-            s['chat']['lease'] = {'owner': INSTANCE, 'until': time.time() + LEASE_SECONDS}
+            if lease.get('until', 0) > time.time() and not (lease.get('owner') == INSTANCE and session_id not in self.workers):
+                return False
+            s['chat']['lease'] = {'owner': INSTANCE, 'token': token, 'until': time.time() + LEASE_SECONDS}
             return True
         try:
             if not self.store.mutate(session_id, claim)[1]:
@@ -765,31 +791,31 @@ class HomeAgent:
                 return
             self.workers.add(session_id)
         target = self.run if session['chat']['status'] == 'running' else self.lifecycle
-        threading.Thread(target=self.leased, args=(session_id, target), daemon=True).start()
+        threading.Thread(target=self.leased, args=(session_id, target, token), daemon=True).start()
 
-    def leased(self, session_id, target):
+    def leased(self, session_id, target, token):
         """Run a worker while renewing its lease, including during long tool calls."""
         stop = threading.Event()
         def heartbeat():
             while not stop.wait(LEASE_SECONDS / 4):
                 def renew(s):
                     lease = s['chat'].get('lease') or {}
-                    if lease.get('owner') == INSTANCE:
+                    if lease.get('token') == token:
                         lease['until'] = time.time() + LEASE_SECONDS
                 try:
                     self.store.mutate(session_id, renew)
                 except Exception:
                     pass
         threading.Thread(target=heartbeat, daemon=True).start()
+        _worker.token = token
         try:
             target(session_id)
         finally:
             stop.set()
+            _worker.token = None
 
     def mark(self, session_id, request_id, **values):
         def change(session):
-            if (session['chat'].get('lease') or {}).get('owner') not in (None, INSTANCE):
-                raise AgentError('lease_lost')  # Another instance now owns this turn.
             if session['chat'].get('request_id') != request_id or session['chat'].get('status') != 'running':
                 raise AgentError('cancelled')
             session['chat'].update(values)
@@ -800,10 +826,10 @@ class HomeAgent:
         return opener(*args, **kwargs) if opener else None
 
     def run(self, session_id):
-        request_id = self.store.get(session_id)['chat']['request_id']
-        submission_key = sha256((session_id + request_id).encode()).hexdigest()
-        events, buffered = None, []
+        events, buffered, request_id = None, [], None
         try:
+            request_id = self.store.get(session_id)['chat']['request_id']
+            submission_key = sha256((session_id + request_id).encode()).hexdigest()
             session = self.store.get(session_id)
             chat = session['chat']
             with self.changed:
@@ -881,14 +907,15 @@ class HomeAgent:
         except Exception as error:
             code = str(error) if isinstance(error, AgentError) else 'agent_error'
             def fail(s):
-                if code == 'lease_lost' or (s['chat'].get('lease') or {}).get('owner') not in (None, INSTANCE):
-                    return  # The current owner reports the outcome.
-                if s['chat'].get('request_id') == request_id and s['chat'].get('status') == 'running':
+                if request_id and s['chat'].get('request_id') == request_id and s['chat'].get('status') == 'running':
                     recoverable = code != 'turn_failed'
                     s['chat'].update(status='error', error=code, progress='', recoverable=recoverable)
                     if not recoverable:
                         self.keep_partial(s, request_id, 'failed')
-            self.mutate(session_id, fail)
+            try:
+                self.mutate(session_id, fail)
+            except (AgentError, KeyError):
+                pass  # Lost lease: the current owner reports the outcome.
         finally:
             if events is not None:
                 (events[0] if isinstance(events, tuple) else events).close()
@@ -910,8 +937,9 @@ class HomeAgent:
                                       'created_at': datetime.now(timezone.utc).isoformat()})
 
     def worker_done(self, session_id):
+        token = getattr(_worker, 'token', None)
         def release(s):
-            if (s['chat'].get('lease') or {}).get('owner') == INSTANCE:
+            if token is None or (s['chat'].get('lease') or {}).get('token') == token:
                 s['chat'].pop('lease', None)
         try:
             self.store.mutate(session_id, release)
@@ -919,7 +947,8 @@ class HomeAgent:
             pass
         with self.lock:
             self.workers.discard(session_id)
-        self.resume(session_id)
+        # Continue a follow-up operation (for example a cancel) within the same owning request.
+        self.resume(session_id, from_stream=True)
 
     def read_events(self, events, queue):
         stream, iterator = events if isinstance(events, tuple) else (events, iter(events))
@@ -1567,6 +1596,8 @@ class HomeAgent:
                 for ident in session['_agent'].get('previous_sessions', []) + ([provider_id] if provider_id else []):
                     self.api.request('DELETE', '/' + ident)
                 def clear(s):
+                    if s['chat'].get('status') != 'resetting':
+                        raise AgentError('lease_lost')
                     reset_search = s['chat'].get('reset_search', False)
                     s.update(map_view={**map_agent.initial_view(),'revision':s['map_view']['revision']+1,'user_revision':s['map_view'].get('user_revision',0)+1},map_command=None,public_records=[],public_version=s.get('public_version',0)+1,conversation=[], memory={'facts': {}, 'places': {}}, result_sets=[], history=[],
                              chat={'status': 'idle'}, draft_message='', _agent={}, _tool_results={})
@@ -1588,6 +1619,8 @@ class HomeAgent:
                         raise AgentError('provider_connection')
                 request_id = session['chat'].get('request_id')
                 def cancelled(s):
+                    if s['chat'].get('status') != 'cancelling' or s['chat'].get('request_id') != request_id:
+                        raise AgentError('lease_lost')
                     s['chat'].update(status='cancelled', progress='')
                     if request_id:
                         self.keep_partial(s, request_id, 'cancelled')
@@ -1595,7 +1628,13 @@ class HomeAgent:
         except Exception as error:
             code = str(error) if isinstance(error, AgentError) else 'agent_error'
             # A failed cancel stays a cancel: Retry must stop the turn again, never resume it.
-            self.mutate(session_id, lambda s: s['chat'].update(status='error', error=code, recoverable=True, progress='',
-                                                               **({'operation': 'cancel'} if operation == 'cancelling' else {})))
+            def failed(s):
+                if code != 'lease_lost' and s['chat'].get('status') == operation:
+                    s['chat'].update(status='error', error=code, recoverable=True, progress='',
+                                     **({'operation': 'cancel'} if operation == 'cancelling' else {}))
+            try:
+                self.mutate(session_id, failed)
+            except (AgentError, KeyError):
+                pass
         finally:
             self.worker_done(session_id)

@@ -26,7 +26,7 @@ class AgentToolsTest(unittest.TestCase):
                     'extracted': {'price': 8, 'layout': '1K', 'area': 25, 'age': None, 'address': None}}], 'provider': 'bing'}
         self.agent = HomeAgent(self.store, 'synthetic-test-key', lambda *args: self.raw,
                                geocoder=lambda query: [self.place])
-        self.agent.resume = lambda token: None
+        self.agent.resume = lambda token, **kwargs: None
         self.agent.start(self.token, {'request_id': 'request_1234567890', 'message': 'Find a place',
                                      'expected_revision': 0, 'language': 'en'})
         self.count = 0
@@ -241,7 +241,7 @@ class AgentLifecycleTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             store = SessionStore(Path(folder) / 'sessions.sqlite3'); token, _ = store.create()
             api = FakeAPI(); agent = HomeAgent(store, 'synthetic-key', lambda *args: {}, api=api)
-            agent.resume = lambda token: None
+            agent.resume = lambda token, **kwargs: None
             agent.start(token, {'request_id': 'request_1234567890', 'message': 'Budget 80000 yen', 'expected_revision': 0, 'language': 'en'})
             agent.run(token)
             result = store.get(token)

@@ -140,7 +140,7 @@ class AgentAccuracyTest(unittest.TestCase):
         verify = lambda url, extracted: page_verify.verify(url, extracted, (), fetcher=lambda u: self.pages[u])
         self.agent = HomeAgent(self.store, 'synthetic-key', lambda *a: {'results': [], 'leads': []}, geocoder=lambda q: self.places.get(q, []),
                                web_search=fake_web, page_verifier=verify)
-        self.agent.resume = lambda token: None
+        self.agent.resume = lambda token, **kwargs: None
         self.agent.start(self.token, {'request_id': 'request_1234567890', 'message': 'Find', 'expected_revision': 0, 'language': 'en'})
         self.store.mutate(self.token, lambda s: s['criteria'].update(CRITERIA))
 

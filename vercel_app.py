@@ -56,7 +56,8 @@ def _request_bytes(environ):
         path += '?' + environ['QUERY_STRING']
     lines = [f"{environ.get('REQUEST_METHOD', 'GET')} {path} HTTP/1.1"]
     for key, value in environ.items():
-        if key.startswith('HTTP_'):
+        # Content headers come only from CONTENT_*; values with line breaks are dropped.
+        if key.startswith('HTTP_') and key not in ('HTTP_CONTENT_LENGTH', 'HTTP_CONTENT_TYPE') and '\r' not in value and '\n' not in value:
             lines.append(key[5:].replace('_', '-').title() + ': ' + value)
     length = int(environ.get('CONTENT_LENGTH') or 0)
     if environ.get('CONTENT_TYPE'):

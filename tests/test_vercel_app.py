@@ -30,7 +30,7 @@ class BridgeTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         store = SessionStore(Path(self.temp.name) / 's.sqlite3')
         agent = HomeAgent(store, 'synthetic-key', lambda *a: {})
-        agent.resume = lambda token: None
+        agent.resume = lambda token, **kwargs: None
         for target, value in (('SESSION_STORE', store), ('HOME_AGENT', agent), ('STREAM_SECONDS', 3)):
             patcher = patch.object(server, target, value); patcher.start(); self.addCleanup(patcher.stop)
         self.http = make_server('127.0.0.1', 0, vercel_app.app, ThreadingWSGIServer, Quiet)
@@ -108,3 +108,70 @@ class DailyLimitTest(unittest.TestCase):
             store = SessionStore(Path(folder) / 's.sqlite3')
             self.assertEqual([store.take_quota('turns-day', 2) for _ in range(3)], [True, True, False])
             self.assertTrue(store.take_quota('turns-next-day', 2))
+
+
+class DeploymentReviewTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.store = SessionStore(Path(self.temp.name) / 's.sqlite3')
+        self.token, _ = self.store.create()
+        self.agent = HomeAgent(self.store, 'synthetic-key', lambda *a: {})
+        self.agent.resume = lambda token, **kwargs: None
+
+    def payload(self, request_id, message='Find a home', revision=None):
+        revision = self.store.get(self.token)['revision'] if revision is None else revision
+        return {'request_id': request_id, 'message': message, 'expected_revision': revision, 'language': 'en'}
+
+    def test_a_worker_that_lost_its_lease_cannot_write(self):
+        import home_agent
+        self.store.mutate(self.token, lambda s: s['chat'].update(status='resetting', lease={'owner': 'other', 'token': 'new', 'until': 9e9}))
+        home_agent._worker.token = 'old'
+        try:
+            with self.assertRaises(home_agent.AgentError):
+                self.agent.mutate(self.token, lambda s: s.update(conversation=[]))
+            self.agent.lifecycle(self.token)  # A thawed stale reset must not wipe newer state.
+        finally:
+            home_agent._worker.token = None
+        self.assertEqual(self.store.get(self.token)['chat']['status'], 'resetting')
+        self.assertEqual(self.store.get(self.token)['chat']['lease']['token'], 'new')
+
+    def test_daily_quota_counts_only_real_new_turns(self):
+        used = []
+        self.agent.turn_quota = lambda: used.append(1) or len(used) <= 1
+        with self.assertRaises(ValueError):
+            self.agent.start(self.token, {'request_id': 'x' * 16, 'message': '', 'expected_revision': 0, 'language': 'en'})
+        self.assertEqual(used, [])  # Invalid requests do not spend the allowance.
+        self.agent.start(self.token, self.payload('request_000000000001'))
+        self.agent.start(self.token, self.payload('request_000000000001', revision=0))  # Idempotent retry: free.
+        from home_agent import AgentError
+        with self.assertRaises(AgentError):
+            self.agent.start(self.token, self.payload('request_000000000002'))  # Busy: not counted.
+        self.assertEqual(len(used), 1)
+        def finish(s):
+            s['conversation'].append({'id': 'reply_request_000000000001', 'role': 'assistant', 'text': 'Hi'})
+            s['chat'] = {'status': 'idle'}
+        self.store.mutate(self.token, finish)
+        with self.assertRaises(AgentError) as limit:  # Reusing an assistant message ID is a new turn.
+            self.agent.start(self.token, self.payload('reply_request_000000000001'))
+        self.assertEqual(str(limit.exception), 'daily_limit')
+
+    def test_on_serverless_only_the_stream_claims_turns(self):
+        agent = HomeAgent(self.store, 'synthetic-key', lambda *a: {})
+        agent.stream_owned = True
+        self.store.mutate(self.token, lambda s: s['chat'].update(status='cancelling'))
+        with patch.object(agent, 'leased') as leased:
+            agent.resume(self.token)
+            self.assertFalse(leased.called)
+            with patch('threading.Thread') as thread:
+                agent.resume(self.token, from_stream=True)
+                self.assertTrue(thread.called)
+
+    def test_bridge_drops_spoofed_content_headers_and_line_breaks(self):
+        import io
+        raw = vercel_app._request_bytes({'REQUEST_METHOD': 'POST', 'PATH_INFO': '/api/session', 'HTTP_HOST': 'example.com',
+                                         'HTTP_X_EVIL': 'a\r\nHost: evil.example', 'HTTP_CONTENT_LENGTH': '999',
+                                         'CONTENT_LENGTH': '2', 'CONTENT_TYPE': 'application/json', 'wsgi.input': io.BytesIO(b'{}')})
+        head = raw.split(b'\r\n\r\n')[0].decode()
+        self.assertNotIn('evil.example', head)
+        self.assertEqual(head.count('Content-Length'), 1)
+        self.assertIn('Content-Length: 2', head)
