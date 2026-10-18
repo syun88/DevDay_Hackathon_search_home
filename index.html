@@ -67,9 +67,10 @@
 </div>
 <div class="live-search">
 <h3>SUUMO実データ接続（ローカル試作）</h3>
-<p class="muted">地点Aの中心・半径と、上の家賃上限・間取りをSUUMOの賃貸検索に送ります（最大5件）。家賃上限はSUUMO地図の選択値のみ対応します。取得後も各物件の家賃・間取りを確認し、不明・条件外は除外します。面積など他の条件、半径内かどうか、正確な位置、空室、その他費用は未確認です。地図ピンにはしません。</p>
+<p class="muted">地点Aの中心・半径と、上の家賃上限・間取りをSUUMOの賃貸検索に送ります（1ページ20件、次ページも取得可能）。家賃上限はSUUMO地図の選択値のみ対応します。取得後も各物件の家賃・間取りを確認し、不明・条件外は除外します。面積など他の条件、半径内かどうか、正確な位置、空室、その他費用は未確認です。地図ピンにはしません。</p>
 <div class="field"><button class="btn" id="suumoSearch" style="flex:1" disabled>SUUMOの賃貸データを取得</button></div>
 <div id="suumoStatus" class="live-count" role="status">利用許諾が未設定のため接続を停止しています。公式検索リンクをご利用ください。</div>
+<div class="field"><button class="btn" id="suumoPrev" disabled>前の20件</button><span id="suumoPage" aria-live="polite">未検索</span><button class="btn" id="suumoNext" disabled>次の20件</button></div>
 <div id="suumoResults"></div>
 </div>
 <div class="live-search">
@@ -376,22 +377,23 @@ const originalChangeRadius=changeRadius;
 changeRadius=function(which,v){originalChangeRadius(which,v);if(buildingHits.length)showBuildings();renderExternalPages();if(which==='a')clearSuumoPrototype()};
 $('globalSearch').onclick=globalLocationSearch;$('globalQuery').onkeydown=e=>{if(e.key==='Enter')globalLocationSearch()};
 $('searchBuildings').onclick=loadBuildings;$('clearBuildings').onclick=()=>{buildingHits=[];buildingSearchRadius=0;$('buildingResults').replaceChildren();setText($('buildingStatus'), () => t('建物の検索結果をクリアしました。'));renderSoon()};
-let suumoRevision=0;
-function clearSuumoPrototype(){suumoRevision++;$('suumoResults').replaceChildren();$('suumoStatus').textContent='条件が変わりました。SUUMOの賃貸データを再取得してください。'}
+let suumoRevision=0,suumoPage=1;
+function clearSuumoPrototype(){suumoRevision++;suumoPage=1;$('suumoPrev').disabled=true;$('suumoNext').disabled=true;$('suumoPage').textContent='未検索';$('suumoResults').replaceChildren();$('suumoStatus').textContent='条件が変わりました。SUUMOの賃貸データを再取得してください。'}
 for(const id of ['maxPrice','layout'])$(id).addEventListener('input',clearSuumoPrototype);
-async function searchSuumoPrototype(){
+async function searchSuumoPrototype(page=1){
  const button=$('suumoSearch'),status=$('suumoStatus'),list=$('suumoResults');
  const revision=++suumoRevision;
- button.disabled=true;status.textContent='SUUMOの公開地図ページから検索中…';list.replaceChildren();
+ button.disabled=true;$('suumoPrev').disabled=true;$('suumoNext').disabled=true;status.textContent='SUUMOの公開地図ページから検索中…';list.replaceChildren();
  try{
-  const params=new URLSearchParams({lat:String(state.a.lat),lon:String(state.a.lon),radius_km:String(state.ra)});
+  const params=new URLSearchParams({lat:String(state.a.lat),lon:String(state.a.lon),radius_km:String(state.ra),page:String(page)});
   if($('maxPrice').value)params.set('max_rent_man',$('maxPrice').value);
   if($('layout').value)params.set('layout',$('layout').value);
-  const response=await fetch('/api/suumo-search?'+params,{signal:AbortSignal.timeout(35000)});
+  const response=await fetch('/api/suumo-search?'+params,{signal:AbortSignal.timeout(40000)});
   const data=await response.json();if(revision!==suumoRevision)return;if(!response.ok)throw Error(data.error||`HTTP ${response.status}`);
   const rows=Array.isArray(data.results)?data.results:[];
+  suumoPage=data.page;$('suumoPage').textContent=`${data.page}ページ`;$('suumoPrev').disabled=data.page<=1;$('suumoNext').disabled=!data.has_next;
   const applied=[data.filters?.max_rent_man!=null?`家賃上限${data.filters.max_rent_man}万円`:'',data.filters?.layout||''].filter(Boolean).join('・')||'家賃・間取り指定なし';
-  status.textContent=`SUUMOから${data.cached?'キャッシュ済みの':'今回の'}地図応答を取得（${new Date(data.fetched_at).toLocaleString('ja-JP')}）。${applied}：先頭${data.inspected_count}件を検査、条件一致の東京都住所${rows.length}件。都外${data.excluded_out_of_region}件、条件外・不明${data.excluded_filter_mismatch_or_unknown}件を除外。半径内かは未確認です。`;
+  status.textContent=`SUUMOから${data.cached?'キャッシュ済みの':'今回の'}地図応答を取得（${new Date(data.fetched_at).toLocaleString('ja-JP')}）。${applied}：${data.page}ページの${data.inspected_count}件を検査、条件一致の東京都住所${rows.length}件。都外${data.excluded_out_of_region}件、条件外・不明${data.excluded_filter_mismatch_or_unknown}件を除外。上流の該当総数${data.upstream_totalhits??'不明'}件（この画面は1ページ分）。半径内かは未確認です。`;
   for(const row of rows){
    const card=makeEl('article','external-item');const title=makeEl('h4');title.append(makeLink(`SUUMO物件 ${row.source_id}`,row.source_url));card.append(title);
    card.append(makeEl('div','listing-price',row.rent_jpy==null?'賃料不明':`賃料 ${row.rent_jpy.toLocaleString('ja-JP')}円/月`));
@@ -402,11 +404,13 @@ async function searchSuumoPrototype(){
    card.append(makeEl('p','listing-uncertain','空室・掲載元の更新日・半径内か・正確な地図位置は未確認。掲載元で確認してください。'));
    list.append(card);
   }
-  if(!rows.length)list.append(makeEl('p','muted',data.upstream_totalhits===0?'SUUMOの応答は該当0件です。':'この応答の先頭5件には表示条件を確認できる東京都住所の物件がありませんでした。'));
+  if(!rows.length)list.append(makeEl('p','muted',data.upstream_totalhits===0?'SUUMOの応答は該当0件です。':'このページには表示条件を確認できる東京都住所の物件がありませんでした。'));
  }catch(error){if(revision===suumoRevision)status.textContent='SUUMO実データを取得できません：'+error.message;}
  finally{button.disabled=false;}
 }
-$('suumoSearch').onclick=searchSuumoPrototype;
+$('suumoSearch').onclick=()=>searchSuumoPrototype(1);
+$('suumoPrev').onclick=()=>searchSuumoPrototype(suumoPage-1);
+$('suumoNext').onclick=()=>searchSuumoPrototype(suumoPage+1);
 $('searchListings').onclick=searchListingPages;
 $('listingOnlyWithin').onchange=()=>{renderExternalPages();renderSoon()};
 for(const id of ['maxPrice','minArea','layout','maxAge','type','pets','parking','insideOnly'])$(id).addEventListener('input',()=>{if(propertyPageHits.length){renderExternalPages();renderSoon()}});
