@@ -113,7 +113,7 @@ class AgentFallbackTest(unittest.TestCase):
             return json.loads(json.dumps(self.web))
         self.agent = HomeAgent(self.store, 'synthetic-key', lambda *args: json.loads(json.dumps(self.listings)),
                                geocoder=lambda query: self.places, web_search=fake_web)
-        self.agent.resume = lambda token: None
+        self.agent.resume = lambda token, **kwargs: None
         self.agent.start(self.token, {'request_id': 'request_1234567890', 'message': 'Find a 1LDK',
                                       'expected_revision': 0, 'language': 'en'})
         self.store.mutate(self.token, lambda s: s['criteria'].update(property_type='rent', layout='1LDK', max_price_yen=150000))

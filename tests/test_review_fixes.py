@@ -34,7 +34,7 @@ class Harness(unittest.TestCase):
                    'geo_precision': 'exact', 'extracted': {'price': 9}}
         self.agent = HomeAgent(self.store, 'synthetic-key', lambda *a: {'results': [], 'leads': [dict(listing)]},
                                geocoder=lambda q: self.places)
-        self.agent.resume = lambda token: None
+        self.agent.resume = lambda token, **kwargs: None
         for target, value in (('SESSION_STORE', self.store), ('HOME_AGENT', self.agent)):
             patcher = patch.object(server, target, value); patcher.start(); self.addCleanup(patcher.stop)
         class Quiet(server.Handler):
@@ -180,7 +180,7 @@ class FailedCancelTest(unittest.TestCase):
                 def request(self, method, path, body=None, key=None):
                     return {'status': 'idle' if self.idle else 'in_progress'}
             api = API(); agent = HomeAgent(store, 'synthetic-key', lambda *a: {}, api=api)
-            agent.resume = lambda token: None
+            agent.resume = lambda token, **kwargs: None
             agent.start(token, {'request_id': 'request_1234567890', 'message': 'Hi', 'expected_revision': 0, 'language': 'en'})
             store.mutate(token, lambda s: s['_agent'].update(session_id='sess_1'))
             agent.cancel(token, 'request_1234567890')

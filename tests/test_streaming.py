@@ -84,7 +84,7 @@ class StreamingLifecycleTest(unittest.TestCase):
 
     def agent(self, api):
         agent = HomeAgent(self.store, 'synthetic-key', lambda *args: {}, api=api)
-        agent.resume = lambda token: None
+        agent.resume = lambda token, **kwargs: None
         agent.start(self.token, {'request_id': 'request_1234567890', 'message': 'Budget 80000 yen',
                                  'expected_revision': 0, 'language': 'en'})
         return agent
@@ -226,7 +226,7 @@ class ChatStreamEndpointTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         store = SessionStore(Path(self.temp.name) / 'sessions.sqlite3')
         self.agent = HomeAgent(store, 'synthetic-key', lambda *args: {})
-        self.agent.resume = lambda token: None
+        self.agent.resume = lambda token, **kwargs: None
         for target, value in (('SESSION_STORE', store), ('HOME_AGENT', self.agent)):
             patcher = patch.object(server, target, value); patcher.start(); self.addCleanup(patcher.stop)
         class Quiet(server.Handler):

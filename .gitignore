@@ -10,3 +10,5 @@ __pycache__/
 
 # Local search sessions (private, persisted by SQLite).
 .local/
+.vercel
+public/

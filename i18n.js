@@ -603,6 +603,7 @@ Object.assign(english, {
  '条件に完全に合う物件は見つかりませんでした。条件に柔軟であれば、次の候補があります。':"I couldn't find an exact match. If you're flexible, these options may work.",
  '条件に合う物件です（掲載ページで確認）。':'Matches your criteria (checked on the listing page).','条件を緩めた場合の候補です。':'A flexible option outside your criteria.',
 });
+Object.assign(english, {'本日のAI利用上限に達しました。明日もう一度お試しください。手動検索と地図は引き続き使えます。':"Today's AI usage limit has been reached. Please try again tomorrow; manual search and the map still work."});
 const storageKey = 'property_map_language';
 let language = 'ja';
 try { if (localStorage.getItem(storageKey) === 'en') language = 'en'; } catch {}
