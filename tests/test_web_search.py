@@ -101,8 +101,9 @@ class AgentFallbackTest(unittest.TestCase):
                          'source_search_links': [{'source': 'SUUMO', 'url': 'https://www.google.com/search?q=site%3Asuumo.jp'}]}
         self.searches, self.web = [], {'status': 'ok', 'query': 'q', 'queries': ['q'], 'results': []}
         self.places = []
-        def fake_web(query, context=''):
-            self.searches.append((query, context))
+        self.refines = []
+        def fake_web(query, context='', refine=False):
+            self.searches.append((query, context)); self.refines.append(refine)
             if isinstance(self.web, Exception):
                 raise self.web
             return json.loads(json.dumps(self.web))
@@ -125,7 +126,9 @@ class AgentFallbackTest(unittest.TestCase):
     def test_empty_listing_sources_trigger_a_real_fallback_search(self):
         self.web['results'] = self.records(row(DETAIL), row(SEARCH_PAGE, 'listing_search_page'))
         result = self.execute('search_listings')
-        self.assertEqual(len(self.searches), 1)
+        # No page could be checked here, so one portal-focused refinement also ran.
+        self.assertEqual(self.refines, [False, True])
+        self.assertEqual(result['web_search']['refinement']['added'], 0)
         query, context = self.searches[0]
         self.assertEqual(query, fallback_query(self.store.get(self.token)['criteria']))
         self.assertIn('1LDK', query); self.assertIn('15万円以下', query)
@@ -163,9 +166,10 @@ class AgentFallbackTest(unittest.TestCase):
         self.assertEqual(first['items'][0]['url'], DETAIL)
         self.assertEqual(tool_outcome('web_search', first), 'done')
         self.execute('web_search', {'query': 'another search'})
-        third = self.execute('web_search', {'query': 'third search'})
-        self.assertEqual((third['web_search']['status'], third['web_search']['code']), ('skipped', 'limit'))
-        self.assertEqual(len(self.searches), 2)
+        self.execute('web_search', {'query': 'third search'})
+        fourth = self.execute('web_search', {'query': 'fourth search'})
+        self.assertEqual((fourth['web_search']['status'], fourth['web_search']['code']), ('skipped', 'limit'))
+        self.assertEqual(len(self.searches), 3)
         self.assertEqual(self.execute('web_search', {'query': 'x'})['error'], 'invalid_arguments')
 
     def test_pins_only_from_a_matching_geocode_of_a_single_property_page(self):
@@ -174,11 +178,11 @@ class AgentFallbackTest(unittest.TestCase):
         unrelated = self.execute('web_search', {'query': 'Tokyo Station 1LDK rent'})
         self.assertTrue(all(item['lat'] is None for item in unrelated['items']))
         self.store.mutate(self.token, lambda s: s['chat'].update(web_searches=0))
-        self.places = [{'name': '東京都中央区日本橋浜町', 'lat': 35.6866, 'lon': 139.7895}]
+        self.places = [{'name': '東京都中央区日本橋浜町一丁目', 'lat': 35.6866, 'lon': 139.7895}]
         located = self.execute('web_search', {'query': 'Nihonbashi 1LDK rent'})
         detail, page = located['items']
-        self.assertEqual((detail['lat'], detail['geo_precision']), (35.6866, 'approximate'))
-        self.assertIn('not exact building', detail['location_evidence']['method'])
+        self.assertEqual((detail['lat'], detail['geo_precision'], detail['geocode_level']), (35.6866, 'approximate', 'chome'))
+        self.assertIn('not the building', detail['location_evidence']['method'])
         self.assertIsNone(page['lat'])  # A search/list page is never placed as a home.
         self.assertEqual(located['map_action']['map_command']['action'], 'show_results')
 

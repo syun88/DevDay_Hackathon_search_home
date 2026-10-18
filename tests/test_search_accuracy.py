@@ -1,0 +1,211 @@
+"""Search accuracy regressions traced from live results. No external requests are made here."""
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+from urllib.error import HTTPError, URLError
+
+import page_verify
+import public_housing
+import web_search
+from home_agent import HomeAgent, apply_verification, discovery_checks
+from session_store import DEFAULT_CRITERIA, SessionStore
+
+DETAIL = 'https://www.eheya.net/detail/300001333005653000002/'
+LIBRARY = 'https://www.eheya.net/library/detail/t00656023/'
+HOMES = 'https://www.homes.co.jp/chintai/b-1403170024163/'
+HOMES_ROOM = 'https://www.homes.co.jp/chintai/room/b5925824ca94f4a2017a181f0a79aeb00be9501f/'
+LIST = 'https://www.chintai.net/tokyo/ensen/000001700/list/1ldk/'
+CRITERIA = {**DEFAULT_CRITERIA, 'property_type': 'rent', 'layout': '1LDK', 'max_price_yen': 150000, 'radius_a_km': 3}
+
+
+def page(title, body='', canonical=None, ld=None):
+    html = f'<html><head><title>{title}</title>'
+    if canonical:
+        html += f'<link rel="canonical" href="{canonical}">'
+    if ld:
+        html += f'<script type="application/ld+json">{json.dumps(ld, ensure_ascii=False)}</script>'
+    return html + f'</head><body>{body}</body></html>'
+
+
+class GeocodePrecisionTest(unittest.TestCase):
+    def candidates(self, *titles):
+        return [{'properties': {'title': t}, 'geometry': {'coordinates': [139.7 + i / 100, 35.6 + i / 100]}} for i, t in enumerate(titles)]
+
+    def test_most_specific_prefix_candidate_wins_over_the_first(self):
+        found = public_housing.best_candidate('東京都中央区日本橋浜町３丁目10-1', self.candidates('東京都中央区', '東京都中央区日本橋浜町三丁目'))
+        self.assertEqual(found[0], '東京都中央区日本橋浜町三丁目')
+        self.assertIsNone(public_housing.best_candidate('東京都中央区湊1-1', self.candidates('東京都港区湊')))
+
+    def test_levels_distinguish_block_chome_town_and_municipality(self):
+        cases = {'東京都中央区': 'municipality', '東京都中央区明石町': 'town', '東京都千代田区一番町': 'town',
+                 '東京都中央区日本橋浜町三丁目': 'chome', '東京都千代田区四番町６番地': 'block', '東京都中央区日本橋浜町3-10-1': 'block',
+                 '神奈川県横浜市中区本町一丁目': 'chome', '石川県河北郡津幡町字太田': 'town'}
+        for title, level in cases.items():
+            with self.subTest(title=title):
+                self.assertEqual(public_housing.geocode_level(title), level)
+
+
+class PageVerifyTest(unittest.TestCase):
+    def check(self, response, extracted=None, url=DETAIL, restricted=()):
+        def fetcher(target):
+            if isinstance(response, Exception):
+                raise response
+            return response
+        return page_verify.verify(url, extracted or {}, restricted, fetcher=fetcher)
+
+    def test_redirect_to_another_page_family_is_reported_as_moved(self):
+        result = self.check((200, LIBRARY, 'text/html', page('セグレート日本橋の物件情報', canonical=LIBRARY)))
+        self.assertTrue(result['moved'])
+        self.assertEqual(result['canonical_url'], LIBRARY)
+
+    def test_same_listing_canonical_and_facts_found_on_the_page(self):
+        body = '1LDK 34.08㎡ 賃料 14万円 管理費 なし 東京都中央区明石町'
+        ld = {'@type': 'Residence', 'address': {'addressRegion': '東京都', 'addressLocality': '中央区', 'streetAddress': '明石町'}}
+        result = self.check((200, HOMES_ROOM, 'text/html; charset=utf-8', page('明石町 1LDK', body, HOMES_ROOM, ld)),
+                            {'price': 14.0, 'layout': '1LDK', 'area': 34.08, 'address': '東京都中央区明石町', 'management_fee_yen': 9000}, HOMES)
+        self.assertFalse(result['moved'])
+        self.assertEqual(result['facts'], {'price': 'page', 'layout': 'page', 'area': 'page', 'address': 'page', 'management_fee_yen': 'not_found'})
+        self.assertEqual(result['page_addresses'], ['東京都中央区明石町'])
+
+    def test_ended_search_missing_blocked_restricted_and_unsafe_pages(self):
+        self.assertTrue(self.check((200, DETAIL, 'text/html', page('物件詳細', 'この物件の掲載は終了しました')))['looks_ended'])
+        self.assertTrue(self.check((200, LIST, 'text/html', page('一覧')), url=LIST)['looks_like_search_page'])
+        self.assertEqual(self.check(HTTPError(DETAIL, 404, 'x', {}, None))['status'], 'gone')
+        self.assertEqual(self.check(HTTPError(DETAIL, 403, 'x', {}, None))['status'], 'blocked')
+        self.assertEqual(self.check(URLError('down'))['status'], 'unreachable')
+        self.assertEqual(self.check(None, url='https://suumo.jp/chintai/jnc_1/', restricted=('suumo.jp',))['status'], 'not_permitted')
+        self.assertEqual(page_verify.verify('http://example.com/x', {})['status'], 'unsafe_url')
+        for host in ('localhost', '127.0.0.1', '10.0.0.8', '169.254.169.254', 'printer.local'):
+            self.assertFalse(page_verify.public_host(host), host)
+
+    def test_redirects_to_private_or_insecure_targets_are_refused(self):
+        handler = page_verify.SafeRedirects()
+        for target in ('http://example.com/', 'https://127.0.0.1/admin', 'https://localhost:8766/api/session'):
+            with self.assertRaises(URLError):
+                handler.redirect_request(None, None, 302, 'Found', {}, target)
+
+    def test_robots_disallow_prevents_fetching(self):
+        page_verify._robots.clear()
+        robots = (200, 'https://www.example.co.jp/robots.txt', 'text/plain', 'User-agent: *\nDisallow: /room/')
+        with patch.object(page_verify, 'fetch', side_effect=[robots]) as fetch, patch.object(page_verify, 'public_host', return_value=True):
+            result = page_verify.verify('https://www.example.co.jp/room/1/', {})
+        self.assertEqual(result['status'], 'robots_disallowed')
+        self.assertEqual(fetch.call_count, 1)  # Only robots.txt was read.
+
+
+class ChecksTest(unittest.TestCase):
+    def test_budget_layout_and_radius_are_checked_independently(self):
+        over = {'extracted': {'price': 13.8, 'management_fee_yen': 15000, 'layout': '1LDK'}, 'lat': 35.6852, 'lon': 139.7895, 'geocode_level': 'chome'}
+        checks = discovery_checks(over, CRITERIA)
+        self.assertEqual(checks['budget']['result'], 'fail')
+        self.assertEqual(checks['layout']['result'], 'pass')
+        self.assertEqual(checks['radius_A']['result'], 'pass')
+        unknown_fee = discovery_checks({'extracted': {'price': 13.5, 'layout': '2LDK'}}, CRITERIA)
+        self.assertEqual((unknown_fee['budget']['result'], unknown_fee['layout']['result'], unknown_fee['radius_A']['result']), ('unknown', 'fail', 'unknown'))
+        # A town-level centre near the boundary stays unknown instead of a false pass.
+        edge = discovery_checks({'extracted': {}, 'area_center': {'lat': 35.6812 + 2.7 / 111, 'lon': 139.7671, 'level': 'town'}}, CRITERIA)
+        self.assertEqual(edge['radius_A']['result'], 'unknown')
+
+    def test_verification_outcomes_shape_reliability_and_links(self):
+        moved = apply_verification({'url': DETAIL, 'page_kind': 'listing_detail', 'extracted': {'price': 13.5}},
+                                   {'status': 'ok', 'final_url': LIBRARY, 'canonical_url': LIBRARY, 'moved': True, 'facts': {'price': 'page'}})
+        self.assertEqual((moved['reliability'], moved['listing_status'], moved['url'], moved['search_result_url']), ('ended_or_moved', 'ended_or_moved', LIBRARY, DETAIL))
+        demoted = apply_verification({'url': LIST, 'page_kind': 'listing_detail', 'extracted': {'address': '東京都'}},
+                                     {'status': 'ok', 'final_url': LIST, 'looks_like_search_page': True, 'facts': {}})
+        self.assertEqual((demoted['page_kind'], demoted['reliability']), ('listing_search_page', 'search_page'))
+        unchecked = apply_verification({'url': HOMES, 'page_kind': 'listing_detail', 'extracted': {'price': 14.0}}, {'status': 'blocked'})
+        self.assertEqual((unchecked['reliability'], unchecked['fact_sources']), ('page_not_checked', {'price': 'search_summary'}))
+
+
+class AgentAccuracyTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.store = SessionStore(Path(self.temp.name) / 'sessions.sqlite3')
+        self.token, _ = self.store.create()
+        self.pages, self.places, self.refines = {}, {}, []
+        self.rows = [[]]
+        def fake_web(query, context='', refine=False):
+            self.refines.append(refine)
+            rows = self.rows[min(len(self.refines) - 1, len(self.rows) - 1)]
+            sources = [r['url'] for r in rows]
+            body = {'status': 'completed', 'output': [{'type': 'web_search_call', 'status': 'completed', 'action': {'type': 'search', 'query': query, 'sources': [{'type': 'url', 'url': u} for u in sources]}},
+                    {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps({'summary': '', 'results': rows}, ensure_ascii=False)}]}]}
+            return web_search.parse(body, query)
+        verify = lambda url, extracted: page_verify.verify(url, extracted, (), fetcher=lambda u: self.pages[u])
+        self.agent = HomeAgent(self.store, 'synthetic-key', lambda *a: {'results': [], 'leads': []}, geocoder=lambda q: self.places.get(q, []),
+                               web_search=fake_web, page_verifier=verify)
+        self.agent.resume = lambda token: None
+        self.agent.start(self.token, {'request_id': 'request_1234567890', 'message': 'Find', 'expected_revision': 0, 'language': 'en'})
+        self.store.mutate(self.token, lambda s: s['criteria'].update(CRITERIA))
+
+    def row(self, url, kind='listing_detail', address='東京都中央区日本橋浜町３丁目', rent=135000, fee=15000, layout='1LDK'):
+        return {'url': url, 'title': 'x', 'kind': kind, 'snippet': '', 'address': address, 'rent_yen': rent, 'management_fee_yen': fee,
+                'layout': layout, 'area_m2': 36.84, 'station_access': None}
+
+    def run_search(self):
+        return self.agent.execute(self.token, 'request_1234567890', {'type': 'function_call', 'call_id': 'call_1', 'turn_id': 't', 'name': 'web_search', 'arguments': {'query': 'Tokyo Station 1LDK'}})
+
+    def test_traced_live_case_moved_listing_town_address_and_list_page(self):
+        town = 'https://www.homes.co.jp/chintai/b-2/'
+        self.rows = [[self.row(DETAIL), self.row(town, address='東京都中央区明石町', rent=140000, fee=None), self.row(LIST, 'listing_search_page', None, None, None)]]
+        self.pages = {DETAIL: (200, LIBRARY, 'text/html', page('建物情報', '賃料 13.5万円 1LDK')),
+                      town: (200, town, 'text/html', page('1LDK', '14万円 1LDK 東京都中央区明石町')),
+                      LIST: (200, LIST, 'text/html', page('一覧'))}
+        self.places = {'東京都中央区明石町': [{'name': '東京都中央区明石町', 'lat': 35.667, 'lon': 139.7777}],
+                       '東京都中央区日本橋浜町３丁目': [{'name': '東京都中央区日本橋浜町三丁目', 'lat': 35.6852, 'lon': 139.7895}]}
+        result = self.run_search()
+        items = {i['search_result_url'] if i.get('search_result_url') else i['url']: i for i in result['items']}
+        moved, town_item, listing = items[DETAIL], items[town], items[LIST]
+        self.assertEqual((moved['reliability'], moved['lat']), ('ended_or_moved', None))  # A moved listing is never pinned.
+        self.assertEqual(moved['url'], LIBRARY)
+        self.assertEqual((town_item['reliability'], town_item['lat'], town_item['geocode_level']), ('page_checked', None, 'town'))
+        self.assertEqual(town_item['checks']['radius_A']['result'], 'pass')  # 1.6 km ± 1 km is inside 3 km.
+        self.assertEqual(town_item['checks']['budget']['result'], 'unknown')  # Management fee unknown, not zero.
+        self.assertEqual((listing['reliability'], listing['lat']), ('search_page', None))
+        self.assertEqual(self.refines, [False, True])  # Fewer than two checked listing pages: one refinement.
+        self.assertEqual(result['web_search']['checked_listing_pages'], 1)
+
+    def test_two_checked_listings_need_no_refinement_and_over_budget_is_a_labelled_mismatch(self):
+        a, b = 'https://www.homes.co.jp/chintai/room/a/', 'https://www.homes.co.jp/chintai/room/b/'
+        self.rows = [[self.row(a), self.row(b, rent=150000, fee=8000)]]
+        self.pages = {a: (200, a, 'text/html', page('1LDK', '13.5万円 15,000円 1LDK 36.84㎡ 東京都中央区日本橋浜町３丁目')),
+                      b: (200, b, 'text/html', page('1LDK', '15万円 1LDK'))}
+        self.places = {'東京都中央区日本橋浜町３丁目': [{'name': '東京都中央区', 'lat': 35.67, 'lon': 139.77}, {'name': '東京都中央区日本橋浜町三丁目', 'lat': 35.6852, 'lon': 139.7895}]}
+        result = self.run_search()
+        self.assertEqual(self.refines, [False])
+        first, second = result['items']
+        self.assertEqual((first['lat'], first['geocode_level']), (35.6852, 'chome'))  # Most specific candidate, not the ward.
+        self.assertEqual(first['fact_sources'], {'price': 'page', 'management_fee_yen': 'page', 'layout': 'page', 'area': 'page', 'address': 'page'})
+        self.assertEqual(first['checks']['budget']['result'], 'pass_known')
+        self.assertEqual(first['match']['status'], 'unverified')
+        self.assertEqual(second['match']['status'], 'mismatch')
+        self.assertIn('budget', second['match']['mismatches'])
+
+    def test_failed_refinement_is_reported_truthfully(self):
+        self.rows = [[], []]
+        calls = []
+        original = self.agent.web_search
+        def flaky(query, context='', refine=False):
+            calls.append(refine)
+            if refine:
+                raise web_search.WebSearchError('rate_limited')
+            return original(query, context)
+        self.agent.web_search = flaky
+        result = self.run_search()
+        self.assertEqual(calls, [False, True])
+        self.assertEqual(result['web_search']['status'], 'empty')
+        self.assertEqual((result['web_search']['refinement']['status'], result['web_search']['refinement']['code']), ('error', 'rate_limited'))
+        self.assertEqual(result['items'], [])
+
+    def test_refinement_uses_documented_portal_filter(self):
+        body = web_search.build_request('m', 'q', 'c', web_search.RENTAL_PORTALS)
+        self.assertEqual(body['tools'][0]['filters']['allowed_domains'], list(web_search.RENTAL_PORTALS))
+        self.assertNotIn('suumo.jp', web_search.RENTAL_PORTALS)
+        self.assertFalse(set(web_search.NO_REUSE_HOSTS) & set(web_search.RENTAL_PORTALS))
+        self.assertNotIn('filters', web_search.build_request('m', 'q')['tools'][0])
+
+
+if __name__ == '__main__':
+    unittest.main()

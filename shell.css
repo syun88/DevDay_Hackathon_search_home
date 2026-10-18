@@ -78,3 +78,7 @@
 .composer-footer .chat-send span,.composer-footer .chat-stop span{color:inherit;font-size:inherit}
 .shell-dock .chat-send,.shell-dock .chat-stop{font-size:12.5px}
 @media(max-width:850px){.shell-dock .state-revision{display:none}.chat-activity{max-width:62%}}
+.web-check{font-size:12px;margin:3px 0;font-weight:650;color:#425675}.web-check.page_checked{color:#17694c}.web-check.ended_or_moved{color:#8a4b12}.web-check.page_not_checked{color:#6b5a1f}
+.web-facts,.web-location{font-size:11.5px;color:#5b6e87;margin:3px 0}
+.web-checks{display:flex;flex-wrap:wrap;gap:5px;margin:5px 0}.web-checks .check{font-size:11px;border-radius:999px;padding:2px 8px;background:#eef2f7;color:#425675}
+.web-checks .check.pass,.web-checks .check.pass_known{background:#e7f5ee;color:#17694c}.web-checks .check.fail{background:#fdecea;color:#9b2c1f}

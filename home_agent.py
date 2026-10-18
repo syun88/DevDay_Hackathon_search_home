@@ -7,6 +7,8 @@ import os
 import re
 import threading
 import time
+import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlencode, quote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -16,9 +18,13 @@ from filter_core import haversine_km
 import map_agent
 from urllib.parse import urlparse
 from web_search import WebSearchError, MAPPABLE_KINDS
+import web_search as web_search_module
 
 AGENT_CONFIG_VERSION = 6
-WEB_SEARCHES_PER_MESSAGE = 2
+WEB_SEARCHES_PER_MESSAGE = 3  # A fallback plus one refinement, or explicit searches.
+RELIABLE_TARGET = 2  # Refine once when fewer verified listing pages are found.
+PINNABLE_LEVELS = ('block', 'chome')
+LEVEL_UNCERTAINTY_KM = {'block': .15, 'chome': .4, 'town': 1.0}
 MAX_WEB_ITEMS = 8
 
 
@@ -265,6 +271,13 @@ Values on web results are what the search summary says the page states; they are
 confirmed matches, vacancy or complete fees, and a search/list page is not one home. A web result with
 geo_precision approximate was placed by geocoding its stated address: an area, not the building. If the
 search status is empty or error, state that actual status and offer the source search links.
+Each web result has reliability: page_checked (the app opened the page and it still exists as a single listing),
+page_not_checked (the page could not be checked; values come only from the search summary), ended_or_moved (the
+page redirected or reads as ended: say it may no longer be advertised) or search_page. fact_sources says whether
+each value was found on the page or only in the search summary. checks gives the app's own budget, layout and
+radius results (pass, pass_known, fail, unknown). Never present a result with a failing check as a match; label it
+as an alternative with the reason. geocode_level tells how precise the location is (block, chome, town); town-level
+locations are not pinned. Prefer page_checked listings, and say how many were checked.
 Never claim all monthly fees, pet permission, house type or distance are verified for these discovery leads. Listing records require a permitted feed/import with source-confirmed availability and verification within the last hour. A confirmed source record does not guarantee future availability. Map buildings are not listings. Unknown rent/fees/coordinates/pet policy
 must remain unknown. No record is a verified match solely because a snippet suggests it. A mismatched record must never be counted or recommended as a matching candidate; show it only as an explicitly labelled alternative. Do not
 invent properties, source URLs, prices, commute times, availability or neighborhood facts.
@@ -367,13 +380,88 @@ def fresh_listing(item):
         return False
 
 
+def discovery_checks(item, criteria):
+    """Independent radius, total-cost and layout checks for an unverified lead. Unknown stays unknown."""
+    x = item.get('extracted') or {}
+    checks = {}
+    budget = criteria.get('max_price_yen')
+    if budget is not None and criteria.get('property_type') != 'sale':
+        rent = x.get('price') * 10000 if isinstance(x.get('price'), (int, float)) else None
+        fee = x.get('management_fee_yen') if isinstance(x.get('management_fee_yen'), int) else None
+        if rent is None:
+            checks['budget'] = {'result': 'unknown', 'note': 'rent not stated'}
+        elif rent + (fee or 0) > budget:
+            checks['budget'] = {'result': 'fail', 'note': f'known monthly amount at least {round(rent + (fee or 0)):,} yen'}
+        elif fee is not None:
+            checks['budget'] = {'result': 'pass_known', 'note': f'rent + management {round(rent + fee):,} yen; other mandatory fees unknown'}
+        else:
+            checks['budget'] = {'result': 'unknown', 'note': 'management fee not stated'}
+    if criteria.get('layout'):
+        layout = unicodedata.normalize('NFKC', x.get('layout') or '').upper().replace(' ', '')
+        checks['layout'] = {'result': 'unknown' if not layout else 'pass' if layout == criteria['layout'] else 'fail', 'stated': x.get('layout')}
+    point = ({'lat': item['lat'], 'lon': item['lon'], 'level': item.get('geocode_level') or 'chome'} if item.get('lat') is not None
+             else item.get('area_center'))
+    origins = [('A', criteria.get('origin_a'), criteria.get('radius_a_km'))]
+    if criteria.get('restrict_b') and criteria.get('origin_b'):
+        origins.append(('B', criteria['origin_b'], criteria.get('radius_b_km')))
+    for name, origin, radius in origins:
+        if not origin or radius is None:
+            continue
+        slack = LEVEL_UNCERTAINTY_KM.get((point or {}).get('level'))
+        if not point or slack is None:
+            checks['radius_' + name] = {'result': 'unknown', 'note': 'location unknown'}
+            continue
+        distance = haversine_km(origin['lat'], origin['lon'], point['lat'], point['lon'])
+        result = 'pass' if distance + slack <= radius else 'fail' if distance - slack > radius else 'unknown'
+        checks['radius_' + name] = {'result': result, 'distance_km': round(distance, 2), 'uncertainty_km': slack,
+                                    'note': 'straight-line from an approximate ' + point['level'] + '-level location'}
+    return checks
+
+
+def apply_verification(item, check):
+    """Fold a page check into a web result: live URL, ended/moved pages and where each fact came from."""
+    item['verification'] = {k: v for k, v in check.items() if k not in ('facts', 'page_addresses')}
+    item['fact_sources'] = {k: 'search_summary' for k, v in (item.get('extracted') or {}).items() if v is not None}
+    if check.get('status') != 'ok':
+        item['reliability'] = 'search_page' if item.get('page_kind') not in MAPPABLE_KINDS else 'page_not_checked'
+        return item
+    live = check.get('canonical_url') or check.get('final_url')
+    if live and live != item['url']:
+        item['search_result_url'], item['url'] = item['url'], live
+    if check.get('looks_like_search_page') and item.get('page_kind') in MAPPABLE_KINDS:
+        item['page_kind'] = 'listing_search_page'
+        item['limitations'] = item.get('limitations', []) + ['The page is a search/list page, not one specific home']
+    if item.get('page_kind') in MAPPABLE_KINDS and (check.get('moved') or check.get('looks_ended')):
+        item['listing_status'] = 'ended_or_moved'
+        item['limitations'] = item.get('limitations', []) + ['The listing page redirected elsewhere or reads as ended; it may no longer be advertised']
+    for field, source in (check.get('facts') or {}).items():
+        if source == 'page':
+            item['fact_sources'][field] = 'page'
+    x = item.setdefault('extracted', {})
+    if not x.get('address') and check.get('page_addresses') and item.get('page_kind') in MAPPABLE_KINDS:
+        x['address'] = check['page_addresses'][0]
+        item['fact_sources']['address'] = 'page'
+    if item.get('page_kind') not in MAPPABLE_KINDS:
+        item['reliability'] = 'search_page'
+    elif item.get('listing_status') == 'ended_or_moved':
+        item['reliability'] = 'ended_or_moved'
+    else:
+        item['reliability'] = 'page_checked'
+    return item
+
+
 def evidence(item, criteria):
     criteria = {**DEFAULT_CRITERIA, **criteria}
     x = item.get('extracted', {})
     if item.get('layer'):
         return {'status':'unverified','mismatches':[],'unknown':['Public reference layer, not a confirmed available unit','Unit price/fees and current vacancy require source confirmation']}
     if item.get('discovery_only'):
-        return {'status': 'unverified', 'mismatches': [], 'unknown': item.get('limitations', ['availability and requirements unverified'])}
+        item['checks'] = checks = discovery_checks(item, criteria)
+        failed = [name for name, check in checks.items() if check['result'] == 'fail']
+        unknown = list(item.get('limitations', ['availability and requirements unverified']))
+        unknown += [name + ' unknown' for name, check in checks.items() if check['result'] == 'unknown']
+        # A known contradiction is a labelled mismatch, never a lead that 'may' fit.
+        return {'status': 'mismatch' if failed else 'unverified', 'mismatches': failed, 'unknown': unknown}
     mismatches, unknown = [], []
     if not fresh_listing(item): mismatches.append('verification / availability expired or unknown')
     kind = item.get('kind')
@@ -454,7 +542,7 @@ def search_context(criteria):
 
 
 class HomeAgent:
-    def __init__(self, store, key, search, model=None, api=None, geocoder=None, router=None, detail_reader=None, public_search=None, public_geocode=None, web_search=None):
+    def __init__(self, store, key, search, model=None, api=None, geocoder=None, router=None, detail_reader=None, public_search=None, public_geocode=None, web_search=None, page_verifier=None):
         self.store, self.key, self.search = store, key, search
         self.api = api or AgentsAPI(key, model or os.environ.get('OPENAI_AGENT_MODEL', 'gpt-6.1-sol'))
         self.geocoder = geocoder or resolve_places
@@ -462,6 +550,7 @@ class HomeAgent:
         self.detail_reader = detail_reader
         self.public_search, self.public_geocode = public_search, public_geocode
         self.web_search = web_search
+        self.page_verifier = page_verifier
         self.lock = threading.Lock()
         self.workers = set()
         # Streamed output and change notifications for local browser SSE subscribers.
@@ -976,22 +1065,62 @@ class HomeAgent:
         return result
 
     def run_web_search(self, session_id, request_id, step_id, query, criteria):
-        """A bounded hosted web search; the returned status reflects what actually happened."""
+        """A bounded hosted web search; the returned status reflects what actually happened.
+
+        Each page is checked, too few reliable listing pages trigger one portal-focused
+        refinement, and locations/criteria are checked independently of the search summary.
+        """
         used = self.store.get(session_id)['chat'].get('web_searches', 0)
         if used >= WEB_SEARCHES_PER_MESSAGE:
             return {'status': 'skipped', 'code': 'limit', 'query': query, 'results': []}
         self.mark(session_id, request_id, web_searches=used + 1)
         if step_id:
             self.step(session_id, step_id, 'web_search', 'running')
-        try:
-            result = self.web_search(query, search_context(criteria))
-        except WebSearchError as error:
-            result = {'status': 'error', 'code': error.code, 'query': query, 'results': []}
-        except Exception:
-            result = {'status': 'error', 'code': 'search_failed', 'query': query, 'results': []}
+        result = self.hosted_search(query, criteria)
+        self.check_pages(result['results'])
+        reliable = sum(r.get('reliability') == 'page_checked' for r in result['results'])
+        if result['status'] in ('ok', 'empty') and reliable < RELIABLE_TARGET and used + 1 < WEB_SEARCHES_PER_MESSAGE:
+            self.mark(session_id, request_id, web_searches=used + 2)
+            extra = self.hosted_search(query, criteria, refine=True)
+            known = {web_search_module.normalize_url(r.get('search_result_url') or r['url']) for r in result['results']} | {web_search_module.normalize_url(r['url']) for r in result['results']}
+            added = [r for r in extra['results'] if web_search_module.normalize_url(r['url']) not in known]
+            self.check_pages(added)
+            result['results'] = (result['results'] + added)[:12]
+            result['refinement'] = {'status': extra['status'], 'code': extra.get('code'), 'added': len(added), 'reason': f'fewer than {RELIABLE_TARGET} checked listing pages'}
+            if result['status'] == 'empty' and added:
+                result['status'] = 'ok'
+            elif result['status'] == 'error' and extra['status'] == 'ok':
+                result.update(status='ok', code=None)
+        result['checked_listing_pages'] = sum(r.get('reliability') == 'page_checked' for r in result['results'])
         if step_id:
             self.step(session_id, step_id, 'web_search', 'done' if result['status'] == 'ok' else 'empty' if result['status'] == 'empty' else 'error')
         return result
+
+    def hosted_search(self, query, criteria, refine=False):
+        try:
+            return self.web_search(query, search_context(criteria), **({'refine': True} if refine else {}))
+        except WebSearchError as error:
+            return {'status': 'error', 'code': error.code, 'query': query, 'results': []}
+        except Exception:
+            return {'status': 'error', 'code': 'search_failed', 'query': query, 'results': []}
+
+    def check_pages(self, results):
+        """Check up to eight pages concurrently with a hard overall bound."""
+        if not self.page_verifier or not results:
+            for item in results:
+                item.setdefault('reliability', 'search_page' if item.get('page_kind') not in MAPPABLE_KINDS else 'page_not_checked')
+            return results
+        targets = results[:8]
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = [pool.submit(self.page_verifier, item['url'], dict(item.get('extracted') or {})) for item in targets]
+            for item, future in zip(targets, futures):
+                try:
+                    apply_verification(item, future.result(timeout=25))
+                except Exception:
+                    apply_verification(item, {'status': 'error'})
+        for item in results[8:]:
+            item.setdefault('reliability', 'page_not_checked')
+        return results
 
     def step(self, session_id, ident, name, status):
         with self.changed:
@@ -1002,29 +1131,41 @@ class HomeAgent:
         self.notify(session_id, durable=False)
 
     def locate_records(self, items):
+        """Approximate pins only at 丁目 or block precision, for pages about one property.
+
+        Coarser matches (town or municipality) keep an area centre for distance checks but
+        never become a map pin that looks like a home.
+        """
         import public_housing
         attempts = 0
         for item in items:
             address = item.get('extracted', {}).get('address')
-            if item.get('lat') is not None or not address: continue
-            # Only a page about one property/building has an address worth placing.
-            if item.get('web_result') and item.get('page_kind') not in MAPPABLE_KINDS: continue
+            if item.get('lat') is not None or item.get('area_center') or not address: continue
+            # Only a page about one property/building, still advertised, has an address worth placing.
+            if item.get('web_result') and (item.get('page_kind') not in MAPPABLE_KINDS or item.get('listing_status') == 'ended_or_moved'): continue
             attempts += 1
-            if attempts > 5: break
+            if attempts > 6: break
             try:
                 if self.geocoder is resolve_places:
-                    position=public_housing.geocode_address(address)
-                    if position.get('lat') is not None:
-                        item.update(position,location_evidence={'query':address,'resolved_name':position.get('geocode_label'),'method':'shared validated public map address geocoder, approximate area'})
-                    continue
-                locations = self.geocoder(address)
-            except (ValueError, OSError, URLError): locations = []
-            # Reuse the merged address matching primitive; an unrelated first hit
-            # must not become a plausible-looking home pin.
-            match = next((p for p in locations if public_housing.address_key(address).startswith(public_housing.address_key(p['name']))),None)
-            if match:
-                item.update(lat=match['lat'],lon=match['lon'],geo_precision='approximate',
-                            location_evidence={'query':address,'resolved_name':match['name'],'method':'address area geocode, not exact building'})
+                    position = public_housing.geocode_address(address)
+                    match = (position.get('geocode_label'), position['lat'], position['lon']) if position.get('lat') is not None else None
+                else:
+                    candidates = [{'properties': {'title': p['name']}, 'geometry': {'coordinates': [p['lon'], p['lat']]}} for p in self.geocoder(address)]
+                    match = public_housing.best_candidate(address, candidates)
+            except (ValueError, OSError, URLError, KeyError, TypeError):
+                match = None
+            if not match:
+                item['location_note'] = 'address could not be matched by the geocoder'
+                continue
+            title, lat, lon = match
+            level = public_housing.geocode_level(title)
+            evidence_note = {'query': address, 'resolved_name': title, 'level': level,
+                             'method': 'GSI address search, most specific matching candidate; an area, not the building'}
+            if level in PINNABLE_LEVELS:
+                item.update(lat=lat, lon=lon, geo_precision='approximate', geocode_level=level, location_evidence=evidence_note)
+            else:
+                item.update(area_center={'lat': lat, 'lon': lon, 'level': level}, geocode_level=level, location_evidence=evidence_note,
+                            location_note=f'only {level}-level location is known; not shown as a map pin')
         return items
 
     def change_criteria(self, s, patch, record=True):

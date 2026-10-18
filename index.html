@@ -631,7 +631,17 @@ window.mountSearchWorkspace({
     const pageKinds={listing_detail:'個別の物件ページ',building_page:'建物のページ',listing_search_page:'検索・一覧ページ',official_info:'公的情報のページ',other:'その他のページ'};
     for(const item of resultSet?.items.filter(item=>item.discovery_only)||[]){
       const card=makeEl('article','external-item'+(item.web_result?' web-result':''));const title=makeEl('h4');title.append(makeLink(item.title,item.url));card.append(title);
-      if(item.web_result){const meta=makeEl('p','web-result-meta');meta.append(makeEl('span','page-kind '+item.page_kind,t(pageKinds[item.page_kind]||'その他のページ')),document.createTextNode(' '+item.source));card.append(meta);if(item.snippet)card.append(makeEl('p','web-snippet',item.snippet));}
+      if(item.web_result){const meta=makeEl('p','web-result-meta');meta.append(makeEl('span','page-kind '+item.page_kind,t(pageKinds[item.page_kind]||'その他のページ')),document.createTextNode(' '+item.source));card.append(meta);if(item.snippet)card.append(makeEl('p','web-snippet',item.snippet));
+        // What the app itself checked, kept separate from the search summary.
+        const reliability={page_checked:'掲載ページを開いて確認しました',page_not_checked:'掲載ページを確認できませんでした（検索結果の要約のみ）',ended_or_moved:'掲載が終了したか、別のページへ移動しています',search_page:'検索・一覧ページです（個別の物件ではありません）'}[item.reliability];
+        if(reliability)card.append(makeEl('p','web-check '+(item.reliability||''),t(reliability)));
+        const sources=item.fact_sources||{};const onPage=Object.keys(sources).filter(k=>sources[k]==='page');
+        if(item.reliability==='page_checked')card.append(makeEl('p','web-facts',onPage.length?t('ページで確認できた項目：{0}',[onPage.map(k=>t({price:'家賃',management_fee_yen:'管理費',layout:'間取り',area:'面積',address:'住所'}[k]||k)).join('・')]):t('要約の数値はページ上で確認できませんでした')));
+        const checkNames={budget:'予算',layout:'間取り',radius_A:'地点Aからの距離',radius_B:'地点Bからの距離'},results={pass:'条件内',pass_known:'判明分は予算内',fail:'条件外',unknown:'不明'};
+        const checks=Object.entries(item.checks||{});if(checks.length){const list=makeEl('p','web-checks');list.append(...checks.map(([k,c])=>makeEl('span','check '+c.result,t(checkNames[k]||k)+'：'+t(results[c.result]||'不明')+(c.distance_km!=null?' ('+c.distance_km+'km±'+c.uncertainty_km+')':''))));card.append(list);}
+        const level={block:'番地レベルの概略位置',chome:'丁目レベルの概略位置',town:'町域のみ判明（地図には表示しません）',municipality:'市区町村のみ判明（地図には表示しません）'}[item.geocode_level];
+        if(level)card.append(makeEl('p','web-location',t(level)));
+      }
       card.append(makeEl('p','listing-uncertain',t(item.web_result?'ウェブ検索で見つかったページです。内容・空室・費用は未確認です':'未確認の候補・条件一致ではありません')));
       const x=item.extracted||{};
       if(x.price!=null)card.append(makeEl('p','listing-price',t('家賃：¥{0}/月',[Math.round(x.price*10000).toLocaleString()])));

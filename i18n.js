@@ -574,6 +574,19 @@ Object.assign(english, {
   "取得した現在地は地図の表示範囲外か、不正な座標です。住所検索か地図で指定してください。": "Your location is outside the map coverage or has invalid coordinates. Search for an address or select a point on the map.",
   "現在地を地点Aに設定しました。地図で位置を確認してください。": "Your current location is now point A. Check the location on the map."
 });
+Object.assign(english, {
+ '掲載ページを開いて確認しました':'The app opened the listing page and it is still published',
+ '掲載ページを確認できませんでした（検索結果の要約のみ）':'The page could not be checked (search summary only)',
+ '掲載が終了したか、別のページへ移動しています':'The listing appears to have ended or moved to another page',
+ '検索・一覧ページです（個別の物件ではありません）':'Search/list page (not one specific home)',
+ 'ページで確認できた項目：{0}':'Found on the page: {0}','要約の数値はページ上で確認できませんでした':'The summary values could not be found on the page',
+ '家賃':'Rent','管理費':'Management fee','面積':'Area','予算':'Budget','地点Aからの距離':'Distance from A','地点Bからの距離':'Distance from B',
+ '条件内':'Within','判明分は予算内':'Within budget (known fees)','条件外':'Outside','不明':'Unknown',
+ '番地レベルの概略位置':'Approximate block-level location','丁目レベルの概略位置':'Approximate chōme-level location',
+ '町域のみ判明（地図には表示しません）':'Only the town area is known (not shown as a map pin)',
+ '市区町村のみ判明（地図には表示しません）':'Only the city/ward is known (not shown as a map pin)',
+ '番地付近':'Near block','丁目付近':'Chōme area',
+});
 const storageKey = 'property_map_language';
 let language = 'ja';
 try { if (localStorage.getItem(storageKey) === 'en') language = 'en'; } catch {}
