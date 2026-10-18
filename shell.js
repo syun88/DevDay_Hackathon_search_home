@@ -35,7 +35,7 @@ window.mountSearchShell=({session,adapter})=>{
     const b=document.createElement('button');b.type='button';b.className='rail-button';b.dataset.shellTitle=label;b.innerHTML=icon(name)+'<span class="rail-label"></span>';
     setText(b.querySelector('span'),()=>t(label));b.onclick=action;rail.append(b);return b;
   }
-  const brand=button('home','地図',()=>{$('resetView').click();closeDrawers();});brand.classList.add('rail-brand');
+  const brand=button('home','地図',()=>{const a=adapter.getMapState?.()?.a;if(a)adapter.mapInterface?.move(a,12);closeDrawers();});brand.classList.add('rail-brand');
   const historyToggle=button('panel','チャット履歴',()=>toggleHistory());historyToggle.id='historyToggle';historyToggle.setAttribute('aria-controls','chatHistoryPanel');
   const newButton=button('plus','新しいチャット',()=>newChat());newButton.id='railNewChat';
   const resultsButton=button('results','検索結果',()=>openResults());resultsButton.id='railResults';

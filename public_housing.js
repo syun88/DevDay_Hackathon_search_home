@@ -8,7 +8,13 @@ function check(record,core,filters,origins,distance,now=Date.now()){
  if(record.layer==='recruitment'&&!core.fresh(candidate(record),now))result.failures.push('確認日時・募集状況');
  if(record.availability_status==='ended')result.failures.push('募集終了');
  if(record.layer!=='recruitment')result.unknown.push('現在の募集状況');
- if(filters.insideOnly&&Number.isFinite(record.lat)&&Number.isFinite(record.lon)&&origins.some(origin=>distance(record,origin)>origin.radius))result.failures.push('指定半径外（概略位置）');
+ if(filters.insideOnly&&Number.isFinite(record.lat)&&Number.isFinite(record.lon)){
+  if(typeof filters.spatialCheck==='function'){
+   const within=filters.spatialCheck(record);
+   if(within===false)result.failures.push('指定範囲外（概略位置）');
+   else if(within==null&&!result.unknown.includes('範囲未判定'))result.unknown.push('範囲未判定');
+  }else if(origins.some(origin=>distance(record,origin)>origin.radius))result.failures.push('指定半径外（概略位置）');
+ }
  result.match=result.failures.length===0&&(filters.includeUnknown||result.unknown.length===0);
  return result;
 }

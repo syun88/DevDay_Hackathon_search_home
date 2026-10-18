@@ -5,6 +5,7 @@ const vm=require('node:vm');
 const {test}=require('node:test');
 const core=require('../property_core.js');
 const publicHousing=require('../public_housing.js');
+const walking=require('../walking.js');
 const script=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
 
 class Element {
@@ -26,7 +27,7 @@ class Element {
  click(){this.onclick?.();}
 }
 
-function app(){
+function app({rangeMode='distance',geolocation,secureContext=true}={}){
  const elements=new Map(),frames=[],requests=[];
  const element=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
  for(const id of ['insideOnly','listingOnlyWithin','publicSource_tokyo','publicSource_tsubata','publicSource_permitted','publicLayer_inventory','publicLayer_vacancy','publicLayer_recruitment','publicLayer_municipal'])element(id).checked=true;
@@ -34,10 +35,11 @@ function app(){
  element('commuteMode').value='foot';
  const storage=new Map();
  const context={
-  window:{mountSearchWorkspace(){},propertyCore:core,publicHousing,homeI18n:{t:(text,values=[])=>String(text).replace(/\{(\d+)\}/g,(_,index)=>values[index]??''),setText:(node,render)=>{node.textContent=render();}},addEventListener(){}},
+  window:{mountSearchWorkspace(){},isSecureContext:secureContext,propertyCore:core,publicHousing,homeWalking:walking,homeI18n:{t:(text,values=[])=>String(text).replace(/\{(\d+)\}/g,(_,index)=>values[index]??''),setText:(node,render)=>{node.textContent=render();}},addEventListener(){}},
   document:{getElementById:element,createElement:()=>new Element(),createDocumentFragment:()=>new Element(),querySelectorAll:()=>[],addEventListener(){}},
-  localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)},
-  location:{protocol:'http:'},requestAnimationFrame:callback=>frames.push(callback),setInterval(){},setTimeout:()=>1,clearTimeout(){},
+  // Existing radius/filter tests start with the straight-line preference.
+  localStorage:{getItem:key=>storage.get(key)||(key==='property_map_v2'?JSON.stringify({rangeMode}):null),setItem:(key,value)=>storage.set(key,value)},
+  navigator:{geolocation},location:{protocol:'http:'},requestAnimationFrame:callback=>frames.push(callback),setInterval(){},setTimeout:()=>1,clearTimeout(){},
   URL,URLSearchParams,AbortSignal,AbortController,confirm:()=>true,
   fetch:async(url,options)=>{
    requests.push({url,options});
@@ -46,6 +48,13 @@ function app(){
    if(url==='/api/route')body={status:'ok',duration_seconds:600,distance_meters:600,checked_at:new Date().toISOString(),source:'TEST ONLY route'};
    if(url.startsWith('/api/listings?'))body={results:[],discovery_links:[{url:'https://suumo.jp/test-only',source:'suumo.jp'}],provider:'bing'};
    if(url.startsWith('/api/public-housing?'))body={records:context.publicRecords,municipalities:['千代田区'],total:context.publicRecords.length,ended_excluded:0,next_offset:null};
+   if(url.startsWith('/api/walking-area?')){
+    const params=new URLSearchParams(url.split('?')[1]);
+    body={metric:params.has('distance_km')?'distance':'time',
+     geometry:{type:'Polygon',coordinates:[[[139.75,35.67],[139.79,35.67],[139.79,35.70],[139.75,35.70],[139.75,35.67]]]},
+     network:{type:'MultiLineString',coordinates:[[[139.767,35.681],[139.768,35.681]]]},
+     ...(params.has('distance_km')?{distance_km:Number(params.get('distance_km'))}:{minutes:Number(params.get('minutes'))})};
+   }
    if(url==='/api/public-geocode')body={lat:35.681236,lon:139.767125,geo_precision:'approximate'};
    return {ok:true,json:async()=>body};
   },records:[],publicRecords:[],
@@ -60,8 +69,44 @@ function app(){
   await target.onchange({target});flush();
  }
  function allNodes(root){return [root,...root.children.flatMap(allNodes)];}
- return {element,context,requests,storage,flush,importRecord,allNodes};
+ async function settleWalking(){
+  for(let count=0;count<200;count++){
+   flush();
+   if(!element('walkingStatus').textContent.includes('取得中'))return;
+   await new Promise(resolve=>setTimeout(resolve,5));
+  }
+  assert.fail('Walking range did not settle');
+ }
+ return {element,context,requests,storage,flush,importRecord,allNodes,settleWalking};
 }
+
+test('walking distance sends kilometres, preserves independent settings and switches back to time',async()=>{
+ const harness=app({rangeMode:'walk-distance'});await harness.settleWalking();
+ const requests=()=>harness.requests.filter(request=>request.url.startsWith('/api/walking-area?'));
+ let query=new URLSearchParams(requests().at(-1).url.split('?')[1]);
+ assert.equal(query.get('distance_km'),'1');assert.equal(query.has('minutes'),false);
+ assert.equal(harness.element('radiusLabelA').textContent,'徒歩1km');
+ assert.equal(Number(harness.element('radiusA').min),0.1);
+ harness.element('radiusA').oninput({target:{value:'0.8'}});await harness.settleWalking();
+ assert.equal(harness.element('radiusLabelA').textContent,'徒歩800m');
+ harness.element('setB').onclick();
+ const map=harness.element('map'),event={target:new Element(),button:0,pointerType:'mouse',pointerId:1,clientX:1000,clientY:250};
+ map.listeners.pointerdown[0](event);map.listeners.pointerup[0](event);
+ harness.element('restrictB').checked=true;harness.element('restrictB').onchange();await harness.settleWalking();
+ harness.element('radiusB').oninput({target:{value:'0.5'}});await harness.settleWalking();
+ assert.equal(harness.element('radiusLabelB').textContent,'徒歩500m');
+ query=new URLSearchParams(requests().at(-1).url.split('?')[1]);assert.equal(query.get('distance_km'),'0.5');
+ harness.element('rangeMode').value='walk';harness.element('rangeMode').onchange();await harness.settleWalking();
+ query=new URLSearchParams(requests().at(-1).url.split('?')[1]);
+ assert.equal(query.get('minutes'),'15');assert.equal(query.has('distance_km'),false);
+ assert.equal(harness.element('radiusLabelA').textContent,'徒歩15分');
+ harness.element('rangeMode').value='walk-distance';harness.element('rangeMode').onchange();await harness.settleWalking();
+ assert.equal(harness.element('radiusLabelA').textContent,'徒歩800m');
+ const saved=JSON.parse(harness.storage.get('property_map_v2'));
+ assert.equal(saved.wda,0.8);assert.equal(saved.wdb,0.5);assert.equal(saved.wa,15);assert.equal(saved.ra,3);
+ harness.element('rangeMode').value='distance';harness.element('rangeMode').onchange();harness.flush();
+ assert.equal(harness.element('radiusLabelA').textContent,'3 km');
+});
 
 test('normal map clicks do not mutate the origin; explicit point selection does',()=>{
  const harness=app();harness.flush();
@@ -164,4 +209,72 @@ test('coincident public locations remain individually selectable from a grouped 
  assert.ok(harness.element('publicResults').children[0].textContent.startsWith('TEST ONLY one'));
  pin().onclick({stopPropagation(){}});harness.flush();
  assert.ok(harness.element('publicResults').children[0].textContent.startsWith('TEST ONLY two'));
+});
+
+
+test('the map current-location button requests only on click and updates point A, its pin and walking range',async()=>{
+ const calls=[];
+ const harness=app({rangeMode:'walk',geolocation:{getCurrentPosition:(...args)=>calls.push(args)}});
+ await harness.settleWalking();assert.equal(calls.length,0);
+ const button=harness.element('mapLocateMe'),sidebarButton=harness.element('locateMe');
+ button.click();sidebarButton.click();button.click();
+ assert.equal(calls.length,1);assert.equal(button.disabled,true);assert.equal(sidebarButton.disabled,true);
+ assert.match(harness.element('currentLocationStatus').textContent,/取得中/);
+ assert.equal(harness.storage.has('property_map_v2'),false);
+ calls[0][0]({coords:{latitude:34.6937,longitude:135.5023}});
+ harness.flush();
+ assert.ok(harness.element('pins').children.some(pin=>pin.title==='現在地'&&pin.style.left==='450px'&&pin.style.top==='350px'));
+ await harness.settleWalking();
+ const saved=JSON.parse(harness.storage.get('property_map_v2'));
+ assert.equal(saved.a.lat,34.6937);assert.equal(saved.a.lon,135.5023);
+ assert.equal(saved.a.name,'現在地');assert.equal(saved.b,null);
+ assert.equal(harness.element('nameA').textContent,'現在地');
+ assert.equal(button.disabled,false);assert.equal(button.textContent,'⌖');
+ assert.equal(sidebarButton.disabled,false);assert.equal(sidebarButton.textContent,'現在地');
+ assert.match(harness.element('currentLocationStatus').textContent,/地点Aに設定しました/);
+ const query=new URLSearchParams(harness.requests.filter(r=>r.url.startsWith('/api/walking-area?')).at(-1).url.split('?')[1]);
+ assert.equal(query.get('lat'),'34.6937');assert.equal(query.get('lon'),'135.5023');
+});
+
+for(const [code,message] of [[1,'サイト設定'],[2,'端末の位置情報設定'],[3,'タイムアウト'],[0,'住所検索']]){
+ test(`geolocation error ${code} preserves the origin and allows retry`,()=>{
+  const calls=[];
+  const harness=app({geolocation:{getCurrentPosition:(...args)=>calls.push(args)}});
+  const before=harness.element('nameA').textContent,button=harness.element('mapLocateMe');
+  button.click();calls[0][1]({code});harness.flush();
+  assert.equal(harness.element('nameA').textContent,before);
+  assert.equal(harness.storage.has('property_map_v2'),false);
+  assert.equal(harness.element('currentLocationStatus').hidden,false);
+  assert.ok(harness.element('currentLocationStatus').textContent.includes(message));
+  assert.equal(button.disabled,false);
+  assert.equal(harness.element('locateMe').disabled,false);
+  harness.element('locateMe').click();assert.equal(calls.length,2);
+  calls[1][0]({coords:{latitude:35,longitude:139}});harness.flush();
+  assert.equal(JSON.parse(harness.storage.get('property_map_v2')).a.lat,35);
+ });
+}
+
+test('unsupported and insecure browsers explain how to proceed without requesting location',()=>{
+ let calls=0;
+ const unsupported=app();unsupported.element('locateMe').click();
+ assert.match(unsupported.element('currentLocationStatus').textContent,/対応していません/);
+ const insecure=app({secureContext:false,geolocation:{getCurrentPosition:()=>calls++}});
+ insecure.element('locateMe').click();
+ assert.match(insecure.element('currentLocationStatus').textContent,/HTTPSまたはlocalhost/);
+ assert.equal(calls,0);assert.equal(insecure.storage.has('property_map_v2'),false);
+});
+
+test('invalid geolocation coordinates and synchronous API failures leave point A intact',()=>{
+ for(const coords of [{latitude:NaN,longitude:139},{latitude:90,longitude:139},{latitude:35,longitude:181}]){
+  const harness=app({geolocation:{getCurrentPosition:success=>success({coords})}});
+  harness.element('locateMe').click();
+  assert.match(harness.element('currentLocationStatus').textContent,/不正な座標/);
+  assert.equal(harness.storage.has('property_map_v2'),false);
+  assert.equal(harness.element('locateMe').disabled,false);
+ }
+ const harness=app({geolocation:{getCurrentPosition:()=>{throw Error('test only')}}});
+ harness.element('locateMe').click();
+ assert.match(harness.element('currentLocationStatus').textContent,/取得できません/);
+ assert.equal(harness.element('locateMe').disabled,false);
+ assert.equal(harness.storage.has('property_map_v2'),false);
 });
