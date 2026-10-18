@@ -212,13 +212,13 @@ test('coincident public locations remain individually selectable from a grouped 
 });
 
 
-test('current location is requested only on click and updates point A, its map pin and walking range',async()=>{
+test('the map current-location button requests only on click and updates point A, its pin and walking range',async()=>{
  const calls=[];
  const harness=app({rangeMode:'walk',geolocation:{getCurrentPosition:(...args)=>calls.push(args)}});
  await harness.settleWalking();assert.equal(calls.length,0);
- const button=harness.element('locateMe');
- button.click();button.click();
- assert.equal(calls.length,1);assert.equal(button.disabled,true);
+ const button=harness.element('mapLocateMe'),sidebarButton=harness.element('locateMe');
+ button.click();sidebarButton.click();button.click();
+ assert.equal(calls.length,1);assert.equal(button.disabled,true);assert.equal(sidebarButton.disabled,true);
  assert.match(harness.element('currentLocationStatus').textContent,/取得中/);
  assert.equal(harness.storage.has('property_map_v2'),false);
  calls[0][0]({coords:{latitude:34.6937,longitude:135.5023}});
@@ -229,7 +229,8 @@ test('current location is requested only on click and updates point A, its map p
  assert.equal(saved.a.lat,34.6937);assert.equal(saved.a.lon,135.5023);
  assert.equal(saved.a.name,'現在地');assert.equal(saved.b,null);
  assert.equal(harness.element('nameA').textContent,'現在地');
- assert.equal(button.disabled,false);assert.equal(button.textContent,'現在地');
+ assert.equal(button.disabled,false);assert.equal(button.textContent,'⌖');
+ assert.equal(sidebarButton.disabled,false);assert.equal(sidebarButton.textContent,'現在地');
  assert.match(harness.element('currentLocationStatus').textContent,/地点Aに設定しました/);
  const query=new URLSearchParams(harness.requests.filter(r=>r.url.startsWith('/api/walking-area?')).at(-1).url.split('?')[1]);
  assert.equal(query.get('lat'),'34.6937');assert.equal(query.get('lon'),'135.5023');
@@ -239,14 +240,15 @@ for(const [code,message] of [[1,'サイト設定'],[2,'端末の位置情報設�
  test(`geolocation error ${code} preserves the origin and allows retry`,()=>{
   const calls=[];
   const harness=app({geolocation:{getCurrentPosition:(...args)=>calls.push(args)}});
-  const before=harness.element('nameA').textContent,button=harness.element('locateMe');
+  const before=harness.element('nameA').textContent,button=harness.element('mapLocateMe');
   button.click();calls[0][1]({code});harness.flush();
   assert.equal(harness.element('nameA').textContent,before);
   assert.equal(harness.storage.has('property_map_v2'),false);
   assert.equal(harness.element('currentLocationStatus').hidden,false);
   assert.ok(harness.element('currentLocationStatus').textContent.includes(message));
   assert.equal(button.disabled,false);
-  button.click();assert.equal(calls.length,2);
+  assert.equal(harness.element('locateMe').disabled,false);
+  harness.element('locateMe').click();assert.equal(calls.length,2);
   calls[1][0]({coords:{latitude:35,longitude:139}});harness.flush();
   assert.equal(JSON.parse(harness.storage.get('property_map_v2')).a.lat,35);
  });
