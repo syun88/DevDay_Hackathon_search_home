@@ -8,7 +8,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 import server
-from session_store import SessionStore, RevisionConflict, DEFAULT_CRITERIA, validate_patch
+from session_store import SessionStore, RevisionConflict, DEFAULT_CRITERIA, CRITERIA_SCHEMA, validate_patch
 
 
 class SessionStoreTest(unittest.TestCase):
@@ -41,6 +41,21 @@ class SessionStoreTest(unittest.TestCase):
         self.assertEqual(validate_patch({'max_price_yen': 0, 'max_age_years': 0,
             'origin_b': None, 'origin_a': {'name': '日付変更線', 'lat': 85, 'lon': 180}})['max_price_yen'], 0)
         validate_patch({'max_price_yen': None})
+
+    def test_supported_providers_and_legacy_brave_restore(self):
+        self.assertEqual(CRITERIA_SCHEMA['properties']['listing_provider']['enum'], ['auto', 'bing', 'feed'])
+        with self.assertRaises(ValueError):
+            validate_patch({'listing_provider': 'brave'})
+        legacy = self.store.get(self.token)
+        legacy['criteria']['listing_provider'] = 'brave'
+        legacy['history'] = [{**legacy['criteria'], 'layout': '1K'}]
+        with self.store.connect() as db:
+            db.execute('UPDATE sessions SET data=? WHERE id=?', (json.dumps(legacy), self.token))
+        restored = SessionStore(self.store.path).get(self.token)
+        self.assertEqual(restored['criteria']['listing_provider'], 'auto')
+        self.assertEqual(restored['history'][0]['listing_provider'], 'auto')
+        self.assertEqual(restored['history'][0]['layout'], '1K')
+        self.assertEqual(SessionStore.upgrade(restored), restored)
 
     def test_sessions_are_isolated_and_defaults_not_mutated(self):
         second, _ = self.store.create()
@@ -155,7 +170,7 @@ class SessionHTTPTest(unittest.TestCase):
         self.assertEqual(self.request('POST', '/api/session', {'expected_revision': 0}, cookie, 'https://evil.example')[0], 403)
         self.assertEqual(self.request('POST', '/api/session', {'expected_revision': 0})[0], 404)
         self.assertEqual(self.request('POST', '/api/session', {'expected_revision': 0, 'criteria': {'pets': 1}}, cookie)[0], 400)
-        self.assertEqual(self.request('GET', '/api/session/schema')[2]['schema_version'], 3)
+        self.assertEqual(self.request('GET', '/api/session/schema')[2]['schema_version'], 4)
 
     def test_chat_endpoint_is_cookie_bound_and_hides_provider_state(self):
         from home_agent import HomeAgent

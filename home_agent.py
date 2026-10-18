@@ -65,6 +65,12 @@ Interpret corrections as replacements and keep unrelated conditions. Never silen
 or relax required filters; offer alternatives if no results. 'Cheaper' can sort by price unless the
 user gives a new budget. Use undo_search to undo the last criteria edit.
 Use tools for real data and calculations. Search-engine results are discovery links ONLY, never property records or evidence of price/availability.
+Use classify_listing_page only when the user explicitly asks to classify a retrieved page as a
+single listing, list page, or other. It makes an additional paid Decisions API call; explain this
+and ask for confirmation if the user has not agreed to the extra classification. Send only the
+retrieved title/snippet, never conversation, memory, or private preferences. Its advisory label
+does not verify facts, vacancy, eligibility, or condition matches. Do not classify every result
+automatically, or use the classifier to replace deterministic filters or tool selection.
 search_listings also returns live SUUMO discovery leads when supported. Show useful leads as short bullet lists with source links (the chat renderer does not support tables),
 known rent/management/subtotal and unknown fees/availability, never as confirmed matches. A discovery_only
 record is a lead, not a verified match, even if a supplied field meets a requirement. Do not discard all leads
@@ -109,6 +115,8 @@ def tools():
              {'name': {'type': 'string', 'maxLength': 80}, 'value': {'type': 'string', 'maxLength': 500}}, ['name', 'value']),
         tool('forget_place', 'Forget a named location alias on explicit request.', {'alias': {'type': 'string', 'maxLength': 80}}, ['alias']),
         tool('search_listings', 'Search real listing pages using CURRENT criteria. Unknown/unverified conditions are not confirmed matches.'),
+        tool('classify_listing_page', 'Optional paid page-type classification of one retrieved title/snippet. Only after user agreement; never availability or eligibility verification.',
+             {'result_set_id': ident, 'listing_id': ident}, ['result_set_id', 'listing_id']),
         tool('get_commute', 'Estimate road walking/bike/car time for a retrieved candidate to each selected origin; never train or live traffic.', {'result_set_id': ident, 'listing_id': ident}, ['result_set_id', 'listing_id']),
         tool('compare_listings', 'Read evidence for specified stable listing IDs from one result set.',
              {'result_set_id': ident, 'listing_ids': {'type': 'array', 'items': ident, 'minItems': 1, 'maxItems': 5}}, ['result_set_id', 'listing_ids']),
@@ -218,11 +226,12 @@ def evidence(item, criteria):
 
 
 class HomeAgent:
-    def __init__(self, store, key, search, model=None, api=None, geocoder=None, router=None):
+    def __init__(self, store, key, search, model=None, api=None, geocoder=None, router=None, classifier=None):
         self.store, self.key, self.search = store, key, search
         self.api = api or AgentsAPI(key, model or os.environ.get('OPENAI_AGENT_MODEL', 'gpt-6.1-sol'))
         self.geocoder = geocoder or resolve_places
         self.router = router
+        self.classifier = classifier
         self.lock = threading.Lock()
         self.workers = set()
 
@@ -264,7 +273,7 @@ class HomeAgent:
                 raise RevisionConflict(session)
             if len(session['conversation']) >= 200:
                 raise AgentError('conversation_limit')
-            if session['_agent'].get('session_id') and session['_agent'].get('config_version') != 4:
+            if session['_agent'].get('session_id') and session['_agent'].get('config_version') != 5:
                 session['_agent'].setdefault('previous_sessions', []).append(session['_agent'].pop('session_id'))
             session['conversation'].append({'id': request_id, 'role': 'user', 'text': payload['message'].strip(),
                                             'created_at': datetime.now(timezone.utc).isoformat()})
@@ -316,7 +325,7 @@ class HomeAgent:
                     if s['chat'].get('request_id') != request_id or s['chat']['status'] != 'running':
                         raise AgentError('cancelled')
                     s['_agent']['session_id'] = provider_id
-                    s['_agent']['config_version'] = 4
+                    s['_agent']['config_version'] = 5
                     s['chat']['submitted'] = True
                 try:
                     self.store.mutate(session_id, attach)
@@ -422,6 +431,12 @@ class HomeAgent:
                 return {'error': 'invalid_arguments'}
         external = None
         try:
+            if name == 'classify_listing_page':
+                if not self.classifier:
+                    return {'error': 'classification_unavailable'}
+                result_set = next(item for item in local['result_sets'] if item['id'] == args['result_set_id'])
+                listing = next(item for item in result_set['items'] if item['id'] == args['listing_id'])
+                external = self.classifier(listing.get('title', ''), listing.get('description', ''))
             if name == 'resolve_place':
                 query = args.get('query', '')
                 if not isinstance(query, str) or not 2 <= len(query) <= 200:
@@ -482,6 +497,9 @@ class HomeAgent:
         if name == 'get_search_state':
             s['chat']['expected_revision'] = s['revision']
             return self.context(s)
+        if name == 'classify_listing_page':
+            return {'classification': external, 'listing_id': args['listing_id'],
+                    'note': 'Advisory page type only. No availability, eligibility or condition verification. Search criteria and match status are unchanged.'}
         if name == 'update_search':
             patch = args['criteria']
             if set(patch) & {'origin_a', 'origin_b'}:

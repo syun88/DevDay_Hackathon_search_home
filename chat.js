@@ -24,6 +24,7 @@ window.mountHomeChat = ({session, adapter}) => {
   const progress={stopping:'処理を停止しています…',clearing:'会話と記憶を削除しています…',
     thinking:'考えています…',resolve_place:'場所を確認しています…',set_origin:'起点を設定しています…',
     update_search:'検索条件を更新しています…',search_listings:'実際の掲載ページを探しています…',
+    classify_listing_page:'掲載ページの種類を分類しています…',
     compare_listings:'候補を比較しています…',save_listing:'候補を保存しています…',
     remember_preference:'希望を覚えています…',forget_place:'記憶を更新しています…',
     undo_search:'条件を元に戻しています…',get_search_state:'現在の条件を確認しています…',
@@ -126,12 +127,13 @@ window.mountHomeChat = ({session, adapter}) => {
     if(activeChat!==s.chat_id){activeChat=s.chat_id;lastMessages='';lastResults=undefined;lastMemory='';lastSaved='';$('chatError').hidden=true;}
     const recovery=s.chat?.status==='error'&&s.chat.recoverable;
     const running=['running','cancelling','resetting'].includes(s.chat?.status),busy=running||sending;
-    $('chatSend').disabled=!enabled||busy||recovery||session.status!=='saved';
+    $('chatSend').disabled=!enabled||busy||recovery||session.status!=='saved'||!$('chatDraft').value.trim();
     $('chatSend').setAttribute('aria-busy',String(busy));
     $('chatDraft').disabled=busy||session.status==='loading';
     $('chatStop').hidden=(s.chat?.status!=='running'&&!recovery)||s.chat?.operation==='reset';
-    for(const id of ['chatClear','chatNew','chatUndo'])$(id).disabled=busy||!enabled;
-    $('chatUndo').hidden=!s.history?.length;
+    for(const id of ['chatClear','chatUndo'])$(id).disabled=busy||!enabled;
+    setText($('chatAvailability'),()=>t(enabled?'下書きと会話は自動保存されます。':'チャットは未接続です。条件を編集して検索できます。'));
+    $('chatUndo').hidden=!s.history?.length||!enabled;
     $('chatProgress').hidden=!running;
     if(running)setText($('chatProgress'),()=>t(progress[s.chat.progress]||progress.thinking));
     if(s.chat?.status==='error')error(s.chat.error);
@@ -157,15 +159,16 @@ window.mountHomeChat = ({session, adapter}) => {
     catch {if(session.snapshot?.chat?.status==='running')error('network');}
     finally {fetching=false;pollSoon(session.snapshot?.chat?.status==='running'?900:4000);}
   }
-  async function clear(resetSearch){
-    if(!confirm(t(resetSearch?'新しい検索を始めますか？会話と記憶を削除します。保存した候補は残ります。':'会話と記憶を削除しますか？検索条件と保存した候補は残ります。')))return;
-    try{await settled();const data=await api('/api/chat/reset',{expected_revision:session.snapshot.revision,reset_search:resetSearch});rememberSubmission(null);lastMessages='';session.accept(data);$('chatError').hidden=true;}
+  async function clear(){
+    if(!confirm(t('会話と記憶を削除しますか？検索条件と保存した候補は残ります。')))return;
+    try{await settled();const data=await api('/api/chat/reset',{expected_revision:session.snapshot.revision,reset_search:false});rememberSubmission(null);lastMessages='';session.accept(data);$('chatError').hidden=true;}
     catch(e){error(e.message);}
   }
   $('chatSend').onclick=()=>send();
+  $('chatDraft').addEventListener('input',render);
   $('chatDraft').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();send();}});
   $('chatStop').onclick=async()=>{try{session.accept(await api('/api/chat/cancel',{request_id:session.snapshot.chat.request_id}));}catch(e){error(e.message);}};
-  $('chatClear').onclick=()=>clear(false);$('chatNew').onclick=()=>clear(true);
+  $('chatClear').onclick=()=>clear();
   $('chatUndo').onclick=()=>send(document.documentElement.lang==='ja'?'直前の検索条件の変更を元に戻してください。':'Undo the last search criteria change.');
   $('chatRetry').onclick=async()=>{
     if(pending)return send(pending.message,true);
@@ -173,10 +176,10 @@ window.mountHomeChat = ({session, adapter}) => {
     try{session.accept(await api('/api/chat/resume',{request_id:session.snapshot.chat.request_id}));pollSoon(100);}catch(e){error(e.message);}
   };
   const legacySearch=$('searchListings').onclick;
-  $('searchListings').onclick=()=>enabled?send(document.documentElement.lang==='ja'?'現在の条件で掲載物件を検索してください。':'Search property listing pages using my current criteria.'):legacySearch();
+  $('searchListings').onclick=()=>{window.searchShell?.openResults();return enabled?send(document.documentElement.lang==='ja'?'現在の条件で掲載物件を検索してください。':'Search property listing pages using my current criteria.'):legacySearch();};
   session.addEventListener('change',render);
   window.addEventListener('home-language-change',()=>{lastMessages='';render();});
-  fetch('/api/health').then(r=>r.json()).then(health=>{enabled=!!health.agent_enabled;if(!enabled)error('missing_key');render();}).catch(()=>error('network'));
+  fetch('/api/health').then(r=>r.json()).then(health=>{enabled=!!health.agent_enabled;render();}).catch(()=>error('network'));
   window.homeChat={send};pollSoon();
 };
 })();

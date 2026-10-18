@@ -58,7 +58,7 @@ window.mountSearchWorkspace = adapter => {
     applying = false;
   }
   function openAdvanced(id) {
-    window.searchShell?.openSettings();
+    window.searchShell?.openSettings(id);
     $('advancedPanel').open = true;
     const element = $(id);
     element.scrollIntoView({block:'nearest',behavior:'instant'});element.focus();
@@ -77,11 +77,11 @@ window.mountSearchWorkspace = adapter => {
     if (c.origin_b) addChip(t('起点B：{0}', [c.origin_b.name]), () => openAdvanced('queryB'), 'origin_b');
     addChip(t('Aから{0}km以内', [c.radius_a_km]), () => edit('radius_a_km'), 'radius_a_km');
     if (c.origin_b) addChip(c.restrict_b ? t('Bから{0}km以内', [c.radius_b_km]) : t('Bの距離制限なし'), () => openAdvanced('restrictB'), 'restrict_b');
-    addChip(c.property_type === 'rent' ? t('賃貸') : c.property_type === 'sale' ? t('売買') : t('種別：すべて'), () => edit('property_type'), 'property_type');
+    if(c.property_type)addChip(t(c.property_type==='rent'?'賃貸':'売買'), () => edit('property_type'), 'property_type');
     const amount = c.max_price_yen == null ? t('価格上限なし') : t('価格上限：¥{0}', [c.max_price_yen.toLocaleString()]);
     addChip(amount, () => edit('max_price_yen'), 'max_price_yen');
-    addChip(c.layout || t('間取り：すべて'), () => edit('layout'), 'layout');
-    addChip(c.pets ? t('ペット可・必須') : t('ペット条件なし'), () => edit('pets'), 'pets');
+    if(c.layout)addChip(c.layout, () => edit('layout'), 'layout');
+    if(c.pets)addChip(t('ペット可・必須'), () => edit('pets'), 'pets');
     if (c.min_area_m2 != null) addChip(t('面積：{0}㎡以上', [c.min_area_m2]), () => openAdvanced('minArea'), 'min_area_m2');
     if (c.max_age_years != null) addChip(t('築{0}年以内', [c.max_age_years]), () => openAdvanced('maxAge'), 'max_age_years');
     if (c.max_commute_minutes != null) addChip(t('通勤時間の上限（分）') + ': ' + c.max_commute_minutes, () => openAdvanced('maxCommute'), 'max_commute_minutes');

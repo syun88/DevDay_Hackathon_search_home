@@ -41,7 +41,7 @@ function app(){
   URL,URLSearchParams,AbortSignal,AbortController,confirm:()=>true,
   fetch:async(url,options)=>{
    requests.push({url,options});
-   let body={listings_enabled:true,has_brave_key:false,decisions_enabled:false,feed_enabled:false,provider:'Bing RSS'};
+   let body={listings_enabled:true,decisions_enabled:false,feed_enabled:false,provider:'Bing RSS'};
    if(url==='/api/import')body={results:context.records,rejected:0,provider:'feed'};
    if(url==='/api/route')body={status:'ok',duration_seconds:600,distance_meters:600,checked_at:new Date().toISOString(),source:'TEST ONLY route'};
    if(url.startsWith('/api/listings?'))body={results:[],discovery_links:[{url:'https://suumo.jp/test-only',source:'suumo.jp'}],provider:'bing'};

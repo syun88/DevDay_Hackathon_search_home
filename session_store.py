@@ -9,7 +9,7 @@ import math
 import secrets
 import sqlite3
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 DEFAULT_CRITERIA = {
     'origin_a': {'name': '東京駅', 'lat': 35.681236, 'lon': 139.767125},
     'origin_b': None, 'radius_a_km': 3, 'radius_b_km': 5,
@@ -41,7 +41,7 @@ CRITERIA_SCHEMA = {
         'layout': {'type': 'string', 'enum': ['', '1R', '1K', '1DK', '1LDK', '2K', '2DK', '2LDK', '3LDK']},
         'property_type': {'type': 'string', 'enum': ['', 'rent', 'sale']},
         'sort': {'type': 'string', 'enum': ['distance', 'price', 'area']},
-        'listing_provider': {'type': 'string', 'enum': ['auto', 'bing', 'brave', 'feed']},
+        'listing_provider': {'type': 'string', 'enum': ['auto', 'bing', 'feed']},
         'commute_mode': {'type': 'string', 'enum': ['foot', 'bike', 'car']},
         'max_commute_minutes': {'type': ['integer', 'null'], 'minimum': 1, 'maximum': 240},
         'listing_area': {'type': 'string', 'maxLength': 90},
@@ -129,6 +129,9 @@ class SessionStore:
             session['history'] = []
             session['revision'] += 1
         session['criteria'] = {**deepcopy(DEFAULT_CRITERIA), **session.get('criteria', {})}
+        for criteria in [session['criteria'], *session.get('history', [])]:
+            if criteria.get('listing_provider') == 'brave':
+                criteria['listing_provider'] = 'auto'
         session['schema_version'] = SCHEMA_VERSION
         session.setdefault('chat_id', 'chat_' + sha256(session['created_at'].encode()).hexdigest()[:24])
         for key, value in {

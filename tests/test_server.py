@@ -39,10 +39,18 @@ class SearchServerTest(unittest.TestCase):
         self.assertIsNone(server.parse_fields('間取り未定', '', 'rent')['price'])
 
     def test_no_network_for_unknown_provider(self):
-        with patch.object(server,'bing_rss',return_value=[]):
-            result=server.fetch_listings('東京都千代田区','rent',{},'bing')
+        with patch.object(server,'bing_rss') as search:
+            for provider in ('brave', 'unknown', 'feed'):
+                with self.assertRaises(ValueError):
+                    server.fetch_listings('東京都千代田区','rent',{},provider)
+            search.assert_not_called()
+
+    def test_auto_discovery_uses_only_bing_and_keeps_zero_results(self):
+        with patch.object(server,'bing_rss',return_value=[]) as search:
+            result=server.fetch_listings('東京都千代田区','rent',{})
         self.assertEqual(result['results'],[])
-        self.assertIn('note',result)
+        self.assertEqual(search.call_count, 2)
+        self.assertNotIn('Brave', result['note'])
 
     def test_decisions_api_contract(self):
         payload={'answers':[{'type':'choice','name':'page_kind','choice':'list','confidence':0.7}]}

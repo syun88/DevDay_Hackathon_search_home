@@ -129,7 +129,7 @@ const english = {
   "掲載元を開く": "Open listing",
   "住所を地図で探す": "Find address on map",
   "候補に取り込む": "Import candidate",
-  "AIで広告を分類": "Classify listing with AI",
+  "ページの種類をAIで分類（有料）": "Classify page type (paid AI)",
   "Decisions APIで分類中…": "Classifying with Decisions API…",
   "単一物件の広告らしい": "Likely a single property listing",
   "物件一覧らしい": "Likely a list of properties",
@@ -205,9 +205,8 @@ const english = {
   "物件を検索する地域": "Area to search for properties",
   "追加キーワード（例：南向き・駅徒歩10分）": "Extra keywords (e.g. south-facing, 10-minute walk to station)",
   "検索エンジン": "Search engine",
-  "検索：自動（Braveがあれば優先／なければBing）": "Search: automatic (Brave if configured, otherwise Bing)",
+  "検索：自動（許可済みデータ／Bing）": "Search: automatic (permitted feed / Bing)",
   "Bing RSS（APIキー不要）": "Bing RSS (no API key needed)",
-  "Brave Search API（キーがある場合）": "Brave Search API (requires a key)",
   "利用可能な検索連携を確認中…": "Checking available search services…",
   "OPENAI_API_KEYをサーバーに設定すると、取得した掲載ページをボタンからDecisions APIで分類できます（任意・費用発生）。": "Set OPENAI_API_KEY on the server to classify retrieved listing pages with the Decisions API using a button (optional; charges apply).",
   "位置判明分は半径内のみ表示": "Show located results within radius only",
@@ -465,6 +464,14 @@ Object.assign(english, {
 });
 Object.assign(english, {'利用許諾が未設定のため接続を停止しています。公式検索リンクをご利用ください。':'Connection disabled: reuse permission is not configured. Use official search links.','未検索。半径は0.1〜2km、地点Aは東京都内にしてください。':'Not searched. Set a 0.1–2 km radius and an origin in Tokyo.'});
 Object.assign(english, {'件の公開資料':' public records'});
+Object.assign(english, {
+ '会話':'Chat', '結果・保存':'Results / saved', '会話を管理':'Manage conversation', '履歴':'History',
+ '条件を編集':'Edit filters', '場所・検索条件':'Location & criteria',
+ '公的データ・公式サイト':'Public data & official sites', '地図の補助ツール':'Map tools',
+ 'データ連携・試作機能':'Data connections & experiments', '手動登録した候補・CSV':'Manual candidates & CSV',
+ 'チャットは未接続です。条件を編集して検索できます。':'Chat is not connected. You can edit filters and search.',
+ 'この条件で検索':'Search with these filters'
+});
 const storageKey = 'property_map_language';
 let language = 'ja';
 try { if (localStorage.getItem(storageKey) === 'en') language = 'en'; } catch {}

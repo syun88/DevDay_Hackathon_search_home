@@ -2,7 +2,7 @@
 """Local property-portal search bridge.
 
 - Keyless discovery: Bing web-search RSS (best-effort, may be unavailable/rate-limited).
-- Optional official search provider: Brave Search API, configured in environment.
+- Key-free Bing RSS discovery, or an explicitly permitted listing feed.
 - Never claims indexing results are currently vacant or the coordinates exact.
 - Doesn't crawl or scrape property sites themselves.
 
@@ -60,7 +60,6 @@ def load_env(path):
 
 load_env(BASE / '.env')
 OPENAI_KEY = os.environ.get('OPENAI_API_KEY', '').strip()
-SEARCH_KEY = os.environ.get('BRAVE_SEARCH_API_KEY', '').strip()
 FEED_PATH = os.environ.get('LISTINGS_FEED_PATH', '').strip()
 FEED_URL = os.environ.get('LISTINGS_FEED_URL', '').strip()
 SUUMO_REUSE_PERMITTED = os.environ.get('SUUMO_REUSE_PERMITTED', '') == '1'
@@ -258,16 +257,6 @@ def bing_rss(query: str) -> list[dict]:
     return parse_bing_rss(get_text(url, timeout=14))
 
 
-def brave_search(query: str) -> list[dict]:
-    if not SEARCH_KEY:
-        raise ValueError('BRAVE_SEARCH_API_KEY が未設定です')
-    url = 'https://api.search.brave.com/res/v1/web/search?' + urlencode({
-        'q':query, 'country':'jp', 'search_lang':'ja', 'count':20})
-    doc = json.loads(get_text(url, headers={'Accept':'application/json', 'X-Subscription-Token': SEARCH_KEY}, timeout=16))
-    return [{'title':x.get('title',''), 'url':x.get('url',''), 'description':x.get('description','')}
-            for x in doc.get('web',{}).get('results',[])]
-
-
 def make_queries(place: str, kind: str, details: dict) -> list[str]:
     query_type = '中古マンション 売買' if kind == 'sale' else '賃貸 マンション アパート'
     focus = [place, query_type]
@@ -280,26 +269,22 @@ def make_queries(place: str, kind: str, details: dict) -> list[str]:
 
 
 def fetch_listings(place: str, kind: str, details: dict, provider='auto') -> dict:
+    if provider not in ('auto', 'bing'):
+        raise ValueError('Unknown discovery provider')
     qs = make_queries(place, kind, details)
-    engines = ['brave','bing'] if provider == 'auto' and SEARCH_KEY else ['bing'] if provider == 'auto' else [provider]
     errors = []
-    for engine in engines:
-        for i,query in enumerate(qs):
-            try:
-                raw = brave_search(query) if engine == 'brave' else bing_rss(query)
-                listings = normalize_results(raw, kind)
-                if listings:
-                    return {'results':listings, 'query':query, 'provider':engine,
-                            'checked_at':datetime.now(timezone.utc).isoformat(),
-                            'note':'検索エンジンが見つけたサイトの抜粋です。掲載終了・条件不一致が含まれます。'}
-                errors.append(f'{engine}: 関連サイトの結果が0件')
-            except (ValueError, ET.ParseError, HTTPError, URLError, OSError, TimeoutError, json.JSONDecodeError) as e:
-                errors.append(f'{engine}: {type(e).__name__} {str(e)[:110]}')
-            if i == 0 and provider == 'auto' and engine == 'brave':
-                # Try Bing instead of spending two Brave API calls on an empty set.
-                break
+    for query in qs:
+        try:
+            listings = normalize_results(bing_rss(query), kind)
+            if listings:
+                return {'results':listings, 'query':query, 'provider':'bing',
+                        'checked_at':datetime.now(timezone.utc).isoformat(),
+                        'note':'検索エンジンが見つけたサイトの抜粋です。掲載終了・条件不一致が含まれます。'}
+            errors.append('bing: 関連サイトの結果が0件')
+        except (ValueError, ET.ParseError, HTTPError, URLError, OSError, TimeoutError, json.JSONDecodeError) as error:
+            errors.append(f'bing: {type(error).__name__} {str(error)[:110]}')
     return {'results':[], 'provider':'none', 'query':qs[0], 'errors':errors,
-            'note':'検索先が0件または利用制限中です。公式サイトで検索するかBrave APIを設定してください。'}
+            'note':'検索先が0件または利用制限中です。公式サイトの検索リンクをご利用ください。'}
 
 
 
@@ -392,7 +377,7 @@ def agent_listings(place, kind, details, provider='auto'):
     return result
 
 
-HOME_AGENT = HomeAgent(SESSION_STORE, OPENAI_KEY, agent_listings, router=route_time)
+HOME_AGENT = HomeAgent(SESSION_STORE, OPENAI_KEY, agent_listings, router=route_time, classifier=decision_classify)
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -534,9 +519,9 @@ class Handler(SimpleHTTPRequestHandler):
             self.path = '/index.html'
             return super().do_GET()
         if u.path == '/api/health':
-            return self.respond(200,{'listings_enabled':True,'providers':['bing'] + (['brave'] if SEARCH_KEY else []),
-                    'provider':'Brave Search API + Bing RSS' if SEARCH_KEY else 'Bing RSS (APIキー不要、利用制限あり)',
-                    'has_brave_key':bool(SEARCH_KEY), 'decisions_enabled':bool(OPENAI_KEY), 'agent_enabled':bool(OPENAI_KEY),
+            return self.respond(200,{'listings_enabled':True,'providers':['bing'],
+                    'provider':'Bing RSS (APIキー不要、利用制限あり)',
+                    'decisions_enabled':bool(OPENAI_KEY), 'agent_enabled':bool(OPENAI_KEY),
                     'feed_enabled':bool(FEED_PATH or FEED_URL), 'routing_enabled':True,
                     'public_sources':['tokyo', 'tsubata'] + (['permitted'] if os.environ.get('PUBLIC_HOUSING_FEED_PATH') else []),
                     'suumo_reuse_permitted': SUUMO_REUSE_PERMITTED,
@@ -585,10 +570,8 @@ class Handler(SimpleHTTPRequestHandler):
         if len(place) < 2: return self.respond(400,{'error':'地域・会社・駅名を2文字以上入力してください'})
         kind = 'sale' if v('kind') == 'sale' else 'rent'
         provider = v('provider',10) or 'auto'
-        if provider not in ('auto', 'bing', 'brave', 'feed'):
+        if provider not in ('auto', 'bing', 'feed'):
             return self.respond(400,{'error':'不明な検索先です'})
-        if provider == 'brave' and not SEARCH_KEY:
-            return self.respond(400,{'error':'Brave APIキーがありません'})
         if provider == 'feed' or (provider == 'auto' and (FEED_PATH or FEED_URL)):
             try:
                 result = load_feed()
@@ -615,6 +598,6 @@ class Handler(SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     server=ThreadingHTTPServer(('127.0.0.1',PORT),Handler)
-    print(f'物件検索マップ http://127.0.0.1:{PORT}/ | search: Bing RSS (no key), Brave: {"available" if SEARCH_KEY else "not configured"}')
+    print(f'物件検索マップ http://127.0.0.1:{PORT}/ | search: Bing RSS (no key)')
     try: server.serve_forever()
     except KeyboardInterrupt: server.server_close()

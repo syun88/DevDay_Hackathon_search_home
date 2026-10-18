@@ -34,7 +34,7 @@
 | 優先 | データ源 | 用途 | 条件・制約 |
 |---|---|---|---|
 | A | **実際の募集物件**：不動産会社／管理会社の許諾済みフィード、契約した物件データAPI | 賃料・部屋・掲載状態の一次情報 | 最重要。公開ポータルに誰でも使える無条件の物件APIがあるとは仮定しない。データ契約・転載範囲・更新周期を確認 |
-| B | **SUUMO／LIFULL HOME'S／at home**、検索エンジン（例：Brave Search API） | 公開掲載ページの発見、掲載元へ誘導 | 検索エンジンのスニペットは空室の証拠でも正規の配信フィードでもない。個別サイトのロボット制限、利用規約、再掲載・写真利用許諾を確認 |
+| B | **SUUMO／LIFULL HOME'S／at home**、Bing RSS | 公開掲載ページの発見、掲載元へ誘導 | 検索エンジンのスニペットは空室の証拠でも正規の配信フィードでもない。個別サイトのロボット制限、利用規約、再掲載・写真利用許諾を確認 |
 | B | **国交省 不動産情報ライブラリ API** | 災害・学校・医療・都市計画・過去の不動産取引価格 | 利用申請→承認→APIキー。サーバー側で利用し、頻度制御・キャッシュ必須。**現在募集中の物件APIではない** |
 | B | **OSM + Overpass API** | 建物、道路、店舗、スーパー、生活施設 | オープンな地物データであり、募集中の部屋・家賃は含まれない。公開Overpassは負荷制限あり |
 | B | **Google Places / Geocoding API** または契約済み地名検索 | 会社名・住所・施設名の検索、座標付与 | キー／課金／保存・表示条件を確認。住所と企業名は別種の検索として扱う |
@@ -78,7 +78,7 @@
 
 ## 6. OpenAI Decisions API の活用
 
-**利用可能**：2026年10月時点で公開ベータ。`POST https://api.openai.com/v1/decisions`、`model: gpt-6-luna`。文字／画像を受け、`predicate`（確率）、`choice`（固定候補）、`score`（順序レベルの採点）を返す。**入力100万トークン当たり$0.10、出力トークンの課金なし**（現行ドキュメント上）。正規の物件検索APIではない。
+**利用可能**：2026年10月時点で公開ベータ。`POST https://api.openai.com/v1/decisions`、`model: gpt-6-luna`。文字／画像を受け、`predicate`（確率）、`choice`（固定候補）、`score`（順序レベルの採点）を返す。有料の任意機能であり、正規の物件検索APIではない。価格は公式ドキュメントを確認する。
 
 用途を限定する。
 
@@ -160,7 +160,19 @@ curl -sS https://api.openai.com/v1/decisions \
 - Search snippets become discovery links only, with no extracted prices or property records. Candidate data comes from the existing permitted feed path. Deterministic evidence checks include monthly fees, freshness, exact coordinates, both required origins and route duration. Comparisons recheck evidence when snapshots age. Approximate geocoding never becomes an exact location claim. The merged SUUMO prototype remains available manually and now powers the agent’s no-feed discovery fallback. Records are tagged discovery_only, receive stable references and appear separately from verified candidate filtering, with unknown vacancy/other fees/location. A known rent-plus-management lower bound above the requested total cap excludes a lead. No lead gets a verified timestamp or map coordinates. Source failures and unsupported areas return explicit errors and working source-search links. Coverage metadata records the requested versus bounded query radius and five-record inspection limit; the agent must not claim a citywide search.
 - The original map occupies the upper workspace and a resizable chat dock sits beneath it. A collapsible left sidebar holds saved chats and explicit memory; advanced controls and results open as drawers. SQLite archives each chat under its cookie owner. Switching is atomic, increases the owner revision and is blocked during pending provider operations. Chat, editable chips and the advanced panel share one criteria state. With a configured AI key, the primary search button asks the agent to search the current state. Keyless manual search remains available.
 - Messages render through a small DOM-based Markdown subset without HTML injection. The UI shows actual tool progress, errors, Stop/Retry, remembered preferences and saved listing pages.
-- Clear chat & memory deletes the remote agent session before clearing local history and memory. New search also resets criteria; saved candidates are retained. A remote deletion failure remains visible.
+- Clear chat & memory deletes the remote agent session before clearing local history and memory, retaining criteria and saved candidates. New chat archives the old chat rather than deleting it. The duplicate New search button is removed; the API's reset_search contract remains. A remote deletion failure remains visible.
+
+### Chat-first UX and API responsibilities
+
+`shell.js` owns layout and disclosure, not search state: four labelled rail actions, core chips plus active optional constraints, results/saved tabs and four settings groups. Public data, map helpers, integrations/prototypes and manual CSV management are collapsed initially, not deleted. Drawers expose dialog semantics, trap focus, make background controls inert and restore focus on close. Picking a map origin exits the drawer first. Stop, Retry and Undo remain near the conversation; destructive management stays in History. The missing-key state points to manual search without a blocking setup alert. `session.js`/SQLite remain the shared authority for chat and manual edits.
+
+Brave is removed from network code, UI, environment setup and the criteria contract. Schema v4 maps old `brave` preferences to `auto` on load, including Undo history and archived-chat restoration. `auto` prefers a permitted feed, otherwise Bing; no search provider can establish vacancy from an index snippet. `FRONTEND_ASSETS` is the single allowlist for both GET and HEAD, preserving public-data scripts while excluding server code and private files.
+
+The Agents API already orchestrates location resolution, criteria edits, search, evidence-based comparison, saving, explicit memory and Undo in a durable session. This PR adds `classify_listing_page` as a narrow optional tool over a retrieved stable listing ID. It reuses the existing Decisions classifier rather than duplicating an AI pipeline. Instructions require agreement to the extra paid classification; the tool schema cannot accept arbitrary text or a URL. The server sends only that record's title/snippet, returns an advisory page type and journals the result for replay. It never updates criteria, availability, match evidence or candidate order. Failures or unknown references do not fabricate a classification. This is not a separate deterministic billing-approval system; chat confirmation is instruction-based.
+
+Decisions is appropriate for repetitive page-type triage, not for arbitrary tool routing before every chat turn. Future relevance/priority classification needs labelled local evaluation and a fallback for uncertainty before it can affect display. Hard budget/fees, distance, timestamps, vacancy and housing eligibility remain deterministic or source-confirmed, never model judgements. Public-data tool integration is a future extension: today that source uses the manual drawer, not a claimed agent capability. See the official [Agents API functions](https://developers.openai.com/api/docs/guides/agents-api/tools/functions) and [Decisions guide](https://developers.openai.com/api/docs/guides/decisions).
+
+The new real-markup LinkeDOM tests cover moved controls, active chips, tabs, focus return, map-mode exit, keyless search and draft handling. LinkeDOM is dev-only; the runtime keeps stdlib Python and vanilla JS. These tests do not prove rendering or touch behaviour, and mocked API tests do not prove live provider access or classification quality.
 
 ### Boundaries and validation
 - Exact personal places are sent to OpenAI only as part of the requested search context/tools; API keys remain server-side. External listing text is treated as untrusted data.

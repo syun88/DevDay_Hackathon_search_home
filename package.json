@@ -1,0 +1,13 @@
+{
+  "name": "search-home-ui-tests",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test tests/*.cjs"
+  },
+  "devDependencies": {
+    "linkedom": "0.18.13"
+  }
+}

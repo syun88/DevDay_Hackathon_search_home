@@ -20,8 +20,9 @@
 <div id="chatMessages" class="chat-messages" role="log" aria-label="住まい探しの会話" aria-live="polite"></div>
 <div id="chatProgress" class="chat-progress" role="status" hidden></div>
 <div id="chatError" class="chat-error" role="alert" hidden></div>
+<button id="chatRetry" class="btn ghost small chat-retry" type="button" hidden>再試行</button>
 <div class="chat-composer"><label class="label" for="chatDraft">住まいの希望を教えてください</label><textarea id="chatDraft" maxlength="2000" placeholder="例：東京駅の近くで、猫と暮らせる部屋を探したい" aria-describedby="chatAvailability" disabled></textarea><div class="composer-footer"><span id="chatAvailability">下書きと会話は自動保存されます。</span><div class="chat-send-actions"><button id="chatStop" class="btn ghost small" type="button" hidden>停止</button><button id="chatSend" class="btn small" type="button" disabled>送信</button></div></div></div>
-<div class="chat-toolbar"><button id="chatRetry" type="button" hidden>再試行</button><button id="chatUndo" type="button">条件の変更を戻す</button><button id="chatClear" type="button">会話と記憶を削除</button><button id="chatNew" type="button">新しい検索</button></div>
+<div class="chat-toolbar"><button id="chatUndo" type="button" hidden>条件の変更を戻す</button><button id="chatClear" type="button">会話と記憶を削除</button></div>
 <details id="memoryPanel" class="memory-panel"><summary>覚えていること</summary><div id="memoryItems"></div></details>
 <div class="criteria-heading"><h2 id="criteriaHeading">現在の検索条件</h2><span>クリックして編集</span></div>
 <div id="criteriaChips" class="criteria-chips" role="group" aria-labelledby="criteriaHeading"></div>
@@ -94,8 +95,8 @@
 <p class="muted">募集候補には掲載元が1時間以内に募集を確認したデータだけを採用します。検索索引は最新性を保証できないため、掲載元リンクのみを表示します。取得時刻を募集の確認時刻として扱いません。</p>
 <div class="field"><input id="listingArea" class="input" placeholder="検索地域（空欄なら地点Aの名前）" aria-label="物件を検索する地域"></div>
 <div class="field"><input id="listingKeywords" class="input" placeholder="追加キーワード（例：南向き・駅徒歩10分）"></div>
-<div class="field"><select id="listingProvider" class="input" aria-label="検索エンジン"><option value="auto">検索：自動（Braveがあれば優先／なければBing）</option><option value="feed">許可済み募集データ</option><option value="bing">Bing RSS（掲載先リンクのみ）</option><option value="brave">Brave Search API（キーがある場合）</option></select></div>
-<div class="field"><button id="searchListings" class="btn" style="flex:1">掲載ページを検索</button></div>
+<div class="field"><select id="listingProvider" class="input" aria-label="検索エンジン"><option value="auto">検索：自動（許可済みデータ／Bing）</option><option value="feed">許可済み募集データ</option><option value="bing">Bing RSS（掲載先リンクのみ）</option></select></div>
+<div class="field"><button id="searchListings" class="btn" style="flex:1">この条件で検索</button></div>
 <div id="listingsStatus" class="live-count" role="status">利用可能な検索連携を確認中…</div><div class="muted">OPENAI_API_KEYをサーバーに設定すると、取得した掲載ページをボタンからDecisions APIで分類できます（任意・費用発生）。</div>
 <div class="checkrow" style="margin:7px 0"><label><input type="checkbox" id="listingOnlyWithin" checked>位置判明分は半径内のみ表示</label></div>
 <div class="line-actions"><button id="importFeed" class="btn secondary">許可済みJSON / CSVを取り込む</button></div><label class="muted"><input id="feedPermitted" type="checkbox"> このデータの取り込み・表示の許可を得ています</label><input id="feedFile" type="file" accept=".json,.csv" hidden><p class="muted">確認日時が不明・1時間より古い・募集終了のデータは除外します。接続元が未設定の場合、現在募集中の物件を自動取得できません。</p>
@@ -337,7 +338,7 @@ function renderExternalPages(){
   actions.append(makeLink(t('掲載元を開く'),hit.url),makeButton(t('通勤時間を取得'),()=>calculateCommute(listingCandidate(hit))),makeLink(t('電車の経路を確認'),transitUrl(hit)));
   actions.append(makeButton(hit.lat!=null?t('地図で確認'):t('住所を地図で探す'),()=>{if(hit.lat!=null)showHitOnMap(hit);else locateImportedListing(hit).then(ok=>{if(ok)showHitOnMap(hit)})}));
   actions.append(makeButton(t('候補に取り込む'),()=>importListing(hit)));
-  if(decisionsReady)actions.append(makeButton(t('AIで広告を分類'),async()=>{
+  if(decisionsReady)actions.append(makeButton(t('ページの種類をAIで分類（有料）'),async()=>{
    const status=makeEl('p','listing-uncertain',t('Decisions APIで分類中…'));card.append(status);
    try{const resp=await fetch('/api/classify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:hit.title,description:hit.description}),signal:AbortSignal.timeout(18000)});
     const json=await resp.json();if(!resp.ok)throw Error(json.error||resp.status);
@@ -356,7 +357,7 @@ function renderExternalPages(){
 }
 async function getListingHealth(){
  if(location.protocol==='file:'){listingsReady=false;listingHealthChecked=true;setText($('listingsStatus'), () => t('検索結果を読み込むにはZIP内のサーバーを起動してください：python3 property-server.py。HTML単体で外部ページの内容を取得することはできません。'));return}
- try{const response=await fetch('/api/health',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('backend');const j=await response.json();$('listingProvider').querySelector('option[value="feed"]').disabled=!j.feed_enabled;listingsReady=!!j.listings_enabled;decisionsReady=!!j.decisions_enabled;listingHealthChecked=true;setText($('listingsStatus'), () => listingsReady?t('掲載ページを検索できます。'):t('検索サーバーは起動していますが、検索エンジンが利用できません。'));if(!j.has_brave_key)$('listingProvider').querySelector('option[value="brave"]').disabled=true;
+ try{const response=await fetch('/api/health',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('backend');const j=await response.json();$('listingProvider').querySelector('option[value="feed"]').disabled=!j.feed_enabled;listingsReady=!!j.listings_enabled;decisionsReady=!!j.decisions_enabled;listingHealthChecked=true;setText($('listingsStatus'), () => listingsReady?t('掲載ページを検索できます。'):t('検索サーバーは起動していますが、検索エンジンが利用できません。'));
  $('suumoSearch').disabled=j.suumo_reuse_permitted!==true;
  if(j.suumo_reuse_permitted===true)setText($('suumoStatus'),()=>t('未検索。半径は0.1〜2km、地点Aは東京都内にしてください。'));
  }catch{listingsReady=false;listingHealthChecked=true;setText($('listingsStatus'), () => t('検索結果の取得にはローカルサーバーが必要です（README参照）。この画面だけを開いた場合は外部検索リンクをご利用ください。'))}
@@ -379,7 +380,7 @@ async function searchListingPages(){
  for(const hit of propertyPageHits.filter(x=>x.lat==null&&x.extracted?.address).slice(0,4)){
   await locateImportedListing(hit,true);await new Promise(resolve=>setTimeout(resolve,950));
  }
- }catch(e){setText($('listingsStatus'), () => t('検索結果を取得できません：')+e.message+t('。掲載元サイトへの外部リンクも使えます。'))}finally{button.disabled=false;setText(button, () => t('掲載ページを検索'))}
+ }catch(e){setText($('listingsStatus'), () => t('検索結果を取得できません：')+e.message+t('。掲載元サイトへの外部リンクも使えます。'))}finally{button.disabled=false;setText(button, () => t('この条件で検索'))}
 }
 // Include live map search pins in the existing custom tile renderer.
 const baseRenderMap=renderMap;
@@ -468,6 +469,7 @@ window.addEventListener('home-language-change', () => {
   renderExternalPages();renderSoon();
 });
 if(window.publicHousing)publicView=window.publicHousing.mount({$,t,setText,core:propertyCore,filters:currentFilters,origins:commuteOrigins,distance:dist,makeEl,makeButton,makeLink,refresh:renderSoon,focus:record=>{
+ window.searchShell?.openSources();
  center={lat:record.lat,lon:record.lon};zoom=Math.max(zoom,14);renderSoon();
  toast(record.name+' / '+t('資料基準日：')+(record.data_as_of||t('未確認')));
  requestAnimationFrame(()=>$('publicResults').querySelector(`[data-public-id="${record.id}"]`)?.scrollIntoView({block:'nearest'}));

@@ -26,14 +26,16 @@ Use **EN / JP** in the header to switch the interface language. Your choice is r
 
 EN/JPのチャットで、場所・予算・間取り・こだわりを伝えて検索できます。「予算だけ下げて」「職場の近く」「2番目を保存」「さっきの変更を戻して」と会話を続けられます。条件チップと詳細設定も同じ検索状態を使います。
 
-Describe your location, budget and preferences in English or Japanese. The assistant can update criteria, resolve places, search real listing pages, compare/save retrieved candidates and undo a criteria change. The original map sits above the chat dock; drag the divider to resize it. The left rail opens saved chats, results, remembered preferences and **Advanced** settings. The original white/blue styling and map interactions are retained.
+Describe your location, budget and preferences in English or Japanese. The assistant can update criteria, resolve places, search real listing pages, compare/save retrieved candidates and undo a criteria change. The original map sits above the chat dock; drag the divider to resize it. The four labelled rail actions open chat, results/saved candidates, history and **Advanced** settings. Memory and conversation management live under History. The original white/blue styling and map interactions are retained.
+
+**普段は会話・地図・条件チップだけ。** 初期チップは起点・半径・予算、追加した条件は有効な間だけ表示します。「条件を編集」から手動でも検索でき、AI未接続時も使えます。詳細設定は「場所・検索条件」「公的データ・公式サイト」「地図の補助ツール」「データ連携・試作機能」に分け、後ろ3つは初期状態で閉じます。結果と保存済みは別タブ、手動登録・CSVは保存済み内の折りたたみです。新規チャットの入口は履歴内の1か所に統一し、削除は「会話を管理」の内側に置きます。停止・再試行・条件のUndoは会話の近くに残します。
 
 - **Required for chat:** `OPENAI_API_KEY` with Agents API read/write and model inference access. The app uses the [OpenAI Agents API](https://developers.openai.com/api/docs/guides/agents-api/quickstart) directly through HTTPS, with `environment: none`; no sandbox or extra Python package is needed. `OPENAI_AGENT_MODEL` defaults to `gpt-6.1-sol` for new conversations.
 - **Memory:** The same remote agent session retains conversation context. Explicit preferences and named places (such as your office), local message history, up to five result snapshots, saved candidates and twenty criteria revisions persist in `.local/sessions.sqlite3`. Reloading or restarting the server restores the conversation. Use the sidebar to create or switch saved chats; each chat keeps its own criteria, conversation, memory and results. Saved legacy manual candidates retain their existing browser storage.
 - **Actions and recovery:** Messages use stable submission IDs. Tool side effects and their results are journaled together so recovery does not apply a change twice. Stop cancels the remote turn. Retry resumes uncertain work; failed actions are never presented as successful. Manual changes are protected by revision checks.
-- **Privacy controls:** “Clear chat & memory” deletes the remote session and local conversation/memory, retaining criteria and saved candidates. “New search” also resets criteria. These operations complete asynchronously; a failed remote deletion is shown as an error rather than a successful clear.
-- **Limits:** Maps, geocoding and Bing listing discovery work without extra keys; Brave is optional. Search-engine results provide discovery links only. Without a verified feed, chat also uses the bounded Tokyo SUUMO prototype to return real source leads with known rent/management fees. These appear separately as unverified leads, with source links; vacancy, other fees, building type and precise location remain unknown. The prototype inspects at most five records in a query of at most 2 km and does not search all Tokyo. Unsupported areas or source failures still return source-search links rather than implying no homes exist. Current candidates require a permitted source feed/import with confirmed availability verified within one hour. Rental budgets include rent, management and mandatory monthly fees; missing fees stay unknown. Road walking/bike/car estimates use OSRM without another API key; train commute and live traffic are unsupported. Zero results remain zero. The separate SUUMO prototype remains available under Advanced, with its original unverified-data warnings.
-- **Upgrades:** Earlier prototype budgets excluded fees. Schema v3 preserves such a cap as a historical note and asks for a new total budget instead of silently reusing it. Agent configuration changes start a fresh provider session with recent local context; clearing that chat deletes its current and previous provider sessions.
+- **Privacy controls:** History → Manage conversation → “Clear chat & memory” deletes the remote session and local conversation/memory, retaining criteria and saved candidates. The operation completes asynchronously; a failed remote deletion is shown as an error rather than a successful clear. “New chat” creates an independent chat without deleting the old one. The redundant “New search” button is removed; the backend reset contract remains available.
+- **Limits:** Maps, geocoding and Bing listing discovery work without extra keys. Search-engine results provide discovery links only. Without a verified feed, chat can use the bounded Tokyo SUUMO prototype **only with `SUUMO_REUSE_PERMITTED=1` after permission is obtained**. Otherwise it returns discovery/source-search links without contacting SUUMO. Permitted prototype leads show known rent/management fees and unknown vacancy/other fees/location, never confirmed matches. The prototype inspects at most five records in a query of at most 2 km and does not search all Tokyo. Current candidates require a permitted source feed/import with confirmed availability verified within one hour. Rental budgets include rent, management and mandatory monthly fees; missing fees stay unknown. Road walking/bike/car estimates use OSRM without another API key; train commute and live traffic are unsupported. Zero results remain zero. Prototype controls stay under Advanced with their warnings.
+- **Upgrades:** Earlier prototype budgets excluded fees. Schema v3 preserves such a cap as a historical note and asks for a new total budget. Schema v4 removes Brave, migrating saved criteria and Undo history from `brave` to `auto`, including restored archived chats. Provider choices are now exactly `auto`, `bing`, `feed`. Agent configuration changes start a fresh provider session with recent local context; clearing that chat deletes its current and previous provider sessions.
 - **Local app:** Browser profiles receive separate HttpOnly, SameSite=Strict session cookies; tabs share one session. This is not an authenticated multi-user service. Cookies expire after 30 days; automatic database retention cleanup is not implemented. Environment and database files are ignored by Git and blocked from HTTP access.
 
 例 / Example: “Remember that I have a cat named Mochi. Find a 1K rental near Tokyo Station under ¥100,000 including monthly fees.” Then: “Change only the budget to ¥85,000,” “What is my cat’s name?” or “Undo the last change.” Pet/cat permission remains unverified until supported by the source.
@@ -56,12 +58,12 @@ Optional keys: copy `.env.example` to `.env`, fill in your keys, then restart th
 任意のAPIキー:
 
 ```bash
-BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
+OPENAI_API_KEY=... python3 server.py
 ```
 
 - **APIキーなし**: 住所・駅・会社検索（Nominatim/GSI）、OSMタイル、Overpassによる建物探索、2地点の直線距離、許可済み募集JSON/CSVの取り込み、管理費・その他必須費用込みの条件判定、Bing RSSによる掲載元リンク探索（ベストエフォート）、徒歩・自転車・車の経路時間照会。
-- **Braveのキーあり**: 安定的なWeb掲載ページの発見（課金・クォータ依存）。SUUMO／HOME'S／at homeの本文スクレイピングは行わない。
-- **OpenAIのキーあり**: 検索で見つかった掲載ページの種類をボタンで分類（Decisions API / `gpt-6-luna`）。利用者が操作したときのみ呼び出し、空室確認には使わない。
+- **Brave連携は撤去**: キー・選択肢・接続処理は使いません。Bingが停止・0件でも架空物件を返さず、公式サイトへの検索導線を残します。
+- **OpenAIのキーあり（有料）**: Agents APIが条件変更→実検索→比較・保存・Undoを同一会話で実行します。Decisions API / `gpt-6-luna` は掲載ページの「単一物件／一覧／その他」の参考分類専用。ボタン、またはチャットで追加分類に同意した場合に `classify_listing_page` ツールから呼びます。検索時の一括自動分類は行いません。送信するのは取得済みタイトル・抜粋だけで、会話・記憶は分類APIへ送りません。分類結果で空室や条件一致を確定しません。
 
 **募集情報の鮮度**: 検索索引の取得時刻では掲載元の募集状況を確認できないため、検索結果の家賃・間取り・住所は募集候補に採用せず、掲載元リンクだけを表示します。候補に採用するのは、出典URLと提供元の募集確認日時を持ち、確認から1時間以内のデータです。不明・未来日時・募集終了・古いデータは除外し、表示中も30秒ごとに期限を再判定します。確認日時は提供元の申告であり、リアルタイム空室の保証ではありません。掲載元で最終確認してください。
 
@@ -89,7 +91,8 @@ BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
 都営の空き住戸PDFは自動転載許諾を確認できないため**公式リンクのみ**です。空き住戸数・確認済み募集は別レイヤーを持ち、許諾済みフィードを設定したときだけ実データを表示します。UR/JKKの実データAPIや全国全自治体の網羅取得は未接続です。利用条件・接続範囲・フィード形式は [公的住宅データ](docs/public-housing.md) を参照してください。
 
 - `index.html`: レスポンシブ地図UI（依存ライブラリなし）、地点A/B、距離円、外部検索、候補保存、CSV
-- `server.py`: localhost専用HTTPサーバー、Bing RSS/Brave検索、正規化と出典、任意Decisions API分類
+- `shell.js` / `shell.css`: map/chat layout, labelled navigation, progressive disclosure, modal focus and result tabs
+- `server.py`: localhost専用HTTPサーバー、Bing RSS検索、正規化と出典、任意Decisions API分類
 - `listing_feed.py`: 許可済み募集データの正規化、鮮度・出典・位置精度の確認
 - `property_core.js`: 保存候補と取り込み候補に共通の費用・不明値・距離・通勤時間の判定
 - `public_housing.py` / `public_housing.js`: 許諾確認済みオープンCSVの取得・正規化、公的資料レイヤーと地図・共通条件の接続
@@ -110,7 +113,7 @@ BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
 
 - `GET /api/session`: create or restore the cookie-bound search session (no API key)
 - `POST /api/session`: update with `{"expected_revision":0,"criteria":{"max_price_yen":100000}}`; returns 409 if another update has already advanced the revision
-- `GET /api/session/schema`: versioned criteria and partial-update schemas (schema version 2)
+- `GET /api/session/schema`: versioned criteria and partial-update schemas (schema version 4)
 - `POST /api/chat`: submit `{request_id,message,expected_revision,language}`; returns a persisted running session immediately
 - `GET /api/session`: poll progress, messages, memory and result snapshots; resumes interrupted workers
 - `POST /api/chat/resume`: resume an uncertain turn with its `request_id`
@@ -122,10 +125,11 @@ BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
 ```bash
 python3 -m unittest discover -s tests -v
 python3 filter_core.py
+npm ci --ignore-scripts
 node --test tests/*.cjs
 ```
 
-地図のホイール操作の回帰テストには Node.js 18+ が必要です。アプリの起動には不要です。
+フロントエンド検証は Node.js 22+ と開発専用の LinkeDOM を使います。実際のHTMLから画面を組み立て、移設した操作・条件同期・タブ・フォーカス・AI未接続時の手動検索を検証します。DOMテストはブラウザーのレイアウト検証を代替しません。Node/npmはアプリ起動には不要です。API契約テストは通信モックであり、新しい分類ツールの課金API実呼び出しは未検証です。
 
 ## 今後の優先度
 

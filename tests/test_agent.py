@@ -37,6 +37,28 @@ class AgentToolsTest(unittest.TestCase):
         self.assertEqual(self.store.get(self.token)['revision'], 2)
         self.assertEqual(len(self.store.get(self.token)['history']), 1)
 
+    def test_optional_decisions_tool_uses_retrieved_text_only_and_replays(self):
+        result = self.execute('search_listings')
+        listing = result['items'][0]
+        before = self.store.get(self.token)
+        args = {'result_set_id': result['id'], 'listing_id': listing['id']}
+        self.assertEqual(self.execute('classify_listing_page', args)['error'], 'classification_unavailable')
+        with patch.object(self.agent, 'classifier', return_value={'choice': 'detail', 'confidence': .9, 'is_verified': False}) as classify:
+            first = self.execute('classify_listing_page', args, 'classify_one')
+            self.assertEqual(first, self.execute('classify_listing_page', args, 'classify_one'))
+            classify.assert_called_once_with(listing['title'], listing['description'])
+            self.execute('classify_listing_page', {**args, 'listing_id': 'invented'})
+            self.assertEqual(classify.call_count, 1)
+        after = self.store.get(self.token)
+        self.assertFalse(first['classification']['is_verified'])
+        self.assertEqual(after['criteria'], before['criteria'])
+        self.assertEqual(after['result_sets'], before['result_sets'])
+
+    def test_search_does_not_automatically_call_decisions(self):
+        with patch.object(self.agent, 'classifier') as classify:
+            self.execute('search_listings')
+            classify.assert_not_called()
+
     def test_manual_edits_are_not_silently_overwritten(self):
         self.store.update(self.token, {'expected_revision': 1, 'criteria': {'layout': '2K'}})
         result = self.execute('update_search', {'criteria': {'max_price_yen': 100000}})
