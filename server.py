@@ -24,7 +24,7 @@ import os, json, re, math, threading, time
 from listing_feed import normalize_feed
 from session_store import SessionStore, RevisionConflict, CRITERIA_SCHEMA, UPDATE_SCHEMA, SCHEMA_VERSION, public_session
 from home_agent import HomeAgent, AgentError
-from suumo_bridge import SuumoError, search as search_suumo, validate_search, validate_filters
+from suumo_bridge import SuumoError, search as search_suumo, validate_search, validate_filters, RENT_STEPS
 
 BASE = Path(__file__).resolve().parent
 
@@ -335,10 +335,56 @@ def agent_listings(place, kind, details, provider='auto'):
     if provider == 'feed' or (provider == 'auto' and (FEED_PATH or FEED_URL)):
         result = load_feed()
         result['results'] = [r for r in result['results'] if r['kind'] == kind]
+        result['inventory_status'] = 'configured_verified_feed'
         return result
-    result = fetch_listings(place, kind, details, provider)
-    result['discovery_links'] = [{'url': r['url'], 'source': r['source']} for r in result.pop('results', [])]
-    result['results'] = []
+    # Discovery is useful even without verified vacancy inventory. Keep leads separate
+    # from matching candidates and never reinterpret fetched_at as verified_at.
+    result = {'results': [], 'leads': [], 'discovery_links': [], 'errors': [],
+              'provider': 'discovery', 'inventory_status': 'no_verified_feed_configured'}
+    origin = details.get('origin', {})
+    if provider == 'auto' and kind == 'rent' and origin:
+        try:
+            radius = min(details.get('radius_km', 2), 2)
+            lat, lon, radius = validate_search(origin['lat'], origin['lon'], radius)
+            budget = details.get('max_price_yen')
+            # The upstream slider is coarse. Search the next supported step and
+            # reject known over-budget subtotals locally, without changing criteria.
+            cap = next((x for x in RENT_STEPS if x * 10000 >= budget), None) if budget is not None else None
+            layout = details.get('layout') or None
+            validate_filters(cap, layout)
+            raw = search_suumo(lat, lon, radius, cap, layout)
+            result['coverage'] = {'source': 'SUUMO map prototype', 'origin': origin,
+                                  'requested_radius_km': details.get('radius_km'), 'query_radius_km': radius,
+                                  'max_inspected': 5, 'within_radius_verified': False,
+                                  'citywide': False, 'supports_detached_house_filter': False}
+            for row in raw['results']:
+                known = row.get('known_monthly_subtotal_jpy')
+                # Even when one fee is missing, known rent alone is a lower bound.
+                lower_bound = (row.get('rent_jpy') or 0) + (row.get('management_fee_jpy') or 0)
+                if budget is not None and lower_bound > budget: continue
+                result['leads'].append({
+                    'title': 'SUUMO ' + row['source_id'], 'url': row['source_url'], 'source': 'SUUMO',
+                    'kind': 'rent', 'discovery_only': True, 'availability_status': 'unknown',
+                    'last_verified_at': None, 'retrieved_at': raw['fetched_at'],
+                    'lat': None, 'lon': None, 'geo_precision': 'unknown',
+                    'known_monthly_subtotal_yen': known,
+                    'extracted': {'price': row['rent_jpy']/10000 if row['rent_jpy'] is not None else None,
+                                  'management_fee_yen':row['management_fee_jpy'], 'mandatory_fee_yen':None,
+                                  'area':row['area_sqm'], 'layout':row['layout'], 'address':row['address']},
+                    'limitations': ['availability unknown', 'other monthly fees unknown', 'exact location and radius unverified',
+                                    'building type and other requested requirements unverified']})
+        except (ValueError, KeyError, TypeError):
+            result['errors'].append('SUUMO prototype supports Tokyo origins only and selected layouts; no citywide inventory is available.')
+        except SuumoError as exc:
+            result['errors'].append('SUUMO discovery unavailable: ' + exc.code)
+    if not result['leads']:
+        discovered = fetch_listings(place, kind, details, provider)
+        result['discovery_links'] = [{'url': r['url'], 'source': r['source']} for r in discovered.get('results', [])]
+        result['errors'].extend(discovered.get('errors', []))
+    # Always give a working source search path, even when an index returns nothing.
+    query = ' '.join(str(x) for x in (place, '賃貸' if kind == 'rent' else '売買', details.get('layout'), details.get('keywords')) if x)
+    result['source_search_links'] = [{'source': name, 'url': 'https://www.google.com/search?' + urlencode({'q': 'site:' + host + ' ' + query})}
+                                     for name, host in [('SUUMO', 'suumo.jp'), ("HOME’S", 'homes.co.jp'), ('at home', 'athome.co.jp')]]
     return result
 
 

@@ -443,13 +443,24 @@ window.mountSearchWorkspace({
   visibleResults: () => {
     const resultSet=window.searchWorkspace?.session.snapshot?.result_sets?.at(-1);
     if(!resultSet)return {};
-    const ids=[...document.querySelectorAll('#externalResults article h4 a')].map(a=>resultSet.items.find(item=>item.url===a.getAttribute('href'))?.id).filter(Boolean);
+    const ids=[...document.querySelectorAll('#externalResults article h4 a, #discoveryLinks article h4 a')].map(a=>resultSet.items.find(item=>item.url===a.getAttribute('href'))?.id).filter(Boolean);
     return {result_set_id:resultSet.id,visible_listing_ids:ids};
   },
   applyAgentResults: resultSet => {
-    propertyPageHits=resultSet?structuredClone(resultSet.items):[];
+    propertyPageHits=resultSet?structuredClone(resultSet.items.filter(item=>!item.discovery_only)):[];
     for(const item of propertyPageHits)if(item.commute_mode===$('commuteMode').value)for(const [i,origin]of (item.commute_origins||[]).entries())if(item.commute?.[i])commuteResults.set(routeKey(item,origin),item.commute[i]);
     $('discoveryLinks').replaceChildren();
+    for(const item of resultSet?.items.filter(item=>item.discovery_only)||[]){
+      const card=makeEl('article','external-item');const title=makeEl('h4');title.append(makeLink(item.title,item.url));card.append(title);
+      card.append(makeEl('p','listing-uncertain',t('未確認の候補・条件一致ではありません')));
+      const x=item.extracted||{};
+      if(x.price!=null)card.append(makeEl('p','listing-price',t('家賃：¥{0}/月',[Math.round(x.price*10000).toLocaleString()])));
+      if(x.management_fee_yen!=null)card.append(makeEl('p','muted',t('管理費：¥{0}/月',[x.management_fee_yen.toLocaleString()])));
+      card.append(makeEl('p','', [x.layout, x.area==null?'':x.area+'㎡',x.address].filter(Boolean).join(' · ')));
+      card.append(makeEl('p','listing-uncertain',t('空室・その他費用・物件種別・正確な位置は未確認です。掲載元で確認してください。')));
+      $('discoveryLinks').append(card);
+    }
+    for(const link of resultSet?.source_search_links||[])$('discoveryLinks').append(makeLink(t('{0}で検索',[link.source]),link.url));
     for(const link of resultSet?.discovery_links||[])if(/^https:\/\//.test(link.url))$('discoveryLinks').append(makeLink(t('最新情報は掲載元で確認：')+link.source,link.url));
     renderExternalPages();renderSoon();
   },

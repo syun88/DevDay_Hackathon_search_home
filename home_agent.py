@@ -64,7 +64,16 @@ user choosing that fallback. A cat requires specific cat permission; generic pet
 Interpret corrections as replacements and keep unrelated conditions. Never silently raise a budget
 or relax required filters; offer alternatives if no results. 'Cheaper' can sort by price unless the
 user gives a new budget. Use undo_search to undo the last criteria edit.
-Use tools for real data and calculations. Search-engine results are discovery links ONLY, never property records or evidence of price/availability. Listing records require a permitted feed/import with source-confirmed availability and verification within the last hour. A confirmed source record does not guarantee future availability. Map buildings are not listings. Unknown rent/fees/coordinates/pet policy
+Use tools for real data and calculations. Search-engine results are discovery links ONLY, never property records or evidence of price/availability.
+search_listings also returns live SUUMO discovery leads when supported. Show useful leads as short bullet lists with source links (the chat renderer does not support tables),
+known rent/management/subtotal and unknown fees/availability, never as confirmed matches. A discovery_only
+record is a lead, not a verified match, even if a supplied field meets a requirement. Do not discard all leads
+merely because vacancy is unknown. If no_verified_feed_configured, say this app has no verified inventory
+connected, not that Tokyo has zero suitable homes. Use actual coverage: the prototype inspects at most five
+records in a bounded Tokyo map query, not all Tokyo, and even radius inclusion is unverified. It cannot filter
+for detached houses. Explain this if requested; ask consequential property-type clarification before claiming
+that type was searched. When no leads exist, offer source_search_links and explain any source errors.
+Never claim all monthly fees, pet permission, house type or distance are verified for these discovery leads. Listing records require a permitted feed/import with source-confirmed availability and verification within the last hour. A confirmed source record does not guarantee future availability. Map buildings are not listings. Unknown rent/fees/coordinates/pet policy
 must remain unknown. No record is a verified match solely because a snippet suggests it. A mismatched record must never be counted or recommended as a matching candidate; show it only as an explicitly labelled alternative. Do not
 invent properties, source URLs, prices, commute times, availability or neighborhood facts.
 Explain matches/tradeoffs only with the supplied evidence and source URLs. Distances are straight-line
@@ -160,6 +169,8 @@ def fresh_listing(item):
 def evidence(item, criteria):
     criteria = {**DEFAULT_CRITERIA, **criteria}
     x = item.get('extracted', {})
+    if item.get('discovery_only'):
+        return {'status': 'unverified', 'mismatches': [], 'unknown': item.get('limitations', ['availability and requirements unverified'])}
     mismatches, unknown = [], []
     if not fresh_listing(item): mismatches.append('verification / availability expired or unknown')
     kind = item.get('kind')
@@ -253,7 +264,7 @@ class HomeAgent:
                 raise RevisionConflict(session)
             if len(session['conversation']) >= 200:
                 raise AgentError('conversation_limit')
-            if session['_agent'].get('session_id') and session['_agent'].get('config_version') != 3:
+            if session['_agent'].get('session_id') and session['_agent'].get('config_version') != 4:
                 session['_agent'].setdefault('previous_sessions', []).append(session['_agent'].pop('session_id'))
             session['conversation'].append({'id': request_id, 'role': 'user', 'text': payload['message'].strip(),
                                             'created_at': datetime.now(timezone.utc).isoformat()})
@@ -305,7 +316,7 @@ class HomeAgent:
                     if s['chat'].get('request_id') != request_id or s['chat']['status'] != 'running':
                         raise AgentError('cancelled')
                     s['_agent']['session_id'] = provider_id
-                    s['_agent']['config_version'] = 3
+                    s['_agent']['config_version'] = 4
                     s['chat']['submitted'] = True
                 try:
                     self.store.mutate(session_id, attach)
@@ -431,7 +442,7 @@ class HomeAgent:
                 keywords = c['listing_keywords'] + (' ペット可' if c['pets'] else '') + (' 駐車場' if c['parking'] else '')
                 if c['max_price_yen'] is not None:
                     keywords += ' ' + str(c['max_price_yen'] / 10000) + '万円以下'
-                external = self.search(place, c['property_type'] or 'rent', {'layout': c['layout'], 'keywords': keywords.strip()}, c['listing_provider'])
+                external = self.search(place, c['property_type'] or 'rent', {'layout': c['layout'], 'keywords': keywords.strip(), 'origin': c['origin_a'], 'radius_km': c['radius_a_km'], 'max_price_yen': c['max_price_yen']}, c['listing_provider'])
                 for item in [x for x in external.get('results', []) if x.get('lat') is None and x.get('extracted', {}).get('address')][:3]:
                     locations = self.geocoder(item['extracted']['address'])
                     if locations:
@@ -515,7 +526,7 @@ class HomeAgent:
             if original_criteria != s['criteria']:
                 return {'error': 'stale_revision', 'note': 'Criteria changed during search. Search again.'}
             items = []
-            for item in external.get('results', [])[:30]:
+            for item in (external.get('results', []) + external.get('leads', []))[:30]:
                 item = deepcopy(item)
                 item['id'] = 'listing_' + sha256(item['url'].encode()).hexdigest()[:16]
                 item['match'] = evidence(item, s['criteria'])
@@ -525,10 +536,11 @@ class HomeAgent:
             elif s['criteria']['sort'] == 'area':
                 items.sort(key=lambda item: -(item.get('extracted', {}).get('area') or 0))
             result = {'id': 'results_' + uuid4().hex[:16], 'criteria': deepcopy(s['criteria']),
+                      'inventory_status': external.get('inventory_status'), 'coverage': external.get('coverage'), 'source_search_links':external.get('source_search_links', []),
                       'items': items, 'discovery_links': external.get('discovery_links', []), 'provider': external.get('provider'), 'errors': external.get('errors', []),
                       'created_at': datetime.now(timezone.utc).isoformat(),
                       'note': 'Discovery links contain no verified property data. Source records expire after one hour; unknown requirements are not confirmed. Road commute requires get_commute or the manual route lookup.',
-                      'counts': {'retrieved': len(items), 'mismatched': sum(x['match']['status'] == 'mismatch' for x in items), 'confirmed': sum(x['match']['status'] == 'confirmed' for x in items)}}
+                      'counts': {'retrieved': len(items), 'leads': sum(bool(x.get('discovery_only')) for x in items), 'mismatched': sum(x['match']['status'] == 'mismatch' for x in items), 'confirmed': sum(x['match']['status'] == 'confirmed' for x in items)}}
             s['result_sets'] = (s['result_sets'] + [result])[-5:]
             return result
         if name in ('compare_listings', 'save_listing'):

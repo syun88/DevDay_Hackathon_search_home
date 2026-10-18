@@ -145,7 +145,7 @@ window.mountHomeChat = ({session, adapter}) => {
     if(token!==lastResults){adapter.applyAgentResults(isCurrent?latest:null);lastResults=token;}
     if(!latest)setText($('listingsStatus'),()=>t('掲載ページを検索できます。'));
     if(latest){
-      setText($('listingsStatus'),()=>isCurrent?t('{0}件の掲載ページを取得。条件・空室は掲載元で確認してください。',[latest.items.length]):t('条件が変わりました。現在の条件で再検索してください。'));
+      setText($('listingsStatus'),()=>isCurrent?t('確認済み条件一致：{0}件・未確認の候補：{1}件',[latest.counts?.confirmed||0,latest.counts?.leads||0]):t('条件が変わりました。現在の条件で再検索してください。'));
     }
     if(pending&&s.conversation?.some(m=>m.id===pending.request_id))rememberSubmission(null);
   }

@@ -73,6 +73,20 @@ class AgentToolsTest(unittest.TestCase):
         self.execute('remove_saved_listing', {'listing_id': listing['id']})
         self.assertEqual(self.store.get(self.token)['saved_candidates'], [])
 
+    def test_discovery_leads_render_as_references_without_becoming_verified_matches(self):
+        item = self.raw['results'].pop()
+        item['discovery_only'] = True
+        item['limitations'] = ['availability unknown', 'mandatory monthly fees unknown']
+        self.raw.update(leads=[item], inventory_status='no_verified_feed_configured', source_search_links=[{'source':'SUUMO','url':'https://www.google.com/search?q=suumo'}])
+        result = self.execute('search_listings')
+        self.assertEqual(result['counts']['leads'],1)
+        self.assertEqual(result['counts']['confirmed'],0)
+        self.assertEqual(result['items'][0]['match']['status'],'unverified')
+        self.assertEqual(result['inventory_status'],'no_verified_feed_configured')
+        saved = self.execute('save_listing', {'result_set_id':result['id'], 'listing_id':result['items'][0]['id']})
+        self.assertTrue(saved['saved']['discovery_only'])
+        self.assertEqual(saved['saved']['match']['status'],'unverified')
+
     def test_road_routes_cover_both_origins_and_are_invalidated_by_mode_changes(self):
         from datetime import datetime, timezone
         item = self.raw['results'][0]

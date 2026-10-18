@@ -2,6 +2,13 @@
 (() => {
 'use strict';
 const english = {
+  '未確認の候補・条件一致ではありません': 'Unverified lead · requirements not confirmed',
+  '家賃：¥{0}/月': 'Rent: ¥{0}/month',
+  '管理費：¥{0}/月': 'Management fee: ¥{0}/month',
+  '空室・その他費用・物件種別・正確な位置は未確認です。掲載元で確認してください。': 'Availability, other fees, building type and exact location are unverified. Check the source.',
+  '{0}で検索': 'Search on {0}',
+  '確認済み条件一致：{0}件・未確認の候補：{1}件': 'Confirmed matches: {0} · Unverified leads: {1}',
+
   "東京駅": "Tokyo Station",
   "地点A：": "Point A: ",
   "地点B：": "Point B: ",

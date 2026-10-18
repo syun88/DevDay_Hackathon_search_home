@@ -123,3 +123,64 @@ class SuumoHttpTest(unittest.TestCase):
             self.assertEqual(server._suumo_cache, {})
 
 if __name__=='__main__': unittest.main()
+
+
+class AgentDiscoveryTest(unittest.TestCase):
+    def details(self, budget=300000):
+        return {'origin': {'name':'東京駅', 'lat':35.681236, 'lon':139.767125},
+                'radius_km':3, 'layout':'', 'keywords':'', 'max_price_yen':budget}
+
+    def raw(self, rent=165000, management=10000):
+        return {'fetched_at':'2026-10-18T00:00:00+00:00', 'results':[
+            {'source_id':'100123456789', 'source_url':'https://suumo.jp/chintai/bc_100123456789/',
+             'rent_jpy':rent, 'management_fee_jpy':management,
+             'known_monthly_subtotal_jpy':rent+management if management is not None else None,
+             'area_sqm':35, 'layout':'1LDK', 'address':'東京都千代田区'}]}
+
+    def test_no_feed_returns_real_source_leads_without_claiming_verified_inventory(self):
+        with patch.object(server,'FEED_PATH',''),patch.object(server,'FEED_URL',''),patch.object(server,'search_suumo',return_value=self.raw()) as search,patch.object(server,'fetch_listings') as index:
+            result=server.agent_listings('Tokyo','rent',self.details())
+        self.assertEqual(result['results'], [])
+        self.assertEqual(len(result['leads']),1)
+        self.assertTrue(result['leads'][0]['discovery_only'])
+        self.assertIsNone(result['leads'][0]['last_verified_at'])
+        self.assertIsNone(result['leads'][0]['extracted']['mandatory_fee_yen'])
+        self.assertEqual(result['inventory_status'],'no_verified_feed_configured')
+        self.assertFalse(result['coverage']['citywide'])
+        self.assertEqual(result['coverage']['requested_radius_km'],3)
+        self.assertEqual(result['coverage']['query_radius_km'],2)
+        self.assertEqual(search.call_args.args[3],30)
+        index.assert_not_called()
+
+    def test_known_subtotal_over_budget_is_not_offered_as_a_lead(self):
+        with patch.object(server,'FEED_PATH',''),patch.object(server,'FEED_URL',''),patch.object(server,'search_suumo',return_value=self.raw(290000,20000)),patch.object(server,'fetch_listings',return_value={'results':[]}):
+            result=server.agent_listings('Tokyo','rent',self.details())
+        self.assertEqual(result['leads'],[])
+        self.assertEqual(len(result['source_search_links']),3)
+
+    def test_missing_management_fee_does_not_hide_known_rent_or_invent_total(self):
+        with patch.object(server,'FEED_PATH',''),patch.object(server,'FEED_URL',''),patch.object(server,'search_suumo',return_value=self.raw(165000,None)):
+            result=server.agent_listings('Tokyo','rent',self.details())
+        self.assertEqual(result['leads'][0]['extracted']['price'],16.5)
+        self.assertIsNone(result['leads'][0]['known_monthly_subtotal_yen'])
+
+    def test_source_failure_and_empty_index_still_offer_source_searches(self):
+        with patch.object(server,'FEED_PATH',''),patch.object(server,'FEED_URL',''),patch.object(server,'search_suumo',side_effect=server.SuumoError('transport','unavailable')),patch.object(server,'fetch_listings',return_value={'results':[]}):
+            result=server.agent_listings('Tokyo','rent',self.details())
+        self.assertEqual(result['leads'],[])
+        self.assertIn('transport',result['errors'][0])
+        self.assertEqual(len(result['source_search_links']),3)
+
+    def test_outside_tokyo_never_moves_search_to_tokyo(self):
+        details=self.details();details['origin'].update(lat=34.69,lon=135.50)
+        with patch.object(server,'FEED_PATH',''),patch.object(server,'FEED_URL',''),patch.object(server,'search_suumo') as search,patch.object(server,'fetch_listings',return_value={'results':[]}):
+            result=server.agent_listings('Osaka','rent',details)
+        search.assert_not_called()
+        self.assertTrue(result['errors'])
+        self.assertTrue(all('Osaka' in link['url'] for link in result['source_search_links']))
+
+    def test_permitted_feed_still_takes_priority(self):
+        with patch.object(server,'FEED_PATH','configured'),patch.object(server,'load_feed',return_value={'results':[{'kind':'rent'}]}),patch.object(server,'search_suumo') as search:
+            result=server.agent_listings('Tokyo','rent',self.details())
+        self.assertEqual(result['inventory_status'],'configured_verified_feed')
+        search.assert_not_called()
