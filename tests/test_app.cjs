@@ -48,9 +48,9 @@ function app({rangeMode='distance',geolocation,secureContext=true}={}){
    if(url==='/api/route')body={status:'ok',duration_seconds:600,distance_meters:600,checked_at:new Date().toISOString(),source:'TEST ONLY route'};
    if(url.startsWith('/api/listings?'))body={results:[],discovery_links:[{url:'https://suumo.jp/test-only',source:'suumo.jp'}],provider:'bing'};
    if(url.startsWith('/api/public-housing?'))body={records:context.publicRecords,municipalities:['千代田区'],total:context.publicRecords.length,ended_excluded:0,next_offset:null};
-   if(url.startsWith('/api/walking-area?')){
+   if(url.startsWith('/api/walking-area?')||url.startsWith('/api/transit-area?')){
     const params=new URLSearchParams(url.split('?')[1]);
-    body={metric:params.has('distance_km')?'distance':'time',
+    body={stations:[{name:'TEST STATION',lat:35.681,lon:139.767}],rail_network:{type:'MultiLineString',coordinates:[[[139.767,35.681],[139.77,35.69]]]},coverage_radius_km:8,metric:params.has('distance_km')?'distance':'time',
      geometry:{type:'Polygon',coordinates:[[[139.75,35.67],[139.79,35.67],[139.79,35.70],[139.75,35.70],[139.75,35.67]]]},
      network:{type:'MultiLineString',coordinates:[[[139.767,35.681],[139.768,35.681]]]},
      ...(params.has('distance_km')?{distance_km:Number(params.get('distance_km'))}:{minutes:Number(params.get('minutes'))})};
@@ -277,4 +277,21 @@ test('invalid geolocation coordinates and synchronous API failures leave point A
  assert.match(harness.element('currentLocationStatus').textContent,/取得できません/);
  assert.equal(harness.element('locateMe').disabled,false);
  assert.equal(harness.storage.has('property_map_v2'),false);
+});
+
+test('train and walking is separate, keeps time preference and renders roads without filling water', async () => {
+ const h=app({rangeMode:'transit'});await h.settleWalking();
+ assert.ok(h.requests.some(r=>r.url.startsWith('/api/transit-area?')&&r.url.includes('minutes=30')));
+ assert.equal(h.element('radiusLabelA').textContent,'電車＋徒歩 約30分');
+ assert.ok(h.element('walkingModelHint').textContent.includes('時刻表・待ち時間'));
+ assert.ok(h.element('walkingAreaReference').textContent.includes('8km'));
+ assert.ok(h.element('overlay').innerHTML.includes('data-transit-rail'));
+ assert.ok(h.element('overlay').innerHTML.includes('fill="none"'));
+ assert.equal(h.element('overlay').innerHTML.includes('data-walking-outline'),false);
+ h.element('radiusA').oninput({target:{value:'45'}});await h.settleWalking();
+ h.element('rangeMode').value='walk';h.element('rangeMode').onchange();await h.settleWalking();
+ assert.equal(h.element('radiusLabelA').textContent,'徒歩15分');
+ h.element('rangeMode').value='transit';h.element('rangeMode').onchange();await h.settleWalking();
+ assert.equal(h.element('radiusLabelA').textContent,'電車＋徒歩 約45分');
+ h.element('rangeMode').value='distance';h.element('rangeMode').onchange();h.flush();
 });

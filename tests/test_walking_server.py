@@ -253,6 +253,26 @@ class WalkingHTTPTest(unittest.TestCase):
                         handler.respond(code, {'error': 'test'})
                         self.assertTrue(handler.close_connection)
 
+    def test_transit_endpoint_validates_and_keeps_walking_separate(self):
+        with patch.object(server.transit, 'fetch_area', return_value={'metric':'transit'}) as fetch:
+            with urlopen(self.base + '/api/transit-area?lat=35&lon=139&minutes=30') as response:
+                self.assertEqual(json.load(response), {'metric':'transit'})
+            fetch.assert_called_once_with(35.0,139.0,30)
+        for query in ('lat=35&lon=139&minutes=90', 'lat=35&lon=139&distance_km=1', 'lat=35&lon=139&minutes=30&minutes=15'):
+            with patch.object(server.transit, 'fetch_area') as fetch:
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(self.base + '/api/transit-area?' + query)
+                self.assertEqual(error.exception.code,400)
+                fetch.assert_not_called()
+        with patch.object(server.transit, 'fetch_area', side_effect=TimeoutError()):
+            with self.assertRaises(HTTPError) as error:
+                urlopen(self.base + '/api/transit-area?lat=35&lon=139&minutes=30')
+            self.assertEqual(error.exception.code,504)
+        with patch.object(server.transit, 'fetch_area', side_effect=server.HTTPException('incomplete body')):
+            with self.assertRaises(HTTPError) as error:
+                urlopen(self.base + '/api/transit-area?lat=35&lon=139&minutes=30')
+            self.assertEqual(error.exception.code,502)
+
     def test_http_distance_request_and_ambiguous_limits(self):
         expected = {'metric': 'distance', 'distance_km': 1, 'geometry': contour()['features'][0]['geometry']}
         with patch.object(server, 'fetch_walking_area', return_value=expected) as fetch:

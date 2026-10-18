@@ -183,7 +183,7 @@ function mapContext() {
   const state = {a: {lat: 0, lon: 0}, b: {lat: 0, lon: 0}, ra: 10, rb: 10, properties: []};
   let walk = true;
   const context = vm.createContext({
-    state, entries, controls, propertyCore, commuteResults: new Map(), walkingMode: () => walk, walkingAreas: {get: which => entries[which]},
+    state, entries, controls, propertyCore, commuteResults: new Map(), transitMode: () => false, walkingMode: () => walk, walkingAreas: {get: which => entries[which]},
     requiredWalkingAnchors: () => controls.restrictB.checked ? ['a', 'b'] : ['a'],
     $: id => id === 'map' ? {getBoundingClientRect: () => ({width: 800, height: 600})} : controls[id], window: {homeWalking: walking},
     dist: (a, b) => Math.hypot(a.lon - b.lon, a.lat - b.lat), t: key => key,
@@ -247,3 +247,10 @@ test('walking rendering never fills the contour or falls back to circles; distan
   assert.equal(context.rangeSVG('a', '#2563eb'), '<circle/>');
   assert.equal(context.withinRange({lat: 2, lon: 2}), true);
 });
+
+ test('transit candidate proximity uses reached road segments, not a bounding polygon', () => {
+ const road={type:'MultiLineString',coordinates:[[[139,35],[139.01,35]]]};
+ assert.equal(walking.nearNetwork(road,{lat:35.0002,lon:139.005},.05),true);
+ assert.equal(walking.nearNetwork(road,{lat:35.002,lon:139.005},.05),false);
+ assert.equal(walking.nearNetwork(road,{lat:35,lon:139.02},.05),false);
+ });

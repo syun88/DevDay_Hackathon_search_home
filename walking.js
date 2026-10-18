@@ -58,6 +58,19 @@
     }).join(' ')).join(' ');
   }
 
+  function nearNetwork(network, point, toleranceKm) {
+    if (!Number.isFinite(point?.lat) || !Number.isFinite(point?.lon)) return false;
+    const scale = Math.cos(point.lat * RAD);
+    const relative = ([lon, lat]) => [(((lon-point.lon+540)%360)-180)*RAD*EARTH_KM*scale, (lat-point.lat)*RAD*EARTH_KM];
+    for (const line of network?.coordinates || []) for (let i=1;i<line.length;i++) {
+      const [ax,ay]=relative(line[i-1]),[bx,by]=relative(line[i]);
+      const dx=bx-ax,dy=by-ay,den=dx*dx+dy*dy;
+      const ratio=den?Math.max(0,Math.min(1,-(ax*dx+ay*dy)/den)):0;
+      if (Math.hypot(ax+ratio*dx,ay+ratio*dy)<=toleranceKm) return true;
+    }
+    return false;
+  }
+
   function networkLengthKm(network) {
     let total = 0;
     for (const line of network?.coordinates || []) for (let i = 1; i < line.length; i++) {
@@ -99,7 +112,7 @@
         entries.delete(name);
       }
       for (const [name, request] of Object.entries(requests)) {
-        const key = JSON.stringify([request.lat, request.lon, request.minutes ?? null, request.distance_km ?? null]);
+        const key = JSON.stringify([request.lat, request.lon, request.minutes ?? null, request.distance_km ?? null, request.mode ?? null]);
         const previous = entries.get(name);
         if (!force && previous?.key === key) continue;
         if (previous) cancel(previous);
@@ -112,8 +125,13 @@
             if (entries.get(name) !== entry) return;
             if (!polygons(result.geometry).length) throw Error('Missing walking polygon');
             if (result.network?.type !== 'MultiLineString' || !result.network.coordinates.length) throw Error('Missing walking network');
+            if (request.mode === 'transit' && (result.rail_network?.type !== 'MultiLineString'
+                || !Array.isArray(result.stations) || !Number.isFinite(result.coverage_radius_km))) throw Error('Missing transit data');
             entry.geometry = result.geometry;
             entry.network = result.network;
+            entry.rail_network = result.rail_network;
+            entry.stations = result.stations;
+            entry.coverage_radius_km = result.coverage_radius_km;
             entry.status = 'ready';
           } catch (error) {
             if (entries.get(name) !== entry) return;
@@ -129,5 +147,5 @@
     return {update, get: name => entries.get(name)};
   }
 
-  return {contains, areaKm2, svgPath, networkPath, networkLengthKm, searchRadiusKm, bounds, createAreaLoader};
+  return {contains, areaKm2, svgPath, networkPath, networkLengthKm, nearNetwork, searchRadiusKm, bounds, createAreaLoader};
 });

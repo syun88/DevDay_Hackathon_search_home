@@ -75,6 +75,8 @@ window.mountSearchWorkspace = adapter => {
     $('criteriaChips').replaceChildren();
     addChip(t('起点A：{0}', [c.origin_a.name]), () => openAdvanced('queryA'), 'origin_a');
     if (c.origin_b) addChip(t('起点B：{0}', [c.origin_b.name]), () => openAdvanced('queryB'), 'origin_b');
+    const rangeLabel = adapter.mapRangeLabel?.();
+    if (rangeLabel) addChip(rangeLabel, () => openAdvanced('rangeMode'), 'map_range');
     addChip(t('Aから{0}km以内', [c.radius_a_km]), () => edit('radius_a_km'), 'radius_a_km');
     if (c.origin_b) addChip(c.restrict_b ? t('Bから{0}km以内', [c.radius_b_km]) : t('Bの距離制限なし'), () => openAdvanced('restrictB'), 'restrict_b');
     addChip(c.property_type === 'rent' ? t('賃貸') : c.property_type === 'sale' ? t('売買') : t('種別：すべて'), () => edit('property_type'), 'property_type');
@@ -169,7 +171,7 @@ window.mountSearchWorkspace = adapter => {
   });
   window.addEventListener('pagehide', () => session.flush());
   // A stable seam for the next PR's conversational actions.
-  window.searchWorkspace = {session, updateCriteria: patch => session.patch(patch)};
+  window.searchWorkspace = {session, updateCriteria: patch => session.patch(patch), refreshRange: renderChips};
   renderChips();renderStatus();window.mountSearchShell({session,adapter});window.mountMapAgent({session,adapter:adapter.mapInterface});window.mountHomeChat({session, adapter});session.load();
 };
 })();

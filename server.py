@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie, CookieError
+from http.client import HTTPException
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -32,6 +33,7 @@ from listing_details import read_details
 from suumo_bridge import SuumoError, search as search_suumo, validate_search, validate_filters, validate_page, RENT_STEPS, PAGE_SIZE as SUUMO_PAGE_SIZE
 import public_housing
 import web_search
+import transit
 
 BASE = Path(__file__).resolve().parent
 
@@ -914,6 +916,20 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.respond(400, {'error': str(error)})
             except (HTTPError, URLError, OSError, TimeoutError, KeyError, TypeError, StopIteration) as error:
                 return self.respond(502, {'error': '公開データを取得できません: ' + type(error).__name__})
+        if u.path == '/api/transit-area':
+            q = parse_qs(u.query, keep_blank_values=True)
+            try:
+                if set(q) != {'lat', 'lon', 'minutes'} or any(len(v) != 1 for v in q.values()):
+                    raise ValueError('lat, lon, minutes を1つずつ指定してください')
+                parameters = walking_parameters(q['lat'][0], q['lon'][0], q['minutes'][0])
+            except ValueError as exc:
+                return self.respond(400, {'error': str(exc)})
+            try:
+                return self.respond(200, transit.fetch_area(*parameters))
+            except TimeoutError:
+                return self.respond(504, {'error': '鉄道・道路データの取得がタイムアウトしました。しばらく待って再試行してください。'})
+            except (HTTPError, URLError, OSError, HTTPException, EOFError, ValueError, KeyError, TypeError, transit.zlib.error):
+                return self.respond(502, {'error': '鉄道・道路データを取得できません。しばらく待って再試行してください。'})
         if u.path == '/api/walking-area':
             q = parse_qs(u.query, keep_blank_values=True)
             try:
