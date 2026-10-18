@@ -54,11 +54,15 @@ class SearchServerTest(unittest.TestCase):
 
 class FilterTest(unittest.TestCase):
     def test_origin_and_budget(self):
-        unit={'lat':35.681236,'lon':139.767125,'rent_yen':70000,'management_fee_yen':5000}
+        unit={'lat':35.681236,'lon':139.767125,'rent_yen':70000,'management_fee_yen':5000,'mandatory_fee_yen':0}
         origins=[(35.681236,139.767125,2),(35.681236,139.767125,1)]
         self.assertEqual(len(filter_listings([unit],origins,75000,'all')),1)
         self.assertEqual(len(filter_listings([unit],origins,74999,'any')),0)
         self.assertEqual(filter_listings([{**unit,'management_fee_yen':None}],origins,80000),[])
+        self.assertEqual(filter_listings([{**unit,'mandatory_fee_yen':None}],origins,80000),[])
+        self.assertEqual(filter_listings([{**unit,'mandatory_fee_yen':6000}],origins,80000),[])
+        for value in [float('nan'), float('inf'), -1, True, '5000']:
+            self.assertEqual(filter_listings([{**unit,'management_fee_yen':value}],origins,80000),[])
         self.assertLess(haversine_km(35.681236,139.767125,35.69,139.77),2)
         self.assertRaises(ValueError,filter_listings,[unit],origins,80000,'invalid')
 
