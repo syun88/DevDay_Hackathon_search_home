@@ -212,6 +212,59 @@ class AgentAccuracyTest(unittest.TestCase):
         self.assertEqual((result['web_search']['refinement']['status'], result['web_search']['refinement']['code']), ('error', 'rate_limited'))
         self.assertEqual(result['items'], [])
 
+    def test_refinement_can_upgrade_the_same_listing_from_a_link_to_a_map_candidate(self):
+        # A page blocked to the app can be opened by the hosted refinement; do not discard its new evidence.
+        url = HOMES
+        listing = self.row(url, rent=65000, fee=4000)
+        self.rows = [[listing]]
+        self.agent.page_verifier = lambda *args: {'status': 'blocked', 'http_status': 403}
+        self.places = {listing['address']: [{'name': '東京都中央区日本橋浜町三丁目', 'lat': 35.6852, 'lon': 139.7895}]}
+        original = self.agent.web_search
+        def open_on_refinement(query, context='', refine=False):
+            if not refine:
+                return original(query, context)
+            body = {'status': 'completed', 'output': [
+                {'type': 'web_search_call', 'status': 'completed', 'action': {'type': 'search', 'query': query, 'sources': [{'url': url}]}},
+                {'type': 'web_search_call', 'status': 'completed', 'action': {'type': 'open_page', 'url': url}},
+                {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps({'summary': '', 'results': [listing]})}]}]}
+            return web_search.parse(body, query)
+        self.agent.web_search = open_on_refinement
+        result = self.run_search()
+        self.assertEqual([item['url'] for item in result['summary']['exact']], [url])
+        self.assertEqual(result['summary']['exact'][0]['monthly_total_yen'], 69000)
+        self.assertEqual(result['summary']['browse'], [])
+        self.assertEqual(result['summary']['map'], 'queued')
+        self.assertEqual(result['items'][0]['geo_precision'], 'approximate')
+        self.assertEqual(result['web_search']['refinement']['added'], 0)
+        self.assertEqual(self.store.get(self.token)['criteria']['max_price_yen'], CRITERIA['max_price_yen'])
+
+    def test_refinement_does_not_replace_a_checked_listing_with_a_weaker_duplicate(self):
+        self.rows = [[self.row(HOMES)]]
+        self.places = {self.rows[0][0]['address']: [{'name': '東京都中央区日本橋浜町三丁目', 'lat': 35.6852, 'lon': 139.7895}]}
+        checks = iter([
+            {'status': 'ok', 'facts': {field: 'page' for field in ('price', 'management_fee_yen', 'layout', 'area', 'address')}},
+            {'status': 'blocked', 'http_status': 403},
+        ])
+        self.agent.page_verifier = lambda *args: next(checks)
+        result = self.run_search()
+        self.assertEqual([item['url'] for item in result['summary']['exact']], [HOMES])
+        self.assertEqual(result['summary']['map'], 'queued')
+        self.assertEqual(result['web_search']['refinement']['updated'], 0)
+
+    def test_refinement_removes_a_previously_checked_listing_when_the_same_url_is_gone(self):
+        self.rows = [[self.row(HOMES)]]
+        self.places = {self.rows[0][0]['address']: [{'name': '東京都中央区日本橋浜町三丁目', 'lat': 35.6852, 'lon': 139.7895}]}
+        checks = iter([
+            {'status': 'ok', 'facts': {field: 'page' for field in ('price', 'management_fee_yen', 'layout', 'area', 'address')}},
+            {'status': 'gone', 'http_status': 404},
+        ])
+        self.agent.page_verifier = lambda *args: next(checks)
+        result = self.run_search()
+        self.assertEqual(result['summary']['exact'], [])
+        self.assertEqual(result['summary']['browse'], [])
+        self.assertNotIn('map', result['summary'])
+        self.assertEqual((result['items'][0]['tier'], result['items'][0]['lat']), ('excluded', None))
+
     def test_removed_listing_is_ended_and_never_pinned(self):
         url = 'https://realestate.yahoo.co.jp/rent/detail/000001280258befebec72221bdce43e6e3ac1e40b307/'
         self.rows = [[self.row(url, address='東京都中央区月島4')], []]
