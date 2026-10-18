@@ -69,7 +69,7 @@ class AgentToolsTest(unittest.TestCase):
         self.assertEqual(len(self.store.get(self.token)['saved_candidates']), 1)
         compared = self.execute('compare_listings', {'result_set_id': result['id'], 'listing_ids': [listing['id']]})
         self.assertEqual(compared['candidates'][0]['url'], listing['url'])
-        self.assertEqual(listing['match']['status'], 'unverified')
+        self.assertEqual(listing['match']['status'], 'mismatch')
         self.execute('remove_saved_listing', {'listing_id': listing['id']})
         self.assertEqual(self.store.get(self.token)['saved_candidates'], [])
 
@@ -207,10 +207,44 @@ class AgentLifecycleTest(unittest.TestCase):
         criteria = {'max_price_yen': 100000, 'min_area_m2': None, 'max_age_years': None,
                     'layout': '', 'pets': True, 'parking': False}
         flags = evidence({'extracted': {}}, criteria)
-        self.assertEqual(flags['status'], 'unverified')
-        self.assertIn('price', flags['unknown'])
+        self.assertEqual(flags['status'], 'mismatch')
+        self.assertIn('total monthly cost / sale price', flags['unknown'])
         flags = evidence({'extracted': {'price': 15}}, criteria)
         self.assertEqual(flags['status'], 'mismatch')
+
+
+class CurrentListingRulesTest(unittest.TestCase):
+    def record(self):
+        from datetime import datetime, timezone
+        return {'url': 'https://example.com/home', 'kind': 'rent', 'availability_status': 'confirmed',
+                'last_verified_at': datetime.now(timezone.utc).isoformat(), 'lat': 35.681236, 'lon': 139.767125, 'geo_precision': 'exact',
+                'extracted': {'price': 8, 'management_fee_yen': 5000, 'mandatory_fee_yen': 2000}}
+
+    def test_agent_budget_counts_all_monthly_fees_and_unknown_is_not_zero(self):
+        from session_store import DEFAULT_CRITERIA
+        criteria = {**DEFAULT_CRITERIA, 'property_type': 'rent', 'max_price_yen': 87000}
+        item = self.record()
+        self.assertEqual(evidence(item, criteria)['status'], 'confirmed')
+        criteria['max_price_yen'] = 86999
+        self.assertEqual(evidence(item, criteria)['status'], 'mismatch')
+        item['extracted']['mandatory_fee_yen'] = None
+        self.assertEqual(evidence(item, criteria)['status'], 'unverified')
+
+    def test_source_expiry_and_approximate_positions_never_confirm_matches(self):
+        from session_store import DEFAULT_CRITERIA
+        item = self.record(); item['geo_precision'] = 'approximate'
+        self.assertEqual(evidence(item, DEFAULT_CRITERIA)['status'], 'unverified')
+        item['last_verified_at'] = '2000-01-01T00:00:00+00:00'
+        self.assertEqual(evidence(item, DEFAULT_CRITERIA)['status'], 'mismatch')
+
+    def test_prototype_listed_budget_requires_reconfirmation_after_upgrade(self):
+        from session_store import DEFAULT_CRITERIA
+        session = SessionStore.upgrade({'created_at':'2026-01-01', 'schema_version':2, 'revision':4,
+                                       'criteria':{**DEFAULT_CRITERIA, 'max_price_yen':90000}})
+        self.assertIsNone(session['criteria']['max_price_yen'])
+        self.assertEqual(session['memory']['facts']['previous_listed_rent_cap_yen'], '90000')
+        self.assertEqual(session['revision'], 5)
+        self.assertEqual(SessionStore.upgrade(session)['revision'], 5)
 
 
 if __name__ == '__main__':

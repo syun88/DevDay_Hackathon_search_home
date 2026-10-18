@@ -155,7 +155,7 @@ class SessionHTTPTest(unittest.TestCase):
         self.assertEqual(self.request('POST', '/api/session', {'expected_revision': 0}, cookie, 'https://evil.example')[0], 403)
         self.assertEqual(self.request('POST', '/api/session', {'expected_revision': 0})[0], 404)
         self.assertEqual(self.request('POST', '/api/session', {'expected_revision': 0, 'criteria': {'pets': 1}}, cookie)[0], 400)
-        self.assertEqual(self.request('GET', '/api/session/schema')[2]['schema_version'], 2)
+        self.assertEqual(self.request('GET', '/api/session/schema')[2]['schema_version'], 3)
 
     def test_chat_endpoint_is_cookie_bound_and_hides_provider_state(self):
         from home_agent import HomeAgent
