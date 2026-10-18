@@ -18,6 +18,7 @@ from urllib.error import HTTPError, URLError
 from pathlib import Path
 from html import unescape
 from datetime import datetime, timezone
+from contextlib import contextmanager
 import xml.etree.ElementTree as ET
 import os, json, re, math, threading, time
 from listing_feed import normalize_feed
@@ -228,6 +229,17 @@ def walking_network(data, limit, metric='time'):
     return {'type': 'MultiLineString', 'coordinates': lines}
 
 
+@contextmanager
+def walking_request_slot():
+    # Keep queued slider requests from outliving the browser's 120s timeout.
+    if not _walking_lock.acquire(timeout=10):
+        raise TimeoutError('Walking service is busy')
+    try:
+        yield
+    finally:
+        _walking_lock.release()
+
+
 def fetch_walking_area(lat, lon, minutes=None, *, distance_km=None):
     """Pedestrian road-network isochrone. Never substitute a distance circle."""
     global _walking_last_request
@@ -252,7 +264,7 @@ def fetch_walking_area(lat, lon, minutes=None, *, distance_km=None):
         return cached
     # Serialize public-service calls, deduplicate concurrent requests, and cache
     # results so slider changes and repeat visits do not burden the demo service.
-    with _walking_lock:
+    with walking_request_slot():
         cached = cached_area()
         if cached is not None:
             return cached
@@ -278,7 +290,7 @@ def fetch_walking_area(lat, lon, minutes=None, *, distance_km=None):
         }
         data = json.loads(get_text(VALHALLA_URL + '/isochrone?' + urlencode({
             'json': json.dumps(payload, separators=(',', ':')),
-        }), headers=headers, timeout=15))
+        }), headers=headers, timeout=30))
         geometry = walking_geometry(data, limit, metric)
         time.sleep(max(0, 1 - (time.monotonic() - _walking_last_request)))
         _walking_last_request = time.monotonic()
@@ -286,7 +298,7 @@ def fetch_walking_area(lat, lon, minutes=None, *, distance_km=None):
             'json': json.dumps({**payload, 'action': 'isochrone', 'skip_opposites': True,
                                 'dedupe': True, 'expansion_properties': ['duration', 'edge_status'] + (['distance'] if metric == 'distance' else [])},
                                separators=(',', ':')),
-        }), headers=headers, timeout=15, max_bytes=16_000_000))
+        }), headers=headers, timeout=60, max_bytes=16_000_000))
         result = {
             'geometry': geometry, 'network': walking_network(expansion, limit, metric), 'metric': metric,
             **({'minutes': limit} if metric == 'time' else {'distance_km': limit}),
@@ -492,13 +504,17 @@ class Handler(SimpleHTTPRequestHandler):
 
     def respond(self, code: int, obj: dict):
         payload = json.dumps(obj, ensure_ascii=False).encode('utf-8')
-        self.send_response(code)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Cache-Control', 'no-store')
-        self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Content-Length', str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
+        try:
+            self.send_response(code)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('Content-Length', str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+        except (BrokenPipeError, ConnectionResetError):
+            # Range changes and tab closes can disconnect even an error response.
+            self.close_connection = True
 
     def do_POST(self):
         endpoint = urlparse(self.path).path
@@ -594,6 +610,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.respond(400, {'error': str(exc)})
             try:
                 result = fetch_walking_area(*parameters) if 'minutes' in q else fetch_walking_area(*parameters[:2], distance_km=parameters[2])
+            except TimeoutError:
+                return self.respond(504, {'error': '徒歩圏サービスの応答待ちがタイムアウトしました。範囲を小さくするか、しばらく待って再試行してください。'})
             except (HTTPError, URLError, OSError, TimeoutError, ValueError, TypeError):
                 return self.respond(502, {'error': '徒歩圏を取得できません。通信環境を確認して再試行してください。'})
             try:
