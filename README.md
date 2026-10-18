@@ -81,8 +81,10 @@ BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
 ```bash
 python3 -m unittest discover -s tests -v
 python3 filter_core.py
-node --test tests/session_client.test.cjs
+node --test tests/*.cjs
 ```
+
+地図のホイール操作の回帰テストには Node.js 18+ が必要です。アプリの起動には不要です。
 
 ## 今後の優先度
 
