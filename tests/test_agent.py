@@ -7,6 +7,13 @@ from unittest.mock import patch
 from session_store import SessionStore, public_session
 from home_agent import HomeAgent, AgentError, evidence
 
+def full_result(store, token, out):
+    """Search tools return a compact summary; tests also inspect the stored result set."""
+    if isinstance(out, dict) and 'recommended' in out:
+        stored = next(r for r in store.get(token)['result_sets'] if r['id'] == out['result_set_id'])
+        return {**stored, 'summary': out}
+    return out
+
 
 class AgentToolsTest(unittest.TestCase):
     def setUp(self):
@@ -26,9 +33,9 @@ class AgentToolsTest(unittest.TestCase):
 
     def execute(self, name, args=None, call_id=None):
         self.count += 1
-        return self.agent.execute(self.token, 'request_1234567890',
+        return full_result(self.store, self.token, self.agent.execute(self.token, 'request_1234567890',
             {'type': 'function_call', 'call_id': call_id or 'call_' + str(self.count),
-             'turn_id': 'turn_1', 'name': name, 'arguments': args or {}})
+             'turn_id': 'turn_1', 'name': name, 'arguments': args or {}}))
 
     def test_tool_journal_prevents_duplicate_updates(self):
         first = self.execute('update_search', {'criteria': {'max_price_yen': 100000}}, 'one')

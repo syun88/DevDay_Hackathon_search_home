@@ -283,6 +283,43 @@ def address_key(value):
     return normalized.replace('番地', '').replace('丁目', '-').replace('番', '-').removesuffix('号').rstrip('-')
 
 
+def geocode_level(title):
+    """How specific a matched GSI title is: block, chome, town or municipality."""
+    text = key(title)
+    rest = re.sub(r'^(東京都|北海道|京都府|大阪府|[^都道府県]{2,3}県)', '', text)
+    rest = re.sub(r'^[^市区町村]+郡', '', rest)
+    rest = re.sub(r'^[^市区町村]+?市', '', rest)  # A designated city's ward follows its city name.
+    rest = re.sub(r'^[^市区町村]+?[区町村]', '', rest, count=1) if not re.match(r'^[^区町村]*\d', rest) else rest
+    if not rest:
+        return 'municipality'
+    numeral = r'(?:[0-9]+|[〇一二三四五六七八九十]+)'
+    # 番町 (as in 四番町) is part of a town name, not a block number.
+    if (re.search(numeral + r'(?:番地|番(?!町)|号)', rest) or re.search(r'[0-9]+[-−‐ー][0-9]+', rest)
+            or re.search(r'丁目' + numeral, rest) or re.search(r'[0-9]+$', rest)):
+        return 'block'
+    if re.search(r'([0-9]+|[一二三四五六七八九十]+)丁目$', text):
+        return 'chome'
+    return 'town'
+
+
+def best_candidate(address, candidates):
+    """The most specific GSI candidate whose title is a prefix of the address, never just the first."""
+    best = None
+    for candidate in candidates if isinstance(candidates, list) else []:
+        if not isinstance(candidate, dict) or not isinstance(candidate.get('properties'), dict) or not isinstance(candidate.get('geometry'), dict):
+            continue
+        title = candidate['properties'].get('title', '')
+        coordinates = candidate['geometry'].get('coordinates', [])
+        if not isinstance(coordinates, list) or len(coordinates) != 2 or not isinstance(title, str) or not title or not address_key(address).startswith(address_key(title)):
+            continue
+        longitude, latitude = coordinates
+        if not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) for value in coordinates) or abs(latitude) > 85 or abs(longitude) > 180:
+            continue
+        if best is None or len(address_key(title)) > len(address_key(best[0])):
+            best = (title, latitude, longitude)
+    return best
+
+
 def geocode(source, identity):
     global _last_geo
     item = next((item for item in load(source)['records'] if item['id'] == identity), None)
@@ -307,18 +344,11 @@ def geocode_address(address):
         candidates = json.loads(read_url(url))
         position = {'lat': None, 'lon': None, 'geo_precision': 'unknown', 'geocoded_at': now(),
                     'geocode_source': '国土地理院 住所検索（協力：東大CSIS）', 'geocode_source_url': 'https://maps.gsi.go.jp/'}
-        for candidate in candidates if isinstance(candidates, list) else []:
-            if not isinstance(candidate, dict) or not isinstance(candidate.get('properties'), dict) or not isinstance(candidate.get('geometry'), dict):
-                continue
-            title = candidate.get('properties', {}).get('title', '')
-            coordinates = candidate.get('geometry', {}).get('coordinates', [])
-            if not isinstance(coordinates, list) or len(coordinates) != 2 or not isinstance(title, str) or not title or not address_key(address).startswith(address_key(title)):
-                continue
-            longitude, latitude = coordinates
-            if not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) for value in coordinates) or abs(latitude) > 85 or abs(longitude) > 180:
-                continue
-            position.update(lat=latitude, lon=longitude, geo_precision='approximate', geocode_label=title)
-            break
+        match = best_candidate(address, candidates)
+        if match:
+            title, latitude, longitude = match
+            position.update(lat=latitude, lon=longitude, geo_precision='approximate', geocode_label=title,
+                            geocode_level=geocode_level(title))
         if len(_geocodes) >= 1024:
             _geocodes.clear()
         _geocodes[address] = (time.monotonic(), position)

@@ -574,6 +574,35 @@ Object.assign(english, {
   "取得した現在地は地図の表示範囲外か、不正な座標です。住所検索か地図で指定してください。": "Your location is outside the map coverage or has invalid coordinates. Search for an address or select a point on the map.",
   "現在地を地点Aに設定しました。地図で位置を確認してください。": "Your current location is now point A. Check the location on the map."
 });
+Object.assign(english, {
+ '掲載ページを開いて確認しました':'The app opened the listing page and it is still published',
+ '掲載ページを確認できませんでした（検索結果の要約のみ）':'The page could not be checked (search summary only)',
+ '掲載が終了したか、別のページへ移動しています':'The listing appears to have ended or moved to another page',
+ '検索・一覧ページです（個別の物件ではありません）':'Search/list page (not one specific home)',
+ 'ページで確認できた項目：{0}':'Found on the page: {0}','要約の数値はページ上で確認できませんでした':'The summary values could not be found on the page',
+ '家賃':'Rent','管理費':'Management fee','面積':'Area','予算':'Budget','地点Aからの距離':'Distance from A','地点Bからの距離':'Distance from B',
+ '条件内':'Within','判明分は予算内':'Within budget (known fees)','条件外':'Outside','不明':'Unknown',
+ '番地レベルの概略位置':'Approximate block-level location','丁目レベルの概略位置':'Approximate chōme-level location',
+ '町域のみ判明（地図には表示しません）':'Only the town area is known (not shown as a map pin)',
+ '市区町村のみ判明（地図には表示しません）':'Only the city/ward is known (not shown as a map pin)',
+ '番地付近':'Near block','丁目付近':'Chōme area',
+});
+Object.assign(english, {
+ '条件に合う物件：{0}件':'Matching homes: {0}',
+ '条件に合う物件を確認できませんでした。エリアを広げるか、予算を上げてみてください。':"I couldn't confirm a matching home. Try a wider area or a higher budget.",
+ '月額 {0}':'{0}/month','（賃料{0}＋管理費{1}）':'(rent {0} + management {1})','地点Aから約{0}km':'about {0} km from A',
+ '掲載ページ確認 {0}':'Listing page checked {0}','ほかに見られるページ（{0}件）':'More pages to browse ({0})',
+ '参考ページです（条件に合う物件としては確認していません）。':'Reference page only (not confirmed as a matching home).',
+});
+Object.assign(english, {
+ '予算より{0}高い':'{0} over budget','予算より{0}以上高い':'at least {0} over budget','地点{0}の範囲から約{1}km外':'about {1} km beyond the {0} radius',
+ '間取りは{0}':'layout is {0}','面積は{0}㎡':'area is {0} m²','管理費の記載なし':'management fee not shown','間取り未確認':'layout not shown',
+ '地点Aからの距離未確認':'distance from A not confirmed','地点Bからの距離未確認':'distance from B not confirmed','面積未確認':'area not shown',
+ 'ペット可否は未確認':'pet policy not confirmed','駐車場は未確認':'parking not confirmed','築年数は未確認':'building age not confirmed','通勤時間は未確認':'commute time not confirmed',
+ '賃料 {0}':'Rent {0}','条件を緩めた場合の候補':'If you are flexible','条件に合う物件':'Matches your criteria',
+ '条件に完全に合う物件は見つかりませんでした。条件に柔軟であれば、次の候補があります。':"I couldn't find an exact match. If you're flexible, these options may work.",
+ '条件に合う物件です（掲載ページで確認）。':'Matches your criteria (checked on the listing page).','条件を緩めた場合の候補です。':'A flexible option outside your criteria.',
+});
 const storageKey = 'property_map_language';
 let language = 'ja';
 try { if (localStorage.getItem(storageKey) === 'en') language = 'en'; } catch {}
