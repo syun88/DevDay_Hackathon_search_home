@@ -108,6 +108,12 @@ AIキーを設定した状態でのデモ手順：
 
 家賃総額の計算・募集の鮮度・距離条件は、アプリのコードが検査します。
 
+### ツール連携とMCPの位置づけ
+
+**実装済み：Function callingによるツール連携。** [`home_agent.py`](home_agent.py) で操作と引数をJSON Schemaとして定義し、Agents APIが選んだツールをサーバーが検証・実行します。例えば `resolve_place` で場所を検索し、`update_search` で条件を更新、`search_listings` で候補を取得、`control_map` で地図表示を指示します。地図操作はブラウザの適用確認を待ち、保存などの更新は実行記録で二重処理を防ぎます。
+
+**将来拡張：MCPで他のAIクライアントからも検索。** [Model Context Protocol（MCP）](https://modelcontextprotocol.io/docs/learn/architecture) は、AIアプリと外部のツール・データを接続する標準です。本アプリでは、地名検索や公的住宅検索をMCPサーバー経由で提供し、他の対応クライアントから再利用する拡張が考えられます。現時点ではMCPクライアント／サーバーは未実装で、接続デモもありません。
+
 ### 地理データと経路の使い分け
 
 - **Nominatim／国土地理院**：会社・駅・住所から座標を検索。AIも取得済みの地点IDから起点を選び、座標を自由生成しません。
