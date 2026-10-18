@@ -587,6 +587,22 @@ Object.assign(english, {
  '市区町村のみ判明（地図には表示しません）':'Only the city/ward is known (not shown as a map pin)',
  '番地付近':'Near block','丁目付近':'Chōme area',
 });
+Object.assign(english, {
+ '条件に合う物件：{0}件':'Matching homes: {0}',
+ '条件に合う物件を確認できませんでした。エリアを広げるか、予算を上げてみてください。':"I couldn't confirm a matching home. Try a wider area or a higher budget.",
+ '月額 {0}':'{0}/month','（賃料{0}＋管理費{1}）':'(rent {0} + management {1})','地点Aから約{0}km':'about {0} km from A',
+ '掲載ページ確認 {0}':'Listing page checked {0}','ほかに見られるページ（{0}件）':'More pages to browse ({0})',
+ '参考ページです（条件に合う物件としては確認していません）。':'Reference page only (not confirmed as a matching home).',
+});
+Object.assign(english, {
+ '予算より{0}高い':'{0} over budget','予算より{0}以上高い':'at least {0} over budget','地点{0}の範囲から約{1}km外':'about {1} km beyond the {0} radius',
+ '間取りは{0}':'layout is {0}','面積は{0}㎡':'area is {0} m²','管理費の記載なし':'management fee not shown','間取り未確認':'layout not shown',
+ '地点Aからの距離未確認':'distance from A not confirmed','地点Bからの距離未確認':'distance from B not confirmed','面積未確認':'area not shown',
+ 'ペット可否は未確認':'pet policy not confirmed','駐車場は未確認':'parking not confirmed','築年数は未確認':'building age not confirmed','通勤時間は未確認':'commute time not confirmed',
+ '賃料 {0}':'Rent {0}','条件を緩めた場合の候補':'If you are flexible','条件に合う物件':'Matches your criteria',
+ '条件に完全に合う物件は見つかりませんでした。条件に柔軟であれば、次の候補があります。':"I couldn't find an exact match. If you're flexible, these options may work.",
+ '条件に合う物件です（掲載ページで確認）。':'Matches your criteria (checked on the listing page).','条件を緩めた場合の候補です。':'A flexible option outside your criteria.',
+});
 const storageKey = 'property_map_language';
 let language = 'ja';
 try { if (localStorage.getItem(storageKey) === 'en') language = 'en'; } catch {}

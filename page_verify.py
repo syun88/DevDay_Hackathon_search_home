@@ -154,6 +154,21 @@ def title_facts(title):
     return facts
 
 
+def page_fee(text):
+    """The management/common-area fee stated on the page, only when every mention agrees."""
+    values = set()
+    pattern = r'(?:管理費|共益費)(?:・共益費|・管理費|等)?[:：]?(なし|無し|0円|([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{1,6})円|([0-9]{1,2}(?:\.[0-9]{1,2})?)万円|[-ー―](?![0-9]))'
+    for match in re.finditer(pattern, text):
+        if match.group(2):
+            values.add(int(match.group(2).replace(',', '')))
+        elif match.group(3):
+            values.add(round(float(match.group(3)) * 10000))
+        else:
+            values.add(0)
+    values = {v for v in values if 0 <= v <= 300_000}
+    return values.pop() if len(values) == 1 else None
+
+
 def confirm_facts(text, extracted):
     """Which summary values appear on the page itself. Absence is 'not_found', never a contradiction."""
     result = {}
@@ -208,4 +223,4 @@ def verify(url, extracted, restricted_hosts=(), fetcher=None):
             'page_title': normalize(unescape(title.group(1)))[:160] if title else None,
             'moved': moved, 'looks_ended': ended, 'looks_like_search_page': bool(SEARCH_PATH.search(urlsplit(final).path + '?' + urlsplit(final).query)),
             'page_addresses': json_ld_addresses(html), 'facts': confirm_facts(text, extracted),
-            'title_facts': title_facts(normalize(unescape(title.group(1))) if title else '')}
+            'title_facts': title_facts(normalize(unescape(title.group(1))) if title else ''), 'page_fee': page_fee(text)}

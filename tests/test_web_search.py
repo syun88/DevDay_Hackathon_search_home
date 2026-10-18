@@ -7,6 +7,10 @@ from pathlib import Path
 import web_search
 from home_agent import HomeAgent, fallback_query, tool_outcome
 from session_store import SessionStore
+try:
+    from test_agent import full_result
+except ImportError:
+    from tests.test_agent import full_result
 
 DETAIL = 'https://www.e-room.co/room/17212/マンションVIP日本橋浜町-701/'
 SEARCH_PAGE = 'https://www.homes.co.jp/chintai/tokyo/chuo/list/'
@@ -117,8 +121,8 @@ class AgentFallbackTest(unittest.TestCase):
 
     def execute(self, name, args=None):
         self.count += 1
-        return self.agent.execute(self.token, 'request_1234567890', {'type': 'function_call', 'call_id': 'call_%d' % self.count,
-                                  'turn_id': 'turn_1', 'name': name, 'arguments': args or {}})
+        return full_result(self.store, self.token, self.agent.execute(self.token, 'request_1234567890', {'type': 'function_call', 'call_id': 'call_%d' % self.count,
+                                  'turn_id': 'turn_1', 'name': name, 'arguments': args or {}}))
 
     def records(self, *rows):
         return web_search.parse(response(list(rows)), 'q')['results']
@@ -157,14 +161,14 @@ class AgentFallbackTest(unittest.TestCase):
         explicit = self.execute('web_search', {'query': 'Tokyo Station 1LDK rent'})
         self.assertEqual(explicit['web_search']['status'], 'empty')
         self.assertEqual(explicit['items'], [])
-        self.assertEqual(tool_outcome('web_search', explicit), 'empty')
+        self.assertEqual(tool_outcome('web_search', explicit['summary']), 'empty')
 
     def test_explicit_search_creates_stable_records_and_is_bounded_per_message(self):
         self.web['results'] = self.records(row(DETAIL))
         first = self.execute('web_search', {'query': 'Tokyo Station 1LDK rent'})
         self.assertEqual(first['provider'], 'web_search')
         self.assertEqual(first['items'][0]['url'], DETAIL)
-        self.assertEqual(tool_outcome('web_search', first), 'done')
+        self.assertEqual(tool_outcome('web_search', first['summary']), 'done')  # Browsable pages were found.
         self.execute('web_search', {'query': 'another search'})
         self.execute('web_search', {'query': 'third search'})
         fourth = self.execute('web_search', {'query': 'fourth search'})
@@ -181,10 +185,11 @@ class AgentFallbackTest(unittest.TestCase):
         self.places = [{'name': '東京都中央区日本橋浜町一丁目', 'lat': 35.6866, 'lon': 139.7895}]
         located = self.execute('web_search', {'query': 'Nihonbashi 1LDK rent'})
         detail, page = located['items']
-        self.assertEqual((detail['lat'], detail['geo_precision'], detail['geocode_level']), (35.6866, 'approximate', 'chome'))
+        # A chome-level match is recorded, but an unchecked page is only a browsing link: no pin.
+        self.assertEqual((detail['geocode_level'], detail['tier'], detail['lat']), ('chome', 'browse', None))
         self.assertIn('not the building', detail['location_evidence']['method'])
         self.assertIsNone(page['lat'])  # A search/list page is never placed as a home.
-        self.assertEqual(located['map_action']['map_command']['action'], 'show_results')
+        self.assertNotIn('map', located['summary'])
 
 
 if __name__ == '__main__':

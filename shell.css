@@ -82,3 +82,7 @@
 .web-facts,.web-location{font-size:11.5px;color:#5b6e87;margin:3px 0}
 .web-checks{display:flex;flex-wrap:wrap;gap:5px;margin:5px 0}.web-checks .check{font-size:11px;border-radius:999px;padding:2px 8px;background:#eef2f7;color:#425675}
 .web-checks .check.pass,.web-checks .check.pass_known{background:#e7f5ee;color:#17694c}.web-checks .check.fail{background:#fdecea;color:#9b2c1f}
+.home-card .listing-price{margin:4px 0}.home-facts,.home-access{font-size:12px;color:#33435a;margin:3px 0}
+.browse-more{margin:8px 0;font-size:12px;color:#425675}.browse-more summary{cursor:pointer;font-weight:650}.browse-list{margin:6px 0 0;padding-left:1.2em;display:grid;gap:4px}.browse-list a{overflow-wrap:anywhere}
+.home-card.alternative{border-style:dashed;border-color:#e2c48f}.alternatives-heading{font-size:12.5px;margin:12px 0 6px;color:#8a4b12}
+.marker.agent-lead.agent-exact{background:#17694c;border-style:solid}.marker.agent-lead.agent-alternative{background:#a46616;border-style:dashed}

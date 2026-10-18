@@ -623,38 +623,42 @@ window.mountSearchWorkspace({
     propertyPageHits=resultSet?structuredClone(resultSet.items.filter(item=>!item.discovery_only)):[];
     for(const item of propertyPageHits)if(item.commute_mode===$('commuteMode').value)for(const [i,origin]of (item.commute_origins||[]).entries())if(item.commute?.[i])commuteResults.set(routeKey(item,origin),item.commute[i]);
     $('discoveryLinks').replaceChildren();
-    const web=resultSet?.web_search;
-    if(web){
-      const status={ok:'ウェブ検索「{0}」：{1}件のページ（検索で実際に見つかったページのみ）',empty:'ウェブ検索「{0}」：該当ページは見つかりませんでした',skipped:'ウェブ検索は今回の上限に達したため実行していません',error:'ウェブ検索に失敗しました（{2}）。下の検索リンクをご利用ください'}[web.status]||'ウェブ検索に失敗しました（{2}）。下の検索リンクをご利用ください';
-      $('discoveryLinks').append(makeEl('p','web-search-status',t(status,[web.query||'',resultSet.items.filter(i=>i.web_result).length,web.code||web.status])));
+    if(!resultSet){renderExternalPages();renderSoon();return;}
+    // Exact matches and flexible alternatives are real checked listings; everything else is browsing.
+    const exact=resultSet.items.filter(item=>item.discovery_only&&item.tier==='exact');
+    const alternatives=resultSet.items.filter(item=>item.discovery_only&&item.tier==='alternative');
+    const yen=value=>'¥'+Math.round(value).toLocaleString('ja-JP');
+    const difference=d=>d.criterion==='budget'?t(d.at_least?'予算より{0}以上高い':'予算より{0}高い',[yen(d.over_yen)]):d.criterion==='radius'?t('地点{0}の範囲から約{1}km外',[d.origin,d.beyond_km]):d.criterion==='layout'?t('間取りは{0}',[d.stated]):d.criterion==='area'?t('面積は{0}㎡',[d.stated_m2]):'';
+    const unconfirmedLabels={management_fee:'管理費の記載なし',layout:'間取り未確認',radius_A:'地点Aからの距離未確認',radius_B:'地点Bからの距離未確認',area:'面積未確認',pets:'ペット可否は未確認',parking:'駐車場は未確認',max_age_years:'築年数は未確認',max_commute_minutes:'通勤時間は未確認'};
+    function homeCard(item){
+      const x=item.extracted||{},rent=x.price!=null?x.price*10000:null,fee=item.fact_sources?.management_fee_yen==='page'?x.management_fee_yen:null;
+      const card=makeEl('article','external-item home-card '+item.tier);card.dataset.listingId=item.id;
+      const title=makeEl('h4');title.append(makeLink(item.title,item.url));card.append(title);
+      if(rent!=null)card.append(makeEl('p','listing-price',fee!=null?t('月額 {0}',[yen(rent+fee)])+' '+t('（賃料{0}＋管理費{1}）',[yen(rent),yen(fee)]):t('賃料 {0}',[yen(rent)])));
+      card.append(makeEl('p','home-facts',[x.layout,x.area!=null?x.area+'㎡':'',x.address].filter(Boolean).join(' · ')));
+      const distance=item.checks?.radius_A?.distance_km;
+      const access=[x.transport,distance!=null?t('地点Aから約{0}km',[distance]):''].filter(Boolean).join(' · ');if(access)card.append(makeEl('p','home-access',access));
+      const notes=[...(item.differences||[]).map(difference),...(item.unconfirmed||[]).map(k=>t(unconfirmedLabels[k]||k))].filter(Boolean);
+      if(notes.length){const list=makeEl('p','web-checks');list.append(...notes.map(note=>makeEl('span','check fail',note)));card.append(list);}
+      card.append(makeEl('p','web-result-meta',item.source+' · '+t('掲載ページ確認 {0}',[new Date(item.verification?.checked_at||item.retrieved_at).toLocaleDateString(document.documentElement.lang==='en'?'en':'ja-JP')])));
+      card.append(makeButton(t('地図で概略位置を確認'),()=>window.homeMapAgent?.selectListing(resultSet.id,item.id)));
+      return card;
     }
-    const pageKinds={listing_detail:'個別の物件ページ',building_page:'建物のページ',listing_search_page:'検索・一覧ページ',official_info:'公的情報のページ',other:'その他のページ'};
-    for(const item of resultSet?.items.filter(item=>item.discovery_only)||[]){
-      const card=makeEl('article','external-item'+(item.web_result?' web-result':''));const title=makeEl('h4');title.append(makeLink(item.title,item.url));card.append(title);
-      if(item.web_result){const meta=makeEl('p','web-result-meta');meta.append(makeEl('span','page-kind '+item.page_kind,t(pageKinds[item.page_kind]||'その他のページ')),document.createTextNode(' '+item.source));card.append(meta);if(item.snippet)card.append(makeEl('p','web-snippet',item.snippet));
-        // What the app itself checked, kept separate from the search summary.
-        const reliability={page_checked:'掲載ページを開いて確認しました',page_not_checked:'掲載ページを確認できませんでした（検索結果の要約のみ）',ended_or_moved:'掲載が終了したか、別のページへ移動しています',search_page:'検索・一覧ページです（個別の物件ではありません）'}[item.reliability];
-        if(reliability)card.append(makeEl('p','web-check '+(item.reliability||''),t(reliability)));
-        const sources=item.fact_sources||{};const onPage=Object.keys(sources).filter(k=>sources[k]==='page');
-        if(item.reliability==='page_checked')card.append(makeEl('p','web-facts',onPage.length?t('ページで確認できた項目：{0}',[onPage.map(k=>t({price:'家賃',management_fee_yen:'管理費',layout:'間取り',area:'面積',address:'住所'}[k]||k)).join('・')]):t('要約の数値はページ上で確認できませんでした')));
-        const checkNames={budget:'予算',layout:'間取り',radius_A:'地点Aからの距離',radius_B:'地点Bからの距離'},results={pass:'条件内',pass_known:'判明分は予算内',fail:'条件外',unknown:'不明'};
-        const checks=Object.entries(item.checks||{});if(checks.length){const list=makeEl('p','web-checks');list.append(...checks.map(([k,c])=>makeEl('span','check '+c.result,t(checkNames[k]||k)+'：'+t(results[c.result]||'不明')+(c.distance_km!=null?' ('+c.distance_km+'km±'+c.uncertainty_km+')':''))));card.append(list);}
-        const level={block:'番地レベルの概略位置',chome:'丁目レベルの概略位置',town:'町域のみ判明（地図には表示しません）',municipality:'市区町村のみ判明（地図には表示しません）'}[item.geocode_level];
-        if(level)card.append(makeEl('p','web-location',t(level)));
-      }
-      card.append(makeEl('p','listing-uncertain',t(item.web_result?'ウェブ検索で見つかったページです。内容・空室・費用は未確認です':'未確認の候補・条件一致ではありません')));
-      const x=item.extracted||{};
-      if(x.price!=null)card.append(makeEl('p','listing-price',t('家賃：¥{0}/月',[Math.round(x.price*10000).toLocaleString()])));
-      if(x.management_fee_yen!=null)card.append(makeEl('p','muted',t('管理費：¥{0}/月',[x.management_fee_yen.toLocaleString()])));
-      card.append(makeEl('p','', [x.layout, x.area==null?'':x.area+'㎡',x.address].filter(Boolean).join(' · ')));
-      card.append(makeEl('p','listing-uncertain',t('空室・その他費用・物件種別・正確な位置は未確認です。掲載元で確認してください。')));
-      card.dataset.listingId=item.id;
-      // Pages without a located address stay navigable links instead of pretending to be a map point.
-      if(!item.web_result||Number.isFinite(item.lat)){const mapButton=makeButton(t(item.web_result?'地図で概略位置を確認':'地図で確認'),()=>window.homeMapAgent?.selectListing(resultSet.id,item.id));card.append(mapButton);}
-      $('discoveryLinks').append(card);
+    if(resultSet.items.some(item=>item.discovery_only)||resultSet.web_search)
+      $('discoveryLinks').append(makeEl('p','web-search-status',exact.length?t('条件に合う物件：{0}件',[exact.length]):alternatives.length?t('条件に完全に合う物件は見つかりませんでした。条件に柔軟であれば、次の候補があります。'):t('条件に合う物件を確認できませんでした。エリアを広げるか、予算を上げてみてください。')));
+    for(const item of exact)$('discoveryLinks').append(homeCard(item));
+    if(alternatives.length){
+      if(exact.length)$('discoveryLinks').append(makeEl('h4','alternatives-heading',t('条件を緩めた場合の候補')));
+      for(const item of alternatives)$('discoveryLinks').append(homeCard(item));
     }
-    for(const link of resultSet?.source_search_links||[])$('discoveryLinks').append(makeLink(t('{0}で検索',[link.source]),link.url));
-    for(const link of resultSet?.discovery_links||[])if(/^https:\/\//.test(link.url))$('discoveryLinks').append(makeLink(t('最新情報は掲載元で確認：')+link.source,link.url));
+    // Everything else is optional browsing, kept apart and never presented as a home.
+    const browse=resultSet.items.filter(item=>item.discovery_only&&item.tier==='browse'&&/^https:\/\//.test(item.url||''));
+    const links=[...browse.map(item=>({label:item.title,url:item.url})),...(resultSet.source_search_links||[]).map(link=>({label:t('{0}で検索',[link.source]),url:link.url})),...(resultSet.discovery_links||[]).filter(link=>/^https:\/\//.test(link.url)).map(link=>({label:link.source,url:link.url}))];
+    if(links.length){
+      const more=makeEl('details','browse-more');more.append(makeEl('summary','',t('ほかに見られるページ（{0}件）',[links.length])));
+      const list=makeEl('ul','browse-list');for(const link of links.slice(0,12)){const li=makeEl('li');li.append(makeLink(link.label,link.url));list.append(li);}
+      more.append(list);$('discoveryLinks').append(more);
+    }
     renderExternalPages();renderSoon();
   },
   getMapState: () => ({a:state.a,b:state.b,ra:state.ra,rb:state.rb}),

@@ -9,8 +9,12 @@ from urllib.error import HTTPError, URLError
 import page_verify
 import public_housing
 import web_search
-from home_agent import HomeAgent, apply_verification, discovery_checks
+from home_agent import HomeAgent, apply_verification, discovery_checks, qualify, compact, INSTRUCTIONS
 from session_store import DEFAULT_CRITERIA, SessionStore
+try:
+    from test_agent import full_result
+except ImportError:
+    from tests.test_agent import full_result
 
 DETAIL = 'https://www.eheya.net/detail/300001333005653000002/'
 LIBRARY = 'https://www.eheya.net/library/detail/t00656023/'
@@ -145,7 +149,7 @@ class AgentAccuracyTest(unittest.TestCase):
                 'layout': layout, 'area_m2': 36.84, 'station_access': None}
 
     def run_search(self):
-        return self.agent.execute(self.token, 'request_1234567890', {'type': 'function_call', 'call_id': 'call_1', 'turn_id': 't', 'name': 'web_search', 'arguments': {'query': 'Tokyo Station 1LDK'}})
+        return full_result(self.store, self.token, self.agent.execute(self.token, 'request_1234567890', {'type': 'function_call', 'call_id': 'call_1', 'turn_id': 't', 'name': 'web_search', 'arguments': {'query': 'Tokyo Station 1LDK'}}))
 
     def test_traced_live_case_moved_listing_town_address_and_list_page(self):
         town = 'https://www.homes.co.jp/chintai/b-2/'
@@ -255,6 +259,87 @@ class AgentAccuracyTest(unittest.TestCase):
         self.assertFalse(set(web_search.NO_REUSE_HOSTS) & set(web_search.RENTAL_PORTALS))
         self.assertNotIn('filters', web_search.build_request('m', 'q')['tools'][0])
 
+
+
+class TierTest(unittest.TestCase):
+    def home(self, **overrides):
+        item = {'discovery_only': True, 'web_result': True, 'page_kind': 'listing_detail', 'reliability': 'page_checked',
+                'title': 'AZ日本橋人形町', 'url': 'https://www.homes.co.jp/chintai/b-1/', 'source': 'www.homes.co.jp', 'id': 'listing_x',
+                'lat': 35.6858, 'lon': 139.7826, 'geocode_level': 'block',
+                'extracted': {'price': 14.0, 'management_fee_yen': 10000, 'layout': '1LDK', 'area': 31.86, 'address': '東京都中央区日本橋人形町2丁目33-3'},
+                'fact_sources': {'price': 'page', 'management_fee_yen': 'page', 'layout': 'page', 'area': 'page', 'address': 'page'},
+                'limitations': ['availability unknown']}
+        item.update(overrides)
+        return item
+
+    def test_exact_requires_every_active_criterion_on_the_page(self):
+        self.assertEqual(qualify(self.home(), CRITERIA), ('exact', [], []))
+        tier, differences, unconfirmed = qualify(self.home(fact_sources={'price': 'page', 'layout': 'page', 'address': 'page'}), CRITERIA)
+        self.assertEqual((tier, differences, unconfirmed), ('alternative', [], ['management_fee']))
+        self.assertEqual(qualify(self.home(), {**CRITERIA, 'pets': True})[0], 'alternative')  # Never assumed.
+
+    def test_alternatives_state_specific_known_differences(self):
+        over = qualify(self.home(extracted={**self.home()['extracted'], 'price': 15.2}), CRITERIA)
+        self.assertEqual(over, ('alternative', [{'criterion': 'budget', 'over_yen': 12000, 'at_least': False}], []))
+        far = qualify(self.home(lat=35.6812 + 4.5 / 111, lon=139.7671, geocode_level='block'), CRITERIA)
+        self.assertEqual(far[1], [{'criterion': 'radius', 'origin': 'A', 'beyond_km': 1.5}])
+        layout = qualify(self.home(extracted={**self.home()['extracted'], 'layout': '2LDK'}), CRITERIA)
+        self.assertEqual(layout[1], [{'criterion': 'layout', 'stated': '2LDK'}])
+
+    def test_weak_or_ended_results_are_never_homes(self):
+        self.assertEqual(qualify(self.home(listing_status='ended_or_moved', reliability='ended_or_moved'), CRITERIA)[0], 'excluded')
+        for weak in ({'reliability': 'page_not_checked'}, {'page_kind': 'listing_search_page'}, {'geocode_level': 'town', 'lat': None},
+                     {'fact_sources': {'price': 'search_summary', 'address': 'page'}}, {'fact_sources': {'price': 'page'}}):
+            with self.subTest(weak=weak):
+                self.assertEqual(qualify(self.home(**weak), CRITERIA)[0], 'browse')
+
+    def test_compact_output_carries_differences_but_no_disclaimer_dumps(self):
+        item = self.home(extracted={**self.home()['extracted'], 'price': 15.2})
+        item['tier'], item['differences'], item['unconfirmed'] = qualify(item, CRITERIA)
+        item['checks'] = discovery_checks(item, CRITERIA)
+        out = compact(item)
+        self.assertEqual(out['monthly_total_yen'], 162000)
+        self.assertEqual(out['differences'], [{'criterion': 'budget', 'over_yen': 12000, 'at_least': False}])
+        self.assertNotIn('limitations', out)
+        self.assertNotIn('unknown', json.dumps(out))
+
+    def test_instructions_give_concise_tiered_replies_without_internal_dumps(self):
+        self.assertIn("I couldn't find an exact match. If you're flexible on", INSTRUCTIONS)
+        self.assertIn('条件に合う物件を確認できませんでした', INSTRUCTIONS)
+        self.assertIn('Never call an alternative a match', INSTRUCTIONS)
+        self.assertNotIn('say this app has no verified inventory', INSTRUCTIONS)
+        self.assertNotIn('Do not discard all leads', INSTRUCTIONS)
+
+
+class TierSummaryTest(AgentAccuracyTest):
+    def test_summary_separates_exact_alternatives_and_browsing_and_pins_only_homes(self):
+        exact, over, ended = ('https://www.homes.co.jp/chintai/room/e/', 'https://www.homes.co.jp/chintai/room/o/', 'https://www.homes.co.jp/chintai/room/x/')
+        self.rows = [[self.row(exact, rent=130000, fee=10000), self.row(over, rent=155000, fee=10000), self.row(ended), self.row(LIST, 'listing_search_page', None, None, None)]]
+        body = lambda rent: page('1LDK', f'{rent}万円 管理費 10,000円 1LDK 36.84㎡ 東京都中央区日本橋浜町３丁目')
+        self.pages = {exact: (200, exact, 'text/html', body(13)), over: (200, over, 'text/html', body(15.5)),
+                      ended: (200, ended, 'text/html', page('物件', 'この物件の掲載は終了しました')), LIST: (200, LIST, 'text/html', page('一覧'))}
+        self.places = {'東京都中央区日本橋浜町３丁目': [{'name': '東京都中央区日本橋浜町三丁目', 'lat': 35.6852, 'lon': 139.7895}]}
+        result = self.run_search()
+        summary = result['summary']
+        self.assertEqual([h['url'] for h in summary['exact']], [exact])
+        self.assertEqual([h['url'] for h in summary['alternatives']], [over])
+        self.assertEqual(summary['alternatives'][0]['differences'], [{'criterion': 'budget', 'over_yen': 15000, 'at_least': False}])
+        self.assertEqual([b['url'] for b in summary['browse']], [LIST])  # The ended page is not even a browsing link.
+        tiers = {i['url']: (i['tier'], i['lat'] is not None) for i in result['items']}
+        self.assertEqual(tiers[exact], ('exact', True)); self.assertEqual(tiers[over], ('alternative', True))
+        self.assertEqual(tiers[ended], ('excluded', False)); self.assertEqual(tiers[LIST], ('browse', False))
+        self.assertEqual(summary['map'], 'queued')
+
+    def test_no_exact_match_reports_what_to_be_flexible_on(self):
+        far = 'https://www.homes.co.jp/chintai/room/f/'
+        self.rows = [[self.row(far, rent=120000, fee=5000, address='東京都江東区豊洲6丁目')], []]
+        self.pages = {far: (200, far, 'text/html', page('1LDK', '12万円 管理費 5,000円 1LDK 東京都江東区豊洲6丁目'))}
+        self.places = {'東京都江東区豊洲6丁目': [{'name': '東京都江東区豊洲六丁目', 'lat': 35.6455, 'lon': 139.7845}]}
+        self.store.mutate(self.token, lambda s: s['criteria'].update(radius_a_km=2))
+        summary = self.run_search()['summary']
+        self.assertEqual(summary['exact'], [])
+        self.assertEqual(summary['flexible_on'], ['radius'])
+        self.assertEqual(summary['alternatives'][0]['differences'][0]['criterion'], 'radius')
 
 if __name__ == '__main__':
     unittest.main()
