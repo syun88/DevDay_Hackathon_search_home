@@ -99,7 +99,7 @@ function mount(hooks){
  $('publicProvider').onchange=()=>{generation++;next=null;$('publicNext').disabled=true;$('publicLoad').disabled=false;$('publicArea').value=$('publicProvider').value==='tokyo'?'千代田区':'';};
  $('publicArea').oninput=()=>{generation++;next=null;$('publicNext').disabled=true;$('publicLoad').disabled=false;};
  for(const id of ['publicUseFilters',...Object.keys(sources).map(value=>'publicSource_'+value),...Object.keys(layers).map(value=>'publicLayer_'+value)])$(id).addEventListener('change',refresh);
- return {renderList, getState(){return {records:[...records.values()],visible:visible(),selectedId};},
+ return {renderList, getState(){return {records:[...records.values()],visible:visible().sort((a,b)=>Number(b.id===selectedId)-Number(a.id===selectedId)),selectedId};},
  select(id){const record=records.get(id);if(!record||!visible().some(item=>item.id===id))return false;choose(record);return true;},
  replaceRecords(items){records.clear();for(const record of items)records.set(record.id,record);refresh();},
  importRecords(items){for(const record of items){records.set(record.id,record);if($('publicSource_'+record.source))$('publicSource_'+record.source).checked=true;if($('publicLayer_'+record.layer))$('publicLayer_'+record.layer).checked=true;}refresh();},

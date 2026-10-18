@@ -192,6 +192,8 @@ def fresh_listing(item):
 def evidence(item, criteria):
     criteria = {**DEFAULT_CRITERIA, **criteria}
     x = item.get('extracted', {})
+    if item.get('layer'):
+        return {'status':'unverified','mismatches':[],'unknown':['Public reference layer, not a confirmed available unit','Unit price/fees and current vacancy require source confirmation']}
     if item.get('discovery_only'):
         return {'status': 'unverified', 'mismatches': [], 'unknown': item.get('limitations', ['availability and requirements unverified'])}
     mismatches, unknown = [], []
@@ -520,7 +522,13 @@ class HomeAgent:
         for item in items[:5]:
             address = item.get('extracted', {}).get('address')
             if item.get('lat') is not None or not address: continue
-            try: locations = self.geocoder(address)
+            try:
+                if self.geocoder is resolve_places:
+                    position=public_housing.geocode_address(address)
+                    if position.get('lat') is not None:
+                        item.update(position,location_evidence={'query':address,'resolved_name':position.get('geocode_label'),'method':'shared validated public map address geocoder, approximate area'})
+                    continue
+                locations = self.geocoder(address)
             except (ValueError, OSError, URLError): locations = []
             # Reuse the merged address matching primitive; an unrelated first hit
             # must not become a plausible-looking home pin.
@@ -631,7 +639,7 @@ class HomeAgent:
             result['counts']['mapped'] = sum(i.get('lat') is not None for i in items)
             return result
         if name in ('compare_listings', 'save_listing'):
-            result_set = next(x for x in s['result_sets'] if x['id'] == args['result_set_id'])
+            result_set = {'items':s['public_records'],'id':'public'} if args['result_set_id']=='public' else next(x for x in s['result_sets'] if x['id'] == args['result_set_id'])
             ids = args['listing_ids'] if name == 'compare_listings' else [args['listing_id']]
             if not isinstance(ids, list) or not 1 <= len(ids) <= 5:
                 raise ValueError('Invalid listings')
@@ -641,7 +649,7 @@ class HomeAgent:
                 if len(s['saved_candidates']) >= 100:
                     raise ValueError('Too many saved candidates')
                 if not any(x['id'] == selected[0]['id'] for x in s['saved_candidates']):
-                    s['saved_candidates'].append(deepcopy(selected[0]))
+                    saved=deepcopy(selected[0]);saved.setdefault('url',saved.get('official_url'));saved.setdefault('title',saved.get('name'));s['saved_candidates'].append(saved)
                 return {'saved': selected[0]}
             return {'result_set_id': result_set['id'], 'candidates': selected,
                     'note': 'Compare only these supplied fields; unknown conditions and availability remain unknown.'}

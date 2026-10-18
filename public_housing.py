@@ -290,7 +290,13 @@ def geocode(source, identity):
         raise ValueError('Unknown public record')
     if item['geo_precision'] != 'unknown':
         return {field: item[field] for field in ('lat', 'lon', 'geo_precision')}
-    address = item['address']
+    return geocode_address(item['address'])
+
+
+def geocode_address(address):
+    """Shared validated, rate-limited address geocoding for owned listing records."""
+    global _last_geo
+    if not isinstance(address,str) or not address.strip() or len(address)>300: raise ValueError('Invalid address')
     cached = cached_position(address)
     if cached:
         return cached
