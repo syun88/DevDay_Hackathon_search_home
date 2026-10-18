@@ -32,6 +32,7 @@ from listing_details import read_details
 from suumo_bridge import SuumoError, search as search_suumo, validate_search, validate_filters, validate_page, RENT_STEPS, PAGE_SIZE as SUUMO_PAGE_SIZE
 import public_housing
 import web_search
+import page_verify
 
 BASE = Path(__file__).resolve().parent
 
@@ -601,14 +602,24 @@ def permitted_details(url):
     return read_details(url)
 
 
-def agent_web_search(query, context=''):
+def restricted_hosts():
+    # Link-only sources: no values are extracted and their pages are not fetched.
+    return web_search.NO_REUSE_HOSTS + (() if SUUMO_REUSE_PERMITTED else ('suumo.jp',))
+
+
+def agent_web_search(query, context='', refine=False):
     # Same configured model as the agent. While SUUMO reuse is not permitted, SUUMO pages
     # stay navigable links only: no rent, address or other values are extracted from them.
-    return web_search.search(OPENAI_KEY, HOME_AGENT.api.model, query, context,
-                             () if SUUMO_REUSE_PERMITTED else ('suumo.jp',))
+    portals = web_search.RENTAL_PORTALS + (('suumo.jp',) if SUUMO_REUSE_PERMITTED else ())
+    return web_search.search(OPENAI_KEY, HOME_AGENT.api.model, query, context, restricted_hosts(),
+                             allowed_domains=portals if refine else None)
 
 
-HOME_AGENT = HomeAgent(SESSION_STORE, OPENAI_KEY, agent_listings, router=route_time, detail_reader=permitted_details, public_search=public_housing.search, public_geocode=public_housing.geocode, web_search=agent_web_search)
+def agent_page_check(url, extracted):
+    return page_verify.verify(url, extracted, restricted_hosts())
+
+
+HOME_AGENT = HomeAgent(SESSION_STORE, OPENAI_KEY, agent_listings, router=route_time, detail_reader=permitted_details, public_search=public_housing.search, public_geocode=public_housing.geocode, web_search=agent_web_search, page_verifier=agent_page_check)
 
 
 class Handler(SimpleHTTPRequestHandler):

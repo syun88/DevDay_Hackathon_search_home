@@ -60,9 +60,9 @@ window.mountMapAgent=({session,adapter})=>{
   const close=el('button','×');close.className='close-home';close.setAttribute('aria-label',t('閉じる'));close.onclick=()=>{gesture();selected=null;details();adapter.refresh();onRender();};
   panel.append(close,el('h3',item.name||item.title));
   const approximate=item.geo_precision!=='exact';panel.append(el('p',t(approximate?'住所の概略位置です。建物の正確な位置ではありません。':'提供元の座標。所在地は掲載元で確認してください。')));
-  panel.append(el('p',t(item.layer?'公開資料です。現在の募集を保証しません。':'空室・全費用は未確認です。')));
+  if(item.layer)panel.append(el('p',t('公開資料です。現在の募集を保証しません。')));
   if(item.web_result){const kinds={listing_detail:'個別の物件ページ',building_page:'建物のページ',listing_search_page:'検索・一覧ページ',official_info:'公的情報のページ',other:'その他のページ'};
-   panel.append(el('p',t('ウェブ検索で見つかったページ（{0}・{1}）の要約です。掲載元で最新の内容を確認してください。',[t(kinds[item.page_kind]||'その他のページ'),item.source])));if(item.snippet)panel.append(el('p',item.snippet));}
+   panel.append(el('p',t(item.tier==='exact'?'条件に合う物件です（掲載ページで確認）。':item.tier==='alternative'?'条件を緩めた場合の候補です。':'参考ページです（条件に合う物件としては確認していません）。')));}
   const labels={price:'家賃（万円/月）',management_fee_yen:'管理費（円/月）',mandatory_fee_yen:'必須月額費用（円/月）',area:'面積（㎡）',layout:'間取り',address:'住所',floor:'階',age:'築年数（年）',age_text:'築年',transport:'交通',deposit:'敷金',key_money:'礼金',pets:'ペット可',parking:'駐車場',price_yen:'価格（円）',data_as_of:'資料基準日',license:'利用条件',kind:'物件種別',layout_text:'間取りの範囲',area_text:'面積の範囲（㎡）',managed_units:'管理戸数',station:'最寄駅',construction_year_text:'建設年度',vacancy_public:'公募用空き住戸',vacancy_reserved:'事業用空き住戸',geocode_label:'位置検索の一致住所',source_updated_at:'公開ファイル更新日',availability_status:'募集状態'};
   const rows=[];
   const add=(key,value,label)=>{if(!rows.some(r=>r[0]===key))rows.push([key,value,label]);};
@@ -78,7 +78,8 @@ window.mountMapAgent=({session,adapter})=>{
     if(typeof value==='number')return value.toLocaleString(document.documentElement.lang==='en'?'en':'ja-JP');
     return String(value).slice(0,300);
   };
-  const dl=el('dl');for(const [,value,label] of rows)dl.append(el('dt',t(label)),el('dd',format(value)));panel.append(dl);
+  // Unknown optional fields are omitted rather than listed as unknown.
+  const dl=el('dl');for(const [,value,label] of rows)if(!(value==null||value===''||value==='unknown'))dl.append(el('dt',t(label)),el('dd',format(value)));panel.append(dl);
   const url=item.official_url||item.url;if(url&&/^https:\/\//.test(url)){const a=el('a',t('掲載元・公式資料を開く'));a.href=url;a.target='_blank';a.rel='noopener noreferrer';panel.append(a);}
   const ask=el('button',t('この物件について聞く'));ask.onclick=async()=>{await report();window.homeChat?.send(document.documentElement.lang==='en'?'Read the details of the home currently selected on the map and explain its known features and unknowns.':'地図で選択中の物件の詳細を確認して、分かっている条件と不明点を教えてください。');};panel.append(ask);
  }
@@ -87,12 +88,13 @@ window.mountMapAgent=({session,adapter})=>{
  function renderPins(){
   if(!session.snapshot)return;
   for(const node of adapter.pins().querySelectorAll('[data-public-ids]'))node.classList.toggle('agent-selected',JSON.parse(node.dataset.publicIds).includes(selected));
-  const items=(latest()?.items||[]).filter(i=>i.discovery_only&&Number.isFinite(i.lat)&&Number.isFinite(i.lon));
+  // Only homes the app qualified get pins; other leads stay links.
+  const items=(latest()?.items||[]).filter(i=>i.discovery_only&&(i.tier==='exact'||i.tier==='alternative')&&Number.isFinite(i.lat)&&Number.isFinite(i.lon));
   const groups=new Map();for(const item of items){const key=item.lat+','+item.lon;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(item);}
   for(const group of groups.values()){
    const first=group[0],p=adapter.screen(first),r=adapter.mapElement().getBoundingClientRect();if(p.x<0||p.y<0||p.x>r.width||p.y>r.height)continue;
-   const node=el('button',group.length>1?group.length+' '+t('候補'):t('概略')+' · '+(first.extracted?.price!=null?'¥'+Math.round(first.extracted.price*10000).toLocaleString('ja-JP'):t('価格未確認')));
-   node.className='marker agent-lead'+(group.some(i=>i.id===selected)?' agent-selected':'');node.style.left=p.x+'px';node.style.top=p.y+'px';node.dataset.listingId=first.id;node.title=group.map(i=>i.title).join(' / ')+' · '+t('住所の概略位置');node.onclick=e=>{e.stopPropagation();selectListing(latest().id,group[(group.findIndex(i=>i.id===selected)+1)%group.length].id);};adapter.pins().append(node);
+   const node=el('button',group.length>1?group.length+' '+t('候補'):t(first.geocode_level==='block'?'番地付近':first.geocode_level==='chome'?'丁目付近':'概略')+' · '+(first.extracted?.price!=null?'¥'+Math.round(first.extracted.price*10000).toLocaleString('ja-JP'):t('価格未確認')));
+   node.className='marker agent-lead '+(group.some(i=>i.tier==='exact')?'agent-exact':'agent-alternative')+(group.some(i=>i.id===selected)?' agent-selected':'');node.style.left=p.x+'px';node.style.top=p.y+'px';node.dataset.listingId=first.id;node.title=group.map(i=>i.title).join(' / ')+' · '+t(group.some(i=>i.tier==='exact')?'条件に合う物件':'条件を緩めた場合の候補')+' · '+t('住所の概略位置');node.onclick=e=>{e.stopPropagation();selectListing(latest().id,group[(group.findIndex(i=>i.id===selected)+1)%group.length].id);};adapter.pins().append(node);
   }
  }
  function reconcile(){

@@ -11,6 +11,11 @@ import map_agent
 import server
 from home_agent import AgentError, HomeAgent
 from session_store import SessionStore
+try:
+    from test_agent import full_result
+except ImportError:
+    from tests.test_agent import full_result
+from datetime import datetime, timezone
 
 PUBLIC = [{'id': 'tokyo:one', 'source': 'tokyo', 'name': 'Official one', 'address': '東京都千代田区一番町1',
            'geo_precision': 'unknown', 'lat': None, 'lon': None, 'layer': 'inventory'},
@@ -23,8 +28,10 @@ class Harness(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.store = SessionStore(Path(self.temp.name) / 'sessions.sqlite3')
         self.places = [{'id': 'place_shinjuku', 'name': '新宿駅', 'lat': 35.6896, 'lon': 139.7006}]
-        listing = {'title': 'Lead', 'url': 'https://example.com/lead', 'discovery_only': True, 'lat': 35.69, 'lon': 139.70,
-                   'geo_precision': 'approximate', 'extracted': {'price': 9}}
+        # A verified feed record near Shinjuku: confirmed only once the origin is Shinjuku.
+        listing = {'title': 'Verified home', 'url': 'https://example.com/home', 'kind': 'rent', 'availability_status': 'confirmed',
+                   'last_verified_at': datetime.now(timezone.utc).isoformat(), 'lat': 35.69, 'lon': 139.70,
+                   'geo_precision': 'exact', 'extracted': {'price': 9}}
         self.agent = HomeAgent(self.store, 'synthetic-key', lambda *a: {'results': [], 'leads': [dict(listing)]},
                                geocoder=lambda q: self.places)
         self.agent.resume = lambda token: None
@@ -63,15 +70,15 @@ class Harness(unittest.TestCase):
     def execute(self, name, args=None):
         self.count += 1
         request_id = self.store.get(self.token)['chat']['request_id']
-        return self.agent.execute(self.token, request_id, {'type': 'function_call', 'call_id': 'call_%d' % self.count,
-                                  'turn_id': 'turn_1', 'name': name, 'arguments': args or {}})
+        return full_result(self.store, self.token, self.agent.execute(self.token, request_id, {'type': 'function_call', 'call_id': 'call_%d' % self.count,
+                                  'turn_id': 'turn_1', 'name': name, 'arguments': args or {}}))
 
 
 class ResetWithSelectionTest(Harness):
     def test_reports_naming_records_removed_by_reset_are_pruned_not_rejected(self):
         self.start(); result = self.execute('search_listings')
         listing = result['items'][0]['id']
-        command = self.store.get(self.token)['map_command']
+        command = self.store.mutate(self.token, lambda s: map_agent.queue(s, 'zoom', zoom=15))[1]['map_command']
         self.assertEqual(self.report(result_set_id=result['id'], selected_listing_id=listing, visible_listing_ids=[listing])[0], 200)
         self.store.mutate(self.token, lambda s: s['chat'].update(status='idle'))
         self.agent.reset(self.token, self.store.get(self.token)['revision'])
@@ -100,8 +107,9 @@ class AgentMapRevisionTest(Harness):
         # The browser recenters for the new origin: an app change, not a user pan.
         self.assertEqual(self.report(center={'lat': 35.6896, 'lon': 139.7006}, cause='app')[0], 200)
         result = self.execute('search_listings')
-        self.assertEqual(result['map_action']['map_command']['action'], 'show_results')  # Not stale_map_view.
-        command = result['map_action']['map_command']
+        self.assertEqual(result['summary']['map'], 'queued')  # Not stale_map_view.
+        command = self.store.get(self.token)['map_command']
+        self.assertEqual(command['action'], 'show_results')
         self.assertEqual(self.report(zoom=15, cause='app', ack={'id': command['id'], 'status': 'applied'})[0], 200)
         # A second command in the same turn, without re-reading the map, is still allowed.
         second = self.agent.apply_tool(self.store.get(self.token), 'control_map', {'action': 'zoom', 'zoom': 16}, None, {})
