@@ -1182,12 +1182,29 @@ class HomeAgent:
         if result['status'] in ('ok', 'empty') and reliable < RELIABLE_TARGET and used + 1 < WEB_SEARCHES_PER_MESSAGE:
             self.mark(session_id, request_id, web_searches=used + 2)
             extra = self.hosted_search(query, criteria, refine=True)
-            known = {web_search_module.normalize_url(r.get('search_result_url') or r['url']) for r in result['results']} | {web_search_module.normalize_url(r['url']) for r in result['results']}
-            added = [r for r in extra['results'] if web_search_module.normalize_url(r['url']) not in known]
-            self.check_pages(added)
+            self.check_pages(extra['results'])
+            def strength(record):
+                rank = {'page_checked': 1, 'ended_or_moved': 2}.get(record.get('reliability'), 0)
+                return rank, sum(source in PAGE_SOURCES for source in record.get('fact_sources', {}).values())
+            known = {web_search_module.normalize_url(url): r for r in result['results']
+                     for url in (r['url'], r.get('search_result_url') or r['url'])}
+            added, updated = [], 0
+            for item in extra['results']:
+                previous = next((known[key] for url in (item['url'], item.get('search_result_url') or item['url'])
+                                 if (key := web_search_module.normalize_url(url)) in known), None)
+                if previous is not None:
+                    # A repeated URL may now have page evidence or an ended status; keep the strongest check.
+                    if item is not previous and strength(item) >= strength(previous):
+                        previous.clear(); previous.update(item); updated += 1
+                else:
+                    added.append(item)
+                kept = previous if previous is not None else item
+                for url in (item['url'], item.get('search_result_url') or item['url']):
+                    known[web_search_module.normalize_url(url)] = kept
             added += self.harvest({**extra, 'results': result['results'] + added}, query)
             result['results'] = (result['results'] + added)[:12]
-            result['refinement'] = {'status': extra['status'], 'code': extra.get('code'), 'added': len(added), 'reason': f'fewer than {RELIABLE_TARGET} checked listing pages without a known conflict'}
+            result['refinement'] = {'status': extra['status'], 'code': extra.get('code'), 'added': len(added), 'updated': updated,
+                                    'reason': f'fewer than {RELIABLE_TARGET} checked listing pages without a known conflict'}
             if result['status'] == 'empty' and added:
                 result['status'] = 'ok'
             elif result['status'] == 'error' and extra['status'] == 'ok':
