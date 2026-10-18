@@ -40,10 +40,22 @@ window.mountMapAgent=({session,adapter})=>{
   panel.append(close,el('h3',item.name||item.title));
   const approximate=item.geo_precision!=='exact';panel.append(el('p',t(approximate?'住所の概略位置です。建物の正確な位置ではありません。':'提供元の座標。所在地は掲載元で確認してください。')));
   panel.append(el('p',t(item.layer?'公開資料です。現在の募集を保証しません。':'空室・全費用は未確認です。')));
-  const values={...(item.extracted||{}),...(item.source_fields||{})};
-  if(item.layer){for(const key of ['address','kind','price_yen','layout_text','area_text','managed_units','station','construction_year_text','vacancy_public','vacancy_reserved','geocode_label','data_as_of','source_updated_at','availability_status','license'])values[key]=item[key];}
-  const labels={price:'家賃（万円/月）',management_fee_yen:'管理費（円/月）',mandatory_fee_yen:'必須月額費用（円/月）',area:'面積（㎡）',layout:'間取り',address:'住所',floor:'階',age_text:'築年',transport:'交通',deposit:'敷金',key_money:'礼金',price_yen:'価格（円）',data_as_of:'資料基準日',license:'利用条件',kind:'物件種別',layout_text:'間取りの範囲',area_text:'面積の範囲（㎡）',managed_units:'管理戸数',station:'最寄駅',construction_year_text:'建設年度',vacancy_public:'公募用空き住戸',vacancy_reserved:'事業用空き住戸',geocode_label:'位置検索の一致住所',source_updated_at:'公開ファイル更新日',availability_status:'募集状態'};
-  const dl=el('dl');for(const [key,value]of Object.entries(values)){dl.append(el('dt',t(labels[key]||key)),el('dd',value==null||value===''?t('未確認'):t(value==='unknown'?'未確認':value==='rent'?'賃貸':value==='sale'?'売買':String(value))));}panel.append(dl);
+  const labels={price:'家賃（万円/月）',management_fee_yen:'管理費（円/月）',mandatory_fee_yen:'必須月額費用（円/月）',area:'面積（㎡）',layout:'間取り',address:'住所',floor:'階',age:'築年数（年）',age_text:'築年',transport:'交通',deposit:'敷金',key_money:'礼金',pets:'ペット可',parking:'駐車場',price_yen:'価格（円）',data_as_of:'資料基準日',license:'利用条件',kind:'物件種別',layout_text:'間取りの範囲',area_text:'面積の範囲（㎡）',managed_units:'管理戸数',station:'最寄駅',construction_year_text:'建設年度',vacancy_public:'公募用空き住戸',vacancy_reserved:'事業用空き住戸',geocode_label:'位置検索の一致住所',source_updated_at:'公開ファイル更新日',availability_status:'募集状態'};
+  const rows=[];
+  const add=(key,value,label)=>{if(!rows.some(r=>r[0]===key))rows.push([key,value,label]);};
+  if(item.layer){for(const key of ['address','kind','price_yen','layout_text','area_text','managed_units','station','construction_year_text','vacancy_public','vacancy_reserved','geocode_label','data_as_of','source_updated_at','availability_status','license'])add(key,item[key],labels[key]);}
+  for(const [key,value] of Object.entries(item.extracted||{}))if(labels[key])add(key,value,labels[key]);
+  // Permitted source detail tables keep their original headings; internal snake_case keys stay hidden.
+  for(const [key,value] of Object.entries(item.source_fields||{}))if(!/^[a-z0-9_]+$/.test(key)&&key.length<=40)add(key,value,key);
+  const format=value=>{
+    if(value==null||value===''||value==='unknown')return t('未確認');
+    if(value===true)return t('はい');if(value===false)return t('いいえ');
+    if(value==='rent')return t('賃貸');if(value==='sale')return t('売買');
+    if(typeof value==='string'&&/^\d{4}-\d{2}-\d{2}(T[\d:.]+(Z|[+-]\d{2}:?\d{2})?)?$/.test(value)){const date=new Date(value);if(!Number.isNaN(date.getTime()))return new Intl.DateTimeFormat(document.documentElement.lang==='en'?'en':'ja-JP',{year:'numeric',month:'short',day:'numeric',...(value.length===10?{timeZone:'UTC'}:{})}).format(date);}
+    if(typeof value==='number')return value.toLocaleString(document.documentElement.lang==='en'?'en':'ja-JP');
+    return String(value).slice(0,300);
+  };
+  const dl=el('dl');for(const [,value,label] of rows)dl.append(el('dt',t(label)),el('dd',format(value)));panel.append(dl);
   const url=item.official_url||item.url;if(url&&/^https:\/\//.test(url)){const a=el('a',t('掲載元・公式資料を開く'));a.href=url;a.target='_blank';a.rel='noopener noreferrer';panel.append(a);}
   const ask=el('button',t('この物件について聞く'));ask.onclick=async()=>{await report();window.homeChat?.send(document.documentElement.lang==='en'?'Read the details of the home currently selected on the map and explain its known features and unknowns.':'地図で選択中の物件の詳細を確認して、分かっている条件と不明点を教えてください。');};panel.append(ask);
  }

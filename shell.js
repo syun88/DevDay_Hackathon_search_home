@@ -49,7 +49,7 @@ window.mountSearchShell=({session,adapter})=>{
   header.classList.add('shell-header');
   const criteriaHeading=document.querySelector('.criteria-heading');
   strip.append(criteriaHeading,$('criteriaChips'),$('criteriaEditor'),document.querySelector('.criteria-note'),$('sessionStatus'));
-  const conversation=document.querySelector('.conversation-intro');dock.append(conversation);
+  const conversation=document.querySelector('.conversation-intro');dock.append(conversation);dock.querySelector('.dock-heading').insertBefore(conversation.querySelector('#chatActivity'),dock.querySelector('#expandChat'));
   history.querySelector('#historyMemory').append(conversation.querySelector('#memoryPanel'));
   history.querySelector('#historyActions').append(conversation.querySelector('.chat-toolbar'));
   for(const node of [$('primaryResults'),$('agentSavedSection'),document.querySelector('.saved-heading')])resultBody.append(node);

@@ -48,6 +48,164 @@ class AgentsAPI:
         except (URLError, OSError, TimeoutError, ValueError):
             raise AgentError('provider_connection') from None
 
+    def stream(self, method, path, body=None, key=None):
+        """Open a documented Agents API event stream.
+
+        GET /{session}/events?stream=true subscribes to an existing session; POST ''
+        with body.stream=true creates a session and streams its first turn.
+        """
+        headers = {'Authorization': 'Bearer ' + self.key, 'OpenAI-Beta': 'agents=v1',
+                   'Accept': 'text/event-stream'}
+        if body is not None:
+            headers['Content-Type'] = 'application/json'
+        if key:
+            headers['Idempotency-Key'] = key
+        request = Request('https://api.openai.com/v1/agents/sessions' + path,
+                          data=json.dumps(body).encode() if body is not None else None,
+                          headers=headers, method=method)
+        try:
+            # The read timeout bounds a silent connection; the worker reconnects and reconciles.
+            return EventStream(urlopen(request, timeout=45))
+        except HTTPError as error:
+            error.read()
+            raise AgentError('provider_auth' if error.code in (401, 403) else 'provider_limit' if error.code == 429 else
+                             'provider_rejected' if error.code in (400, 404, 422) else 'provider_error') from None
+        except (URLError, OSError, TimeoutError, ValueError):
+            raise AgentError('provider_connection') from None
+
+
+class EventStream:
+    """Minimal server-sent events parser for Agents API session events."""
+    def __init__(self, response):
+        self.response = response
+        self.json_body = None
+        if 'text/event-stream' not in response.headers.get('Content-Type', ''):
+            data = response.read(2_000_001)
+            response.close()
+            if len(data) > 2_000_000:
+                raise AgentError('provider_response_too_large')
+            try:
+                self.json_body = json.loads(data) if data else {}
+            except ValueError:
+                raise AgentError('provider_error') from None
+
+    def __iter__(self):
+        if self.json_body is not None:
+            return
+        data, name, size = [], None, 0
+        while True:
+            try:
+                raw = self.response.readline(2_000_001)
+            except (OSError, ValueError, AttributeError):
+                return
+            if not raw:
+                return
+            line = raw.decode('utf-8', 'replace').rstrip('\r\n')
+            if not line:
+                if data:
+                    text = '\n'.join(data)
+                    data, size = [], 0
+                    try:
+                        event = json.loads(text)
+                    except ValueError:
+                        event = None
+                    if isinstance(event, dict):
+                        event.setdefault('type', name)
+                        yield event
+                name = None
+                continue
+            if line.startswith(':'):
+                continue
+            field, _, value = line.partition(':')
+            value = value[1:] if value.startswith(' ') else value
+            if field == 'data':
+                size += len(value)
+                if size > 2_000_000:
+                    raise AgentError('provider_response_too_large')
+                data.append(value)
+            elif field == 'event':
+                name = value
+
+    def close(self):
+        try:
+            import socket
+            self.response.fp.raw._sock.shutdown(socket.SHUT_RDWR)
+        except Exception:
+            pass
+        try:
+            self.response.close()
+        except Exception:
+            pass
+
+
+class LiveTurn:
+    """In-memory streamed output for one turn; durable copies are saved in chat.partial."""
+    def __init__(self, chat_id, request_id, items=None, activity=None, note=''):
+        self.chat_id, self.request_id = chat_id, request_id
+        # Restored items may have missed deltas while disconnected. Ignore further
+        # deltas for them until a complete output_text.done/item.done replaces them.
+        self.items = {item['id']: {'phase': item.get('phase'), 'parts': {0: item.get('text', '')}, 'order': n, 'stale': True}
+                      for n, item in enumerate(items or [])}
+        self.activity = [dict(a) for a in (activity or [])][-24:]
+        self.note = note or ''
+        self.dirty = False
+
+    def item(self, item_id, phase=None):
+        entry = self.items.get(item_id)
+        if entry is None:
+            entry = self.items[item_id] = {'phase': phase, 'parts': {}, 'order': len(self.items), 'stale': False}
+        elif phase is not None:
+            entry['phase'] = phase
+        return entry
+
+    def mark_stale(self):
+        for entry in self.items.values():
+            entry['stale'] = True
+
+    def texts(self, commentary=False):
+        out = []
+        for entry in sorted(self.items.values(), key=lambda e: e['order']):
+            if (entry['phase'] == 'commentary') == commentary:
+                text = ''.join(entry['parts'][k] for k in sorted(entry['parts']))
+                if text.strip():
+                    out.append(text)
+        return out
+
+    def text(self):
+        return '\n\n'.join(self.texts())[:20000]
+
+    def tool(self, call_id, name, status):
+        entry = next((a for a in self.activity if a['id'] == call_id), None)
+        if entry is None:
+            self.activity = (self.activity + [{'id': call_id, 'name': name, 'status': status}])[-24:]
+        else:
+            entry.update(name=name or entry['name'], status=status)
+        self.dirty = True
+
+    def public(self):
+        notes = self.texts(commentary=True)
+        return {'request_id': self.request_id, 'chat_id': self.chat_id, 'text': self.text(),
+                'note': (notes[-1] if notes else '')[:600],
+                'activity': [{'id': 'step_' + sha256(a['id'].encode()).hexdigest()[:10], 'name': a['name'], 'status': a['status']}
+                             for a in self.activity]}
+
+    def durable(self):
+        return {'partial': {k: v for k, v in self.public().items() if k in ('text', 'note', 'activity')},
+                'partial_items': [{'id': i, 'phase': e['phase'], 'text': ''.join(e['parts'][k] for k in sorted(e['parts']))[:20000]}
+                                  for i, e in sorted(self.items.items(), key=lambda x: x[1]['order'])][-12:],
+                'partial_activity': self.activity}
+
+
+def tool_outcome(name, output):
+    if not isinstance(output, dict):
+        return 'done'
+    if output.get('error'):
+        return 'error'
+    command = output.get('map_command') if name == 'control_map' else None
+    if command and command.get('status') in ('pending', 'stale_view', 'unavailable', 'applied'):
+        return command['status']
+    return 'done'
+
 
 INSTRUCTIONS = '''You help people find homes in Japan through conversation. Reply in the user's language
 (English or Japanese), concisely and warmly. Use the provided tools to act, not just describe plans.
@@ -252,13 +410,47 @@ class HomeAgent:
         self.public_search, self.public_geocode = public_search, public_geocode
         self.lock = threading.Lock()
         self.workers = set()
+        # Streamed output and change notifications for local browser SSE subscribers.
+        self.changed = threading.Condition()
+        self.live = {}
+        self.versions = {}
+
+    def notify(self, session_id, durable=True):
+        with self.changed:
+            live, saved = self.versions.get(session_id, (0, 0))
+            self.versions[session_id] = (live + 1, saved + 1 if durable else saved)
+            self.changed.notify_all()
+
+    def wait_change(self, session_id, seen, timeout):
+        with self.changed:
+            self.changed.wait_for(lambda: self.versions.get(session_id, (0, 0)) != seen, timeout)
+            return self.versions.get(session_id, (0, 0))
+
+    def mutate(self, session_id, operation):
+        try:
+            return self.store.mutate(session_id, operation)
+        finally:
+            self.notify(session_id)
+
+    def live_view(self, session_id, session):
+        """Streamed text for the current request, or its durable partial after a restart."""
+        chat = session.get('chat', {})
+        with self.changed:
+            live = self.live.get(session_id)
+            if live and live.chat_id == session.get('chat_id') and live.request_id == chat.get('request_id'):
+                return live.public()
+        if chat.get('partial') and chat.get('request_id'):
+            return {'request_id': chat['request_id'], 'chat_id': session.get('chat_id'), **chat['partial']}
+        return None
 
     def context(self, session):
         sets = deepcopy(session.get('result_sets', []))
         for result in sets:
             for item in result['items']: item['match'] = evidence(item, session['criteria'])
+        conversation = [{'role': m['role'], 'text': m['text'], **({'incomplete': m['incomplete']} if m.get('incomplete') else {})}
+                        for m in session['conversation'][-20:]]
         return {'revision': session['revision'], 'criteria': session['criteria'], 'memory': session['memory'],
-                'recent_conversation': session['conversation'][-20:], 'latest_result_set': sets[-1] if sets else None, 'saved_candidates': session['saved_candidates'], 'public_records':session.get('public_records',[]), 'map_view':session.get('map_view'), 'map_command':session.get('map_command')}
+                'recent_conversation': conversation,'latest_result_set': sets[-1] if sets else None, 'saved_candidates': session['saved_candidates'], 'public_records':session.get('public_records',[]), 'map_view':session.get('map_view'), 'map_command':session.get('map_command')}
 
     def start(self, session_id, payload):
         if not self.key:
@@ -300,7 +492,7 @@ class HomeAgent:
                                'language': payload['language'], 'progress': 'thinking', 'submitted': False,
                                'expected_revision': session['revision'], 'expected_map_revision':session['map_view']['revision'], 'started_at': time.time(),
                                'visible_results': {'result_set_id':payload.get('result_set_id'), 'display_order':payload.get('visible_listing_ids',[])}}
-        session, _ = self.store.mutate(session_id, begin)
+        session, _ = self.mutate(session_id, begin)
         self.resume(session_id)
         return session
 
@@ -320,24 +512,64 @@ class HomeAgent:
             if session['chat'].get('request_id') != request_id or session['chat'].get('status') != 'running':
                 raise AgentError('cancelled')
             session['chat'].update(values)
-        return self.store.mutate(session_id, change)[0]
+        return self.mutate(session_id, change)[0]
+
+    def open_stream(self, *args, **kwargs):
+        opener = getattr(self.api, 'stream', None)
+        return opener(*args, **kwargs) if opener else None
 
     def run(self, session_id):
         request_id = self.store.get(session_id)['chat']['request_id']
         submission_key = sha256((session_id + request_id).encode()).hexdigest()
+        events, buffered = None, []
         try:
             session = self.store.get(session_id)
+            chat = session['chat']
+            with self.changed:
+                live = self.live.get(session_id)
+                if not live or live.request_id != request_id or live.chat_id != session['chat_id']:
+                    self.live[session_id] = LiveTurn(session['chat_id'], request_id, chat.get('partial_items'),
+                                                     chat.get('partial_activity'), (chat.get('partial') or {}).get('note'))
             provider_id = session['_agent'].get('session_id')
             text = json.dumps({'CURRENT_APP_STATE': self.context(session),
                                'visible_results': session['chat'].get('visible_results'), 'reply_language': session['chat']['language'], 'user_message': session['chat']['message']}, ensure_ascii=False)
             text = session['chat'].get('provider_input') or text
             self.mark(session_id, request_id, provider_input=text)
             if not provider_id:
+                streamed = getattr(self.api, 'stream', None) is not None and not session['chat'].get('create_unstreamed')
                 body = session['chat'].get('create_body') or {'agent': {'model': self.api.model,
                     'instructions': INSTRUCTIONS, 'reasoning': {'effort': 'low'}, 'tools': tools()},
-                    'environment': {'type': 'none'}, 'input': text}
+                    'environment': {'type': 'none'}, 'input': text, **({'stream': True} if streamed else {})}
                 self.mark(session_id, request_id, create_body=body)
-                created = self.api.request('POST', '', body, key=submission_key)
+                created = None
+                if body.get('stream'):
+                    # Documented create-and-stream: the first turn's events arrive in this response.
+                    try:
+                        events = self.open_stream('POST', '', body, key=submission_key)
+                    except AgentError as error:
+                        if str(error) != 'provider_rejected':
+                            raise
+                        # Rejected requests create nothing; retry once without streaming.
+                        body = {k: v for k, v in body.items() if k != 'stream'}
+                        self.mark(session_id, request_id, create_body=body, create_unstreamed=True)
+                        submission_key += '-unstreamed'
+                    if events is not None and events.json_body is not None:
+                        created, events = events.json_body, None
+                    elif events is not None:
+                        iterator = iter(events)
+                        for event in iterator:
+                            buffered.append(event)
+                            ident = (event.get('session') or {}).get('id') or event.get('session_id')
+                            if ident:
+                                created = {'id': ident}
+                                break
+                            if len(buffered) > 200:
+                                break
+                        events = (events, iterator)
+                        if not created:
+                            raise AgentError('provider_connection')
+                if created is None:
+                    created = self.api.request('POST', '', body, key=submission_key)
                 provider_id = created['id']
                 def attach(s):
                     if s['chat'].get('request_id') != request_id or s['chat']['status'] != 'running':
@@ -346,7 +578,7 @@ class HomeAgent:
                     s['_agent']['config_version'] = 5
                     s['chat']['submitted'] = True
                 try:
-                    self.store.mutate(session_id, attach)
+                    self.mutate(session_id, attach)
                 except AgentError:
                     self.api.request('DELETE', '/' + provider_id)
                     raise
@@ -355,72 +587,235 @@ class HomeAgent:
                     if 'before_turn_id' not in session['chat']:
                         turns = self.api.request('GET', '/' + provider_id + '/turns?order=desc&limit=1').get('data', [])
                         self.mark(session_id, request_id, before_turn_id=turns[0]['id'] if turns else None)
+                    # Subscribe before sending input so early events of the turn are received.
+                    try:
+                        opened = self.open_stream('GET', '/' + provider_id + '/events?stream=true')
+                        events = (opened, iter(opened)) if opened is not None else None
+                    except AgentError:
+                        events = None
                     self.api.request('POST', '/' + provider_id + '/events', {'events': [
                         {'type': 'agent.session.input.message', 'input': [{'role': 'user', 'content': [{'type': 'input_text', 'text': text}]}]}]}, key=submission_key)
                     self.mark(session_id, request_id, submitted=True)
-            self.follow(session_id, provider_id, request_id)
+            self.follow(session_id, provider_id, request_id, events, buffered)
         except Exception as error:
             code = str(error) if isinstance(error, AgentError) else 'agent_error'
             def fail(s):
                 if s['chat'].get('request_id') == request_id and s['chat'].get('status') == 'running':
-                    s['chat'].update(status='error', error=code, progress='', recoverable=code != 'turn_failed')
-            self.store.mutate(session_id, fail)
+                    recoverable = code != 'turn_failed'
+                    s['chat'].update(status='error', error=code, progress='', recoverable=recoverable)
+                    if not recoverable:
+                        self.keep_partial(s, request_id, 'failed')
+            self.mutate(session_id, fail)
         finally:
+            if events is not None:
+                (events[0] if isinstance(events, tuple) else events).close()
             self.worker_done(session_id)
+
+    def keep_partial(self, s, request_id, reason):
+        """A terminal failure/cancel keeps streamed text, explicitly marked incomplete."""
+        partial = s['chat'].pop('partial', None) or {}
+        with self.changed:
+            live = next((l for l in self.live.values()
+                    if l.request_id == request_id and l.chat_id == s.get('chat_id')), None)
+            if live is not None:
+                partial = live.durable()['partial']
+        for key in ('partial_items', 'partial_activity'):
+            s['chat'].pop(key, None)
+        if partial.get('text', '').strip() and not any(m['id'] in ('reply_' + request_id, 'partial_' + request_id) for m in s['conversation']):
+            s['conversation'].append({'id': 'partial_' + request_id, 'role': 'assistant', 'text': partial['text'][:20000],
+                                      'incomplete': reason, 'activity': partial.get('activity', [])[-24:],
+                                      'created_at': datetime.now(timezone.utc).isoformat()})
 
     def worker_done(self, session_id):
         with self.lock:
             self.workers.discard(session_id)
         self.resume(session_id)
 
-    def follow(self, session_id, provider_id, request_id):
+    def read_events(self, events, queue):
+        stream, iterator = events if isinstance(events, tuple) else (events, iter(events))
+        def pump():
+            try:
+                for event in iterator:
+                    queue.put(event)
+            except Exception:
+                pass
+            queue.put({'type': '__closed__', 'stream': stream})
+        threading.Thread(target=pump, daemon=True).start()
+        return stream
+
+    def apply_event(self, session_id, live, event, before_turn_id):
+        """Update streamed output from documented session events. Returns a follow-up action."""
+        kind = event.get('type') or ''
+        turn = event.get('turn') if isinstance(event.get('turn'), dict) else {}
+        turn_id = event.get('turn_id') or turn.get('id')
+        if turn_id and turn_id == before_turn_id:
+            return None
+        if kind in ('agent.session.turn.completed', 'agent.session.turn.failed', 'agent.session.turn.cancelled'):
+            if turn.get('subagent_id') is not None:
+                return None
+            return 'poll' if kind.endswith('completed') else 'failed'
+        if kind in ('agent.session.requires_action', 'error', 'agent.session.idle'):
+            return 'poll'
+        if kind == 'agent.session.failed':
+            return 'failed'
+        with self.changed:
+            if kind in ('agent.session.turn.item.added', 'agent.session.turn.item.done'):
+                item = event.get('item') if isinstance(event.get('item'), dict) else {}
+                if item.get('type') == 'message' and item.get('role') == 'assistant' and item.get('id'):
+                    entry = live.item(item['id'], item.get('phase'))
+                    if kind.endswith('done'):
+                        parts = [p.get('text', '') for p in item.get('content', []) if isinstance(p, dict) and p.get('type') == 'output_text']
+                        if parts:
+                            entry['parts'] = dict(enumerate(parts)); entry['stale'] = False
+                elif item.get('type') == 'function_call' and item.get('call_id') and isinstance(item.get('name'), str):
+                    known = any(a['id'] == item['call_id'] for a in live.activity)
+                    if not known or kind.endswith('added'):
+                        live.tool(item['call_id'], item['name'][:60], 'running' if not known else next(a['status'] for a in live.activity if a['id'] == item['call_id']))
+                else:
+                    return None
+            elif kind == 'agent.session.turn.output_text.delta' and isinstance(event.get('delta'), str) and event.get('item_id'):
+                entry = live.item(event['item_id'])
+                if entry['stale']:
+                    return None
+                index = event.get('content_index') if isinstance(event.get('content_index'), int) else 0
+                entry['parts'][index] = (entry['parts'].get(index, '') + event['delta'])[:20000]
+            elif kind == 'agent.session.turn.output_text.done' and isinstance(event.get('text'), str) and event.get('item_id'):
+                entry = live.item(event['item_id'])
+                index = event.get('content_index') if isinstance(event.get('content_index'), int) else 0
+                entry['parts'][index] = event['text'][:20000]; entry['stale'] = False
+            else:
+                return None
+            live.dirty = True
+        self.notify(session_id, durable=False)
+        return None
+
+    def follow(self, session_id, provider_id, request_id, events=None, buffered=()):
+        import queue as queues
         deadline = time.monotonic() + 180
         count = self.store.get(session_id)['chat'].get('tool_count', 0)
-        while time.monotonic() < deadline:
-            local = self.store.get(session_id)
-            if local['chat'].get('request_id') != request_id or local['chat'].get('status') != 'running':
-                return
-            remote = self.api.request('GET', '/' + provider_id)
-            for action in remote.get('required_actions', []):
-                if action.get('type') != 'function_call':
-                    raise AgentError('unsupported_action')
-                count += 1
-                if count > 24:
-                    raise AgentError('tool_limit')
-                self.mark(session_id, request_id, progress=action['name'], tool_count=count)
-                output = self.execute(session_id, request_id, action)
-                self.api.request('POST', '/' + provider_id + '/events', {'events': [
-                    {'type': 'agent.session.input.tool_result', 'turn_id': action['turn_id'], 'call_id': action['call_id'],
-                     'success': True, 'output': json.dumps(output, ensure_ascii=False)}]}, key='tool-' + action['call_id'])
-            turns = self.api.request('GET', '/' + provider_id + '/turns?order=desc&limit=1').get('data', [])
-            turn = turns[0] if turns else None
-            if turn and turn['id'] != local['chat'].get('before_turn_id'):
-                if turn.get('status') in ('failed', 'cancelled'):
-                    raise AgentError('turn_failed')
-                if turn.get('status') == 'completed':
-                    items, cursor = [], ''
-                    for _ in range(10):
-                        page = self.api.request('GET', '/' + provider_id + '/items?' + urlencode({'order': 'asc', 'limit': 100, 'turn_id': turn['id'], **({'after': cursor} if cursor else {})}))
-                        items.extend(page.get('data', []))
-                        if not page.get('has_more'):
-                            break
-                        cursor = page['last_id']
-                    messages = [item for item in items if item.get('type') == 'message' and item.get('role') == 'assistant'
-                                and item.get('turn_id') == turn['id'] and item.get('phase') in (None, 'final_answer')]
-                    text = '\n\n'.join(part.get('text', '') for message in messages for part in message.get('content', []) if part.get('type') == 'output_text')
-                    if not text.strip():
-                        raise AgentError('empty_reply')
-                    def finish(s):
-                        if s['chat'].get('request_id') == request_id and s['chat']['status'] == 'running':
-                            s['conversation'].append({'id': 'reply_' + request_id, 'role': 'assistant', 'text': text[:20000],
-                                                      'created_at': datetime.now(timezone.utc).isoformat()})
-                            s['chat'].update(status='idle', progress='')
-                    self.store.mutate(session_id, finish)
+        inbox = queues.Queue()
+        for event in buffered:
+            inbox.put(event)
+        stream = self.read_events(events, inbox) if events is not None else None
+        streaming = getattr(self.api, 'stream', None) is not None
+        failures, retry_at, next_poll, saved_at, opened_at = 0, 0.0, 0.0, 0.0, time.monotonic()
+        if stream is not None:
+            next_poll = time.monotonic() + 3
+        posted = set()
+        with self.changed:
+            live = self.live.get(session_id)
+        try:
+            while time.monotonic() < deadline:
+                local = self.store.get(session_id)
+                if local['chat'].get('request_id') != request_id or local['chat'].get('status') != 'running':
                     return
-            if remote.get('status') == 'failed':
-                raise AgentError('turn_failed')
-            time.sleep(.8)
-        raise AgentError('timeout')
+                before = local['chat'].get('before_turn_id')
+                now = time.monotonic()
+                if stream is None and streaming and failures < 4 and now >= retry_at:
+                    try:
+                        opened = self.open_stream('GET', '/' + provider_id + '/events?stream=true')
+                        stream, opened_at = self.read_events(opened, inbox), time.monotonic()
+                        # Streams do not replay missed events: reconcile with saved state.
+                        with self.changed:
+                            live.mark_stale()
+                        next_poll = 0
+                    except AgentError:
+                        failures += 1; retry_at = now + 2
+                try:
+                    event = inbox.get(timeout=.25 if stream is not None else .8)
+                except queues.Empty:
+                    event = None
+                poll = time.monotonic() >= next_poll
+                while event is not None:
+                    if event.get('type') == '__closed__':
+                        if event.get('stream') is stream:
+                            if time.monotonic() - opened_at < 5:
+                                failures += 1
+                            stream, retry_at, poll = None, time.monotonic() + (1 if failures < 2 else 3), True
+                    else:
+                        action = self.apply_event(session_id, live, event, before)
+                        if action == 'failed':
+                            raise AgentError('turn_failed')
+                        poll = poll or action == 'poll'
+                    try:
+                        event = inbox.get_nowait()
+                    except queues.Empty:
+                        event = None
+                if live.dirty and time.monotonic() - saved_at > .5:
+                    with self.changed:
+                        durable = live.durable(); live.dirty = False
+                    self.mark(session_id, request_id, **durable)
+                    saved_at = time.monotonic()
+                if not poll:
+                    continue
+                next_poll = time.monotonic() + (4 if stream is not None else .8)
+                remote = self.api.request('GET', '/' + provider_id)
+                for action in remote.get('required_actions', []):
+                    if action.get('type') != 'function_call':
+                        raise AgentError('unsupported_action')
+                    if action.get('call_id') in posted:
+                        continue
+                    count += 1
+                    if count > 24:
+                        raise AgentError('tool_limit')
+                    with self.changed:
+                        live.tool(action['call_id'], action['name'], 'running')
+                    self.mark(session_id, request_id, progress=action['name'], tool_count=count)
+                    output = self.execute(session_id, request_id, action)
+                    with self.changed:
+                        live.tool(action['call_id'], action['name'], tool_outcome(action['name'], output))
+                    self.notify(session_id, durable=False)
+                    self.api.request('POST', '/' + provider_id + '/events', {'events': [
+                        {'type': 'agent.session.input.tool_result', 'turn_id': action['turn_id'], 'call_id': action['call_id'],
+                         'success': True, 'output': json.dumps(output, ensure_ascii=False)}]}, key='tool-' + action['call_id'])
+                    posted.add(action['call_id'])
+                    self.mark(session_id, request_id, progress='thinking')
+                if remote.get('required_actions'):
+                    continue
+                turns = self.api.request('GET', '/' + provider_id + '/turns?order=desc&limit=1').get('data', [])
+                turn = turns[0] if turns else None
+                if turn and turn['id'] != before:
+                    if turn.get('status') in ('failed', 'cancelled'):
+                        raise AgentError('turn_failed')
+                    if turn.get('status') == 'completed':
+                        items, cursor = [], ''
+                        for _ in range(10):
+                            page = self.api.request('GET', '/' + provider_id + '/items?' + urlencode({'order': 'asc', 'limit': 100, 'turn_id': turn['id'], **({'after': cursor} if cursor else {})}))
+                            items.extend(page.get('data', []))
+                            if not page.get('has_more'):
+                                break
+                            cursor = page['last_id']
+                        messages = [item for item in items if item.get('type') == 'message' and item.get('role') == 'assistant'
+                                    and item.get('turn_id') == turn['id'] and item.get('phase') in (None, 'final_answer')]
+                        # Saved items are authoritative over any streamed buffer.
+                        text = '\n\n'.join(part.get('text', '') for message in messages for part in message.get('content', []) if part.get('type') == 'output_text')
+                        if not text.strip():
+                            raise AgentError('empty_reply')
+                        with self.changed:
+                            steps = live.public()['activity']
+                        def finish(s):
+                            if s['chat'].get('request_id') == request_id and s['chat']['status'] == 'running':
+                                s['conversation'].append({'id': 'reply_' + request_id, 'role': 'assistant', 'text': text[:20000],
+                                                          **({'activity': steps} if steps else {}),
+                                                          'created_at': datetime.now(timezone.utc).isoformat()})
+                                for key in ('partial', 'partial_items', 'partial_activity'):
+                                    s['chat'].pop(key, None)
+                                s['chat'].update(status='idle', progress='')
+                        self.mutate(session_id, finish)
+                        return
+                if remote.get('status') == 'failed':
+                    raise AgentError('turn_failed')
+            raise AgentError('timeout')
+        finally:
+            if stream is not None:
+                stream.close()
+            if live is not None and live.dirty:
+                with self.changed:
+                    durable = live.durable(); live.dirty = False
+                try:
+                    self.mark(session_id, request_id, **durable)
+                except AgentError:
+                    pass
 
     def execute(self, session_id, request_id, action):
         """Journal side effects and their tool result in the same SQLite transaction."""
@@ -505,7 +900,7 @@ class HomeAgent:
             if len(s['_tool_results']) > 300:
                 del s['_tool_results'][next(iter(s['_tool_results']))]
             return result
-        result = self.store.mutate(session_id, apply)[1]
+        result = self.mutate(session_id, apply)[1]
         if name == 'control_map' and result.get('map_command'):
             command_id = result['map_command']['id']
             for _ in range(40):
@@ -672,7 +1067,7 @@ class HomeAgent:
             s['chat'].update(status='running', error=None)
             if s['chat'].get('tool_count', 0) >= 24:
                 s['chat']['tool_count'] = 0
-        session, _ = self.store.mutate(session_id, restore)
+        session, _ = self.mutate(session_id, restore)
         self.resume(session_id)
         return session
 
@@ -683,7 +1078,7 @@ class HomeAgent:
             if s['chat'].get('status') not in ('running', 'error'):
                 return
             s['chat'].update(status='cancelling', progress='stopping')
-        session, _ = self.store.mutate(session_id, begin)
+        session, _ = self.mutate(session_id, begin)
         self.resume(session_id)
         return session
 
@@ -695,7 +1090,7 @@ class HomeAgent:
                 raise AgentError('busy')
             s['chat'] = {'status': 'resetting', 'reset_search': reset_search, 'operation': 'reset', 'progress': 'clearing'}
             s['revision'] += 1
-        session, _ = self.store.mutate(session_id, begin)
+        session, _ = self.mutate(session_id, begin)
         self.resume(session_id)
         return session
 
@@ -714,7 +1109,9 @@ class HomeAgent:
                     if reset_search:
                         s['criteria'] = deepcopy(DEFAULT_CRITERIA)
                     s['revision'] += 1
-                self.store.mutate(session_id, clear)
+                self.mutate(session_id, clear)
+                with self.changed:
+                    self.live.pop(session_id, None)
             elif operation == 'cancelling':
                 if provider_id:
                     self.api.request('POST', '/' + provider_id + '/events', {'events': [{'type': 'agent.session.input.cancel'}]})
@@ -725,9 +1122,14 @@ class HomeAgent:
                         time.sleep(.5)
                     else:
                         raise AgentError('provider_connection')
-                self.store.mutate(session_id, lambda s: s['chat'].update(status='cancelled', progress=''))
+                request_id = session['chat'].get('request_id')
+                def cancelled(s):
+                    s['chat'].update(status='cancelled', progress='')
+                    if request_id:
+                        self.keep_partial(s, request_id, 'cancelled')
+                self.mutate(session_id, cancelled)
         except Exception as error:
             code = str(error) if isinstance(error, AgentError) else 'agent_error'
-            self.store.mutate(session_id, lambda s: s['chat'].update(status='error', error=code, recoverable=True, progress=''))
+            self.mutate(session_id, lambda s: s['chat'].update(status='error', error=code, recoverable=True, progress=''))
         finally:
             self.worker_done(session_id)

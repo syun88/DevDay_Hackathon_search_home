@@ -510,6 +510,7 @@ class Handler(SimpleHTTPRequestHandler):
                         or type(payload.get('reset_search', False)) is not bool):
                     raise ValueError('Invalid reset')
                 result = HOME_AGENT.reset(session_id, payload['expected_revision'], payload.get('reset_search', False))
+            HOME_AGENT.notify(session_id)
             return self.respond(200, public_session(result))
         except RevisionConflict as exc:
             return self.respond(409, {'error': 'revision_conflict', 'session': public_session(exc.session)})
@@ -517,6 +518,68 @@ class Handler(SimpleHTTPRequestHandler):
             return self.respond(409 if str(exc) == 'busy' else 503, {'error': str(exc)})
         except (ValueError, UnicodeError):
             return self.respond(400, {'error': 'Invalid session update'})
+
+    def stream_chat(self):
+        """Server-sent events with streamed assistant text, tool activity and saved-state changes."""
+        host = self.headers.get('Host', '')
+        if (host not in {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
+                or self.headers.get('Sec-Fetch-Site') == 'cross-site'):
+            return self.respond(403, {'error': 'Same-origin request required'})
+        session_id = self.session_id()
+        session = SESSION_STORE.get(session_id) if session_id else None
+        if not session:
+            return self.respond(404, {'error': 'Session not found; reload the page'})
+        HOME_AGENT.resume(session_id)
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.close_connection = True
+        def send(name, data):
+            self.wfile.write(f'event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n'.encode('utf-8'))
+        seen, state, sent, started = (-1, -1), None, {}, time.monotonic()
+        try:
+            self.wfile.write(b'retry: 1500\n\n'); self.wfile.flush()
+            while time.monotonic() - started < 600:
+                version = HOME_AGENT.wait_change(session_id, seen, 15)
+                changed, durable = version != seen, version[1] != seen[1]
+                seen = version
+                if durable:
+                    session = SESSION_STORE.get(session_id)
+                    if not session:
+                        break
+                    chat = session['chat']
+                    current = {'chat_id': session['chat_id'], 'revision': session['revision'],
+                               'map_revision': session['map_view']['revision'], 'status': chat.get('status'),
+                               'request_id': chat.get('request_id'), 'progress': chat.get('progress'),
+                               'error': chat.get('error'), 'recoverable': chat.get('recoverable')}
+                    if current != state:
+                        send('state', current); state = current
+                live = HOME_AGENT.live_view(session_id, session)
+                if live:
+                    key = (live['chat_id'], live['request_id'])
+                    if sent.get('key') != key:
+                        sent = {'key': key}
+                    payload, previous = {'chat_id': key[0], 'request_id': key[1]}, sent.get('text')
+                    # Coalesced, offset-checked appends; anything else replaces the whole text.
+                    if previous is None or not live['text'].startswith(previous):
+                        payload['text'] = live['text']
+                    elif len(live['text']) > len(previous):
+                        payload.update(offset=len(previous), delta=live['text'][len(previous):])
+                    for field in ('activity', 'note'):
+                        if sent.get(field) != live[field]:
+                            payload[field] = live[field]
+                    if len(payload) > 2:
+                        send('live', payload)
+                        sent.update(text=live['text'], activity=live['activity'], note=live['note'])
+                if not changed:
+                    self.wfile.write(b': keepalive\n\n')
+                self.wfile.flush()
+                time.sleep(.05)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
 
     def do_POST(self):
         action = {'/api/map': 'map', '/api/chat': 'chat', '/api/chat/cancel': 'cancel', '/api/chat/reset': 'reset', '/api/chat/resume': 'resume', '/api/chats/new': 'new_chat', '/api/chats/switch': 'switch_chat'}.get(urlparse(self.path).path)
@@ -558,6 +621,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path == '/api/chat/stream':
+            return self.stream_chat()
         if u.path == '/api/chats':
             session_id = self.session_id()
             if not session_id or not SESSION_STORE.get(session_id):

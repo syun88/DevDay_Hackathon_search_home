@@ -485,6 +485,23 @@ Object.assign(english, {
 });
 Object.assign(english, {'利用許諾が未設定のため接続を停止しています。公式検索リンクをご利用ください。':'Connection disabled: reuse permission is not configured. Use official search links.','未検索。半径は0.1〜2km、地点Aは東京都内にしてください。':'Not searched. Set a 0.1–2 km radius and an origin in Tokyo.'});
 Object.assign(english, {'件の公開資料':' public records'});
+Object.assign(english, {
+ 'Enterで送信・Shift+Enterで改行':'Enter to send · Shift+Enter for a new line','入力例':'Examples',
+ '回答を書いています…':'Writing the reply…','道路の所要時間を推定しています…':'Estimating road travel time…','地図を更新しています…':'Updating the map…',
+ '地図の状態を確認':'Read the map','地図を操作':'Move the map','物件の詳細を確認':'Read home details','公開データを読み込み':'Load public records',
+ '検索条件を確認':'Read search criteria','検索条件を更新':'Update search criteria','場所を検索':'Look up a place','起点を設定':'Set the origin',
+ '希望を記憶':'Remember a preference','記憶を更新':'Update memory','掲載ページを検索':'Search listing pages','道路の所要時間を推定':'Estimate road travel time',
+ '候補を比較':'Compare candidates','候補を保存':'Save a candidate','保存済みを更新':'Update saved homes','条件を元に戻す':'Undo a criteria change','ツールを実行':'Run a tool',
+ '実行中':'In progress','完了':'Done','失敗':'Failed','地図に反映済み':'Shown on map','地図の反映待ち':'Waiting for the map','手動の地図操作を優先':'Kept your manual map view',
+ '地図に表示できません':'Could not show on map','中断':'Interrupted','{0}件の操作':'{0} steps',
+ '停止したため、この回答は途中までです。':'Stopped: this reply is incomplete.',
+ '処理に失敗したため、この回答は途中までです。':'The turn failed: this reply is incomplete.',
+ '接続が中断されたため、この回答は途中までです。再試行で続きを確認できます。':'The connection was interrupted, so this reply is incomplete. Retry to check for the rest.',
+ '千代田区の都営住宅を地図に表示して':'Show official Chiyoda-ku public housing on the map',
+ '東京駅から3km以内で1LDK、月15万円以内の賃貸を探して':'Find a 1LDK rental within 3 km of Tokyo Station, ¥150,000/month total or less',
+ '選択中の物件の分かっている条件と不明点を教えて':'What is known and unknown about the selected home?',
+});
+Object.assign(english, {'住所':'Address','資料基準日':'Data as of','はい':'Yes','いいえ':'No','築年数（年）':'Age (years)','ペット可':'Pets allowed','駐車場':'Parking'});
 const storageKey = 'property_map_language';
 let language = 'ja';
 try { if (localStorage.getItem(storageKey) === 'en') language = 'en'; } catch {}

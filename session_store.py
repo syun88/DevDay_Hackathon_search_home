@@ -246,5 +246,5 @@ def public_session(session):
     """Provider IDs, idempotency records and tool journals never go to the browser."""
     result = {key: value for key, value in session.items() if not key.startswith('_')}
     result['chat'] = {key: value for key, value in session.get('chat', {}).items()
-                      if key in ('status', 'request_id', 'progress', 'error', 'message', 'recoverable', 'operation', 'reset_search')}
+                      if key in ('status', 'request_id', 'progress', 'error', 'message', 'recoverable', 'operation', 'reset_search', 'partial')}
     return result
