@@ -120,6 +120,9 @@ def normalize_item(item: dict, fetched_at: str) -> dict | None:
     layout = str(item.get('madori') or '').strip()[:20] or None
     return {
         'source_id': source_id, 'source_url': source_url, 'address': address,
+        'name': str(item.get('bukken_nm') or '')[:180], 'floor': str(item.get('kaiso_disp') or '')[:80],
+        'age_text': str(item.get('chikugonensu') or '')[:80], 'transport': str(item.get('kotsu') or '')[:300],
+        'deposit': str(item.get('shikikin') or '')[:80], 'key_money': str(item.get('reikin') or '')[:80],
         'rent_jpy': rent, 'management_fee_jpy': fee,
         'known_monthly_subtotal_jpy': rent + fee if rent is not None and fee is not None else None,
         'other_monthly_costs': 'unknown', 'layout': layout, 'area_sqm': area,

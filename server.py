@@ -24,6 +24,7 @@ import os, json, re, math, threading, time
 from listing_feed import normalize_feed
 from session_store import SessionStore, RevisionConflict, CRITERIA_SCHEMA, UPDATE_SCHEMA, SCHEMA_VERSION, public_session
 from home_agent import HomeAgent, AgentError
+from listing_details import read_details
 from suumo_bridge import SuumoError, search as search_suumo, validate_search, validate_filters, RENT_STEPS
 
 BASE = Path(__file__).resolve().parent
@@ -363,14 +364,15 @@ def agent_listings(place, kind, details, provider='auto'):
                 lower_bound = (row.get('rent_jpy') or 0) + (row.get('management_fee_jpy') or 0)
                 if budget is not None and lower_bound > budget: continue
                 result['leads'].append({
-                    'title': 'SUUMO ' + row['source_id'], 'url': row['source_url'], 'source': 'SUUMO',
+                    'title': row.get('name') or 'SUUMO ' + row['source_id'], 'url': row['source_url'], 'source': 'SUUMO',
                     'kind': 'rent', 'discovery_only': True, 'availability_status': 'unknown',
                     'last_verified_at': None, 'retrieved_at': raw['fetched_at'],
                     'lat': None, 'lon': None, 'geo_precision': 'unknown',
                     'known_monthly_subtotal_yen': known,
                     'extracted': {'price': row['rent_jpy']/10000 if row['rent_jpy'] is not None else None,
                                   'management_fee_yen':row['management_fee_jpy'], 'mandatory_fee_yen':None,
-                                  'area':row['area_sqm'], 'layout':row['layout'], 'address':row['address']},
+                                  'area':row['area_sqm'], 'layout':row['layout'], 'address':row['address'],
+                                  **{k:row.get(k) or None for k in ('floor','age_text','transport','deposit','key_money')}},
                     'limitations': ['availability unknown', 'other monthly fees unknown', 'exact location and radius unverified',
                                     'building type and other requested requirements unverified']})
         except (ValueError, KeyError, TypeError):
@@ -388,7 +390,7 @@ def agent_listings(place, kind, details, provider='auto'):
     return result
 
 
-HOME_AGENT = HomeAgent(SESSION_STORE, OPENAI_KEY, agent_listings, router=route_time)
+HOME_AGENT = HomeAgent(SESSION_STORE, OPENAI_KEY, agent_listings, router=route_time, detail_reader=read_details)
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -397,7 +399,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def send_head(self):
         # Serve only frontend assets, never .env, Git metadata, or source files.
-        if urlparse(self.path).path not in ('/', '/index.html', '/i18n.js', '/session.js', '/workspace.js', '/workspace.css', '/chat.js', '/shell.js', '/shell.css', '/property_core.js'):
+        if urlparse(self.path).path not in ('/', '/index.html', '/i18n.js', '/session.js', '/workspace.js', '/workspace.css', '/chat.js', '/shell.js', '/shell.css', '/property_core.js', '/map_agent.js', '/map_agent.css'):
             self.send_error(404, 'Not found')
             return None
         return super().send_head()
@@ -444,6 +446,10 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.respond(404, {'error': 'Session not found; reload the page'})
             if action == 'session':
                 result = SESSION_STORE.update(session_id, payload)
+            elif action == 'map':
+                import map_agent
+                result, outcome = SESSION_STORE.mutate(session_id, lambda s: map_agent.report(s,payload))
+                if outcome.get('error'): return self.respond(409,outcome)
             elif action == 'chat':
                 result = HOME_AGENT.start(session_id, payload)
             elif action == 'cancel':
@@ -471,7 +477,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self.respond(400, {'error': 'Invalid session update'})
 
     def do_POST(self):
-        action = {'/api/chat': 'chat', '/api/chat/cancel': 'cancel', '/api/chat/reset': 'reset', '/api/chat/resume': 'resume', '/api/chats/new': 'new_chat', '/api/chats/switch': 'switch_chat'}.get(urlparse(self.path).path)
+        action = {'/api/map': 'map', '/api/chat': 'chat', '/api/chat/cancel': 'cancel', '/api/chat/reset': 'reset', '/api/chat/resume': 'resume', '/api/chats/new': 'new_chat', '/api/chats/switch': 'switch_chat'}.get(urlparse(self.path).path)
         if action:
             return self.update_session(action)
         if urlparse(self.path).path == '/api/session':
@@ -557,7 +563,7 @@ class Handler(SimpleHTTPRequestHandler):
                 _suumo_cache[key] = (time.monotonic(), result)
             return self.respond(200, {**result, 'cached': False})
         if u.path != '/api/listings':
-            if u.path not in ('/index.html', '/i18n.js', '/property_core.js', '/session.js', '/chat.js', '/workspace.js', '/workspace.css', '/shell.js', '/shell.css'):
+            if u.path not in ('/index.html', '/i18n.js', '/property_core.js', '/session.js', '/chat.js', '/workspace.js', '/workspace.css', '/shell.js', '/shell.css', '/map_agent.js', '/map_agent.css'):
                 return self.respond(404, {'error':'not found'})
             return super().do_GET()
         q = parse_qs(u.query)
