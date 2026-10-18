@@ -73,6 +73,33 @@ class AgentToolsTest(unittest.TestCase):
         self.execute('remove_saved_listing', {'listing_id': listing['id']})
         self.assertEqual(self.store.get(self.token)['saved_candidates'], [])
 
+    def test_road_routes_cover_both_origins_and_are_invalidated_by_mode_changes(self):
+        from datetime import datetime, timezone
+        item = self.raw['results'][0]
+        item.update(kind='rent', availability_status='confirmed', last_verified_at=datetime.now(timezone.utc).isoformat(),
+                    lat=self.place['lat'], lon=self.place['lon'], geo_precision='exact')
+        self.execute('set_origin', {'place_id':'origin_a', 'which':'b'})
+        self.execute('update_search', {'criteria':{'restrict_b':True, 'max_commute_minutes':20}})
+        routes = []
+        def router(payload):
+            routes.append(payload)
+            return {'status':'ok', 'duration_seconds':1200, 'checked_at':datetime.now(timezone.utc).isoformat()}
+        self.agent.router = router
+        result = self.execute('search_listings')
+        args = {'result_set_id':result['id'], 'listing_id':result['items'][0]['id']}
+        routed = self.execute('get_commute', args)['candidate']
+        self.assertEqual(len(routes), 2)
+        self.assertNotIn('commute time', routed['match']['unknown'])
+        self.execute('update_search', {'criteria':{'commute_mode':'bike'}})
+        compared = self.execute('compare_listings', {'result_set_id':result['id'], 'listing_ids':[routed['id']]})
+        self.assertIn('commute time', compared['candidates'][0]['match']['unknown'])
+
+    def test_road_route_never_uses_an_approximate_geocoder_position(self):
+        result = self.execute('search_listings')
+        self.agent.router = lambda payload: self.fail('Must not route an unverified position')
+        routed = self.execute('get_commute', {'result_set_id':result['id'], 'listing_id':result['items'][0]['id']})
+        self.assertEqual(routed['error'], 'route_unavailable')
+
     def test_unknown_reference_does_not_save_invented_listing(self):
         result = self.execute('search_listings')
         self.assertIn('error', self.execute('save_listing', {'result_set_id': result['id'], 'listing_id': 'invented'}))

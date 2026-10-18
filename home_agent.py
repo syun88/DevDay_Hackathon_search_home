@@ -175,7 +175,7 @@ def evidence(item, criteria):
         ('age', x.get('age'), criteria['max_age_years'], False),
     ]:
         if limit is None: continue
-        if actual is None: unknown.append(field)
+        if actual is None or (field == 'total monthly cost / sale price' and not criteria['property_type']): unknown.append(field)
         elif actual < limit if minimum else actual > limit: mismatches.append(field)
     if criteria['layout']:
         if not x.get('layout'): unknown.append('layout')
@@ -184,7 +184,7 @@ def evidence(item, criteria):
         if criteria[field]:
             if x.get(field) is None: unknown.append(field)
             elif x[field] is not True: mismatches.append(field)
-    if criteria['inside_only'] or criteria['listing_only_within']:
+    if criteria['listing_only_within']:
         if item.get('geo_precision') != 'exact' or item.get('lat') is None or item.get('lon') is None:
             unknown.append('exact location / distance')
         else:
@@ -216,7 +216,9 @@ class HomeAgent:
         self.workers = set()
 
     def context(self, session):
-        sets = session.get('result_sets', [])
+        sets = deepcopy(session.get('result_sets', []))
+        for result in sets:
+            for item in result['items']: item['match'] = evidence(item, session['criteria'])
         return {'revision': session['revision'], 'criteria': session['criteria'], 'memory': session['memory'],
                 'recent_conversation': session['conversation'][-20:], 'latest_result_set': sets[-1] if sets else None, 'saved_candidates': session['saved_candidates']}
 
@@ -525,7 +527,7 @@ class HomeAgent:
             result = {'id': 'results_' + uuid4().hex[:16], 'criteria': deepcopy(s['criteria']),
                       'items': items, 'discovery_links': external.get('discovery_links', []), 'provider': external.get('provider'), 'errors': external.get('errors', []),
                       'created_at': datetime.now(timezone.utc).isoformat(),
-                      'note': 'Discovery links contain no verified property data. Source records expire after one hour; unknown requirements are not confirmed. Road commute requires the manual route lookup.',
+                      'note': 'Discovery links contain no verified property data. Source records expire after one hour; unknown requirements are not confirmed. Road commute requires get_commute or the manual route lookup.',
                       'counts': {'retrieved': len(items), 'mismatched': sum(x['match']['status'] == 'mismatch' for x in items), 'confirmed': sum(x['match']['status'] == 'confirmed' for x in items)}}
             s['result_sets'] = (s['result_sets'] + [result])[-5:]
             return result
