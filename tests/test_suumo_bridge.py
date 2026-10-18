@@ -81,7 +81,7 @@ class SuumoBridgeTest(unittest.TestCase):
         self.assertEqual(fetch.call_count, 2)
         self.assertEqual(fetch.call_args_list[0].args[0], bridge.MAP_PAGE)
         second_url = fetch.call_args_list[1].args[0]
-        self.assertIn('CNT=5', second_url)
+        self.assertIn('CNT=20', second_url)
         self.assertIn('SE=040', second_url)
         self.assertEqual(result['results'], [])
 
@@ -93,7 +93,22 @@ class SuumoBridgeTest(unittest.TestCase):
         second_url = fetch.call_args_list[1].args[0]
         self.assertIn('CHINRYOMAX=15', second_url)
         self.assertIn('CINM=02', second_url)
-        self.assertIn('CNT=5', second_url)
+        self.assertIn('CNT=20', second_url)
+
+    def test_pages_are_forwarded_and_not_truncated_to_five(self):
+        page_html = b"<script>suumo.ApiParam={'bkApi':{'UID':'public123','STMP':'1234567890','ATT':'abcdef0123456789abcdef0123456789abcdef01'}}</script>"
+        items = [{'bukken_cd': str(100000000 + i), 'link': f'https://suumo.jp/chintai/bc_{100000000 + i}/',
+                  'jusho': '東京都渋谷区', 'kakaku': '12万円', 'madori': '1K'} for i in range(20)]
+        body = json.dumps({'smatch': {'resultset': {'totalhits': 45, 'item': items}}}).encode()
+        with patch.object(bridge, '_curl_get', side_effect=[page_html, body]) as fetch:
+            result = bridge.search(35.69, 139.70, 1, 15, '1K', page=2)
+        self.assertIn('P=2&', fetch.call_args_list[1].args[0])
+        self.assertEqual(len(result['results']), 20)
+        self.assertEqual(result['page'], 2)
+        self.assertTrue(result['has_next'])
+        self.assertFalse(bridge.parse_search_response(body, 'now', page=3)['has_next'])
+        for page in [0, -1, 1.5, True]:
+            with self.assertRaises(ValueError): bridge.validate_page(page)
 
     def test_transport_failure_and_timeout_are_explicit_errors(self):
         with patch.object(bridge, 'run', return_value=SimpleNamespace(returncode=7, stderr=b'', stdout=b'')):
