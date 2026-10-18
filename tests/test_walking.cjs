@@ -108,6 +108,25 @@ test('a changed origin immediately invalidates its area and late responses canno
   assert.equal(loader.get('a').geometry, newer);
 });
 
+test('switching between walking time and walking distances invalidates the old metric', async () => {
+  const calls = [];
+  const loader = walking.createAreaLoader({delayMs: 0, onChange() {}, async fetchArea(value) {
+    calls.push(value); return {geometry: area, network};
+  }});
+  loader.update({a: request(5)});
+  await waitUntil(() => loader.get('a').status === 'ready');
+  loader.update({a: {lat: 35, lon: 139, distance_km: 1}});
+  assert.equal(loader.get('a').geometry, null);
+  await waitUntil(() => loader.get('a').status === 'ready');
+  loader.update({a: {lat: 35, lon: 139, distance_km: 2}});
+  assert.equal(loader.get('a').geometry, null);
+  await waitUntil(() => loader.get('a').status === 'ready');
+  assert.equal(calls.length, 3);
+  assert.equal(calls[0].minutes, 5);
+  assert.equal(calls[1].distance_km, 1);
+  assert.equal(calls[2].distance_km, 2);
+});
+
 test('failure and timeout stay unavailable until retry succeeds', async () => {
   let fail = true;
   const loader = walking.createAreaLoader({delayMs: 0, onChange() {}, async fetchArea() {

@@ -2,6 +2,12 @@
 (() => {
 'use strict';
 const english = {
+  "徒歩（所要徒歩距離）": "Walking distance",
+  "徒歩{0}": "{0} walk",
+  "{0}：徒歩{1}以内・道路の合計 約{2}km": "{0}: within a {1} walk · approx. {2} km of reachable roads",
+  "{0}：徒歩{1}以内の範囲を取得中…": "{0}: loading the area within a {1} walk…",
+  "色付きの線は指定距離以内に道路・歩道を歩いて到達した区間です。破線は外周の目安です。": "Colored lines show roads and footpaths reached within the selected walking distance. Dashed lines show an approximate boundary.",
+  "道路・歩道に沿って歩く累積距離で計算します。線の太さは見やすさのための表示です。建物入口までの個別の徒歩距離は未確認です。": "Calculated using cumulative distance along roads and footpaths. Line width is for visibility. Walking distances to individual building entrances are unverified.",
   "範囲未判定": "Area check pending",
   "指定範囲外（概略位置）": "Outside selected area (approximate location)",
   "東京駅": "Tokyo Station",

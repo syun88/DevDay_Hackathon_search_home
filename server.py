@@ -40,6 +40,7 @@ _suumo_cache: dict[tuple[float, float, float, float | None, str | None], tuple[f
 MAX_BYTES = 1_000_000
 VALHALLA_URL = os.environ.get('VALHALLA_URL', 'https://valhalla1.openstreetmap.de').rstrip('/')
 WALKING_SPEED_KMH = 4.8
+WALKING_FERRY_BOARDING_SECONDS = 43200
 WALKING_CACHE_TTL = 900
 _walking_cache: dict[tuple, tuple[float, dict]] = {}
 _walking_cache_lock = threading.Lock()
@@ -138,7 +139,20 @@ def walking_parameters(lat, lon, minutes):
     return round(lat, 6), round(lon, 6), int(minutes)
 
 
-def walking_geometry(data, minutes):
+def walking_distance_parameters(lat, lon, distance_km):
+    lat, lon, _ = walking_parameters(lat, lon, 15)
+    try:
+        if isinstance(distance_km, bool):
+            raise ValueError
+        distance_km = float(distance_km)
+    except (ValueError, TypeError):
+        raise ValueError('徒歩距離はkm単位の数値で指定してください') from None
+    if not math.isfinite(distance_km) or not 0.1 <= distance_km <= 5:
+        raise ValueError('徒歩距離は0.1〜5kmで指定してください')
+    return lat, lon, round(distance_km, 3)
+
+
+def walking_geometry(data, limit, metric='time'):
     """Accept only a matching polygon contour, including holes and islands."""
     if not isinstance(data, dict) or data.get('type') != 'FeatureCollection':
         raise ValueError('徒歩圏の応答が不正です')
@@ -148,7 +162,8 @@ def walking_geometry(data, minutes):
         properties = feature.get('properties')
         if not isinstance(properties, dict):
             continue
-        if properties.get('contour') != minutes or properties.get('metric') != 'time':
+        contour = properties.get('contour')
+        if properties.get('metric') != metric or isinstance(contour, bool) or not isinstance(contour, (int, float)) or not math.isclose(contour, limit, rel_tol=1e-6):
             continue
         geometry = feature.get('geometry')
         if not isinstance(geometry, dict):
@@ -169,14 +184,14 @@ def walking_geometry(data, minutes):
                     ) or not -180 <= point[0] <= 180 or not -85 <= point[1] <= 85:
                         raise ValueError('徒歩圏の座標が不正です')
         return {'type': kind, 'coordinates': coordinates}
-    raise ValueError('指定時間の徒歩圏がありません')
+    raise ValueError('指定条件の徒歩圏がありません')
 
 
-def walking_network(data, minutes):
+def walking_network(data, limit, metric='time'):
     """Only fully reached pedestrian edges, never the interpolated land surface.
 
-    Expansion includes search-frontier edges beyond the requested time. Keep
-    settled edges whose cumulative travel duration is within the time budget.
+    Expansion includes search-frontier edges beyond the requested limit. Keep
+    settled edges within the cumulative duration or distance budget.
     """
     if not isinstance(data, dict) or data.get('type') != 'FeatureCollection' or not isinstance(data.get('features'), list):
         raise ValueError('徒歩道路網の応答が不正です')
@@ -187,11 +202,18 @@ def walking_network(data, minutes):
         properties, geometry = feature.get('properties'), feature.get('geometry')
         if not isinstance(properties, dict) or not isinstance(geometry, dict):
             continue
-        duration = properties.get('duration')
-        if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(duration):
+        value = properties.get('duration' if metric == 'time' else 'distance')
+        budget = limit * (60 if metric == 'time' else 1000)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
             continue
-        if properties.get('edge_status') != 's' or not 0 <= duration <= minutes * 60:
+        if properties.get('edge_status') != 's' or not 0 <= value <= budget:
             continue
+        if metric == 'distance':
+            # The distance budget alone does not exclude ferries. The artificial
+            # boarding duration marks ferry paths and their descendants too.
+            duration = properties.get('duration')
+            if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(duration) or not 0 <= duration < WALKING_FERRY_BOARDING_SECONDS:
+                continue
         points = geometry.get('coordinates')
         if geometry.get('type') != 'LineString' or not isinstance(points, list) or len(points) < 2:
             raise ValueError('徒歩道路網の形状が不正です')
@@ -202,15 +224,22 @@ def walking_network(data, minutes):
                 raise ValueError('徒歩道路網の座標が不正です')
         lines.append(points)
     if not lines:
-        raise ValueError('指定時間内に到達した徒歩道路がありません')
+        raise ValueError('指定条件内に到達した徒歩道路がありません')
     return {'type': 'MultiLineString', 'coordinates': lines}
 
 
-def fetch_walking_area(lat, lon, minutes):
+def fetch_walking_area(lat, lon, minutes=None, *, distance_km=None):
     """Pedestrian road-network isochrone. Never substitute a distance circle."""
     global _walking_last_request
-    lat, lon, minutes = walking_parameters(lat, lon, minutes)
-    key = (lat, lon, minutes)
+    if (minutes is None) == (distance_km is None):
+        raise ValueError('徒歩時間または徒歩距離を1つだけ指定してください')
+    if distance_km is not None:
+        lat, lon, limit = walking_distance_parameters(lat, lon, distance_km)
+        metric = 'distance'
+    else:
+        lat, lon, limit = walking_parameters(lat, lon, minutes)
+        metric = 'time'
+    key = (lat, lon, metric, limit)
     def cached_area():
         with _walking_cache_lock:
             cached = _walking_cache.get(key)
@@ -235,11 +264,11 @@ def fetch_walking_area(lat, lon, minutes):
             'locations': [{'lat': lat, 'lon': lon, 'search_filter': {'exclude_ferry': True}}],
             'costing': 'pedestrian',
             # Public servers may disable hard exclusions. A boarding time above
-            # our 60-minute limit prevents ferry travel from entering this area;
-            # excluding ferry origin edges also prevents starting on a ferry.
+            # our time limit prevents ferry travel; distance results also reject
+            # paths with this boarding duration. Do not snap origins to ferries.
             'costing_options': {'pedestrian': {'walking_speed': WALKING_SPEED_KMH,
-                                                'use_ferry': 0, 'ferry_cost': 43200}},
-            'contours': [{'time': minutes}], 'polygons': True,
+                                                'use_ferry': 0, 'ferry_cost': WALKING_FERRY_BOARDING_SECONDS}},
+            'contours': [{metric: limit}], 'polygons': True,
             'denoise': 0.5, 'generalize': 25,
         }
         _walking_last_request = time.monotonic()
@@ -250,16 +279,17 @@ def fetch_walking_area(lat, lon, minutes):
         data = json.loads(get_text(VALHALLA_URL + '/isochrone?' + urlencode({
             'json': json.dumps(payload, separators=(',', ':')),
         }), headers=headers, timeout=15))
-        geometry = walking_geometry(data, minutes)
+        geometry = walking_geometry(data, limit, metric)
         time.sleep(max(0, 1 - (time.monotonic() - _walking_last_request)))
         _walking_last_request = time.monotonic()
         expansion = json.loads(get_text(VALHALLA_URL + '/expansion?' + urlencode({
             'json': json.dumps({**payload, 'action': 'isochrone', 'skip_opposites': True,
-                                'dedupe': True, 'expansion_properties': ['duration', 'edge_status']},
+                                'dedupe': True, 'expansion_properties': ['duration', 'edge_status'] + (['distance'] if metric == 'distance' else [])},
                                separators=(',', ':')),
         }), headers=headers, timeout=15, max_bytes=16_000_000))
         result = {
-            'geometry': geometry, 'network': walking_network(expansion, minutes), 'minutes': minutes,
+            'geometry': geometry, 'network': walking_network(expansion, limit, metric), 'metric': metric,
+            **({'minutes': limit} if metric == 'time' else {'distance_km': limit}),
             'origin': {'lat': lat, 'lon': lon}, 'walking_speed_kmh': WALKING_SPEED_KMH,
             'source': 'Valhalla / OpenStreetMap',
             'attribution': '© OpenStreetMap contributors',
@@ -551,13 +581,18 @@ class Handler(SimpleHTTPRequestHandler):
             except (HTTPError, URLError, OSError, TimeoutError, KeyError, TypeError, StopIteration) as error:
                 return self.respond(502, {'error': '公開データを取得できません: ' + type(error).__name__})
         if u.path == '/api/walking-area':
-            q = parse_qs(u.query)
+            q = parse_qs(u.query, keep_blank_values=True)
             try:
-                parameters = walking_parameters(*(q.get(k, [''])[0] for k in ('lat', 'lon', 'minutes')))
+                if not {'lat', 'lon'} <= set(q) or not set(q) <= {'lat', 'lon', 'minutes', 'distance_km'} or any(len(value) != 1 for value in q.values()) or (('minutes' in q) == ('distance_km' in q)):
+                    raise ValueError('緯度・経度と徒歩時間または徒歩距離を1つずつ指定してください')
+                if 'distance_km' in q:
+                    parameters = walking_distance_parameters(q['lat'][0], q['lon'][0], q['distance_km'][0])
+                else:
+                    parameters = walking_parameters(q['lat'][0], q['lon'][0], q['minutes'][0])
             except ValueError as exc:
                 return self.respond(400, {'error': str(exc)})
             try:
-                result = fetch_walking_area(*parameters)
+                result = fetch_walking_area(*parameters) if 'minutes' in q else fetch_walking_area(*parameters[:2], distance_km=parameters[2])
             except (HTTPError, URLError, OSError, TimeoutError, ValueError, TypeError):
                 return self.respond(502, {'error': '徒歩圏を取得できません。通信環境を確認して再試行してください。'})
             try:

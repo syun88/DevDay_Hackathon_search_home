@@ -11,9 +11,9 @@ from unittest.mock import patch
 import server
 
 
-def contour(minutes=15, geometry=None):
+def contour(minutes=15, geometry=None, metric='time'):
     return {'type': 'FeatureCollection', 'features': [{
-        'type': 'Feature', 'properties': {'contour': minutes, 'metric': 'time'},
+        'type': 'Feature', 'properties': {'contour': minutes, 'metric': metric},
         'geometry': geometry or {'type': 'Polygon', 'coordinates': [[
             [139.76, 35.68], [139.77, 35.68], [139.77, 35.69], [139.76, 35.68],
         ]]},
@@ -22,7 +22,7 @@ def contour(minutes=15, geometry=None):
 
 def expansion():
     return {'type': 'FeatureCollection', 'features': [{
-        'type': 'Feature', 'properties': {'duration': 600, 'edge_status': 's'},
+        'type': 'Feature', 'properties': {'duration': 600, 'distance': 800, 'edge_status': 's'},
         'geometry': {'type': 'LineString', 'coordinates': [[139.76, 35.68], [139.77, 35.68]]},
     }]}
 
@@ -134,6 +134,54 @@ class WalkingAreaTest(unittest.TestCase):
         self.assertEqual(result['coordinates'][0], expansion()['features'][0]['geometry']['coordinates'])
         self.assertRaises(ValueError, server.walking_network, {'type': 'FeatureCollection', 'features': []}, 15)
 
+    def test_distance_parameters_reject_invalid_or_excessive_requests(self):
+        for value in ('', 'nan', 'inf', '-1', '0', '0.09', '5.1', True):
+            with self.subTest(value=value), patch.object(server, 'get_text') as get:
+                self.assertRaises(ValueError, server.fetch_walking_area, 35.68, 139.76, distance_km=value)
+                get.assert_not_called()
+        self.assertEqual(server.walking_distance_parameters('35.68', '139.76', '0.8'), (35.68, 139.76, 0.8))
+        self.assertRaises(ValueError, server.fetch_walking_area, 35.68, 139.76, 15, distance_km=1)
+
+    def test_distance_contract_uses_isodistance_and_accumulated_road_metres(self):
+        with patch.object(server, 'get_text', side_effect=[json.dumps(contour(1, metric='distance')), json.dumps(expansion())]) as get, \
+                patch.object(server.time, 'sleep'):
+            result = server.fetch_walking_area(35.68, 139.76, distance_km=1)
+        payloads = [json.loads(parse_qs(urlparse(call.args[0]).query)['json'][0]) for call in get.call_args_list]
+        self.assertEqual(payloads[0]['contours'], [{'distance': 1}])
+        self.assertEqual(payloads[0]['costing'], 'pedestrian')
+        self.assertIn('distance', payloads[1]['expansion_properties'])
+        self.assertIn('duration', payloads[1]['expansion_properties'])
+        self.assertEqual(result['metric'], 'distance')
+        self.assertEqual(result['distance_km'], 1)
+        self.assertNotIn('minutes', result)
+        self.assertEqual(len(result['network']['coordinates']), 1)
+        self.assertRaises(ValueError, server.walking_geometry, contour(1), 1, 'distance')
+
+    def test_time_and_distance_are_separate_cache_entries_even_with_the_same_value(self):
+        short = expansion()
+        short['features'][0]['properties']['duration'] = 240
+        replies = [contour(5), short, contour(5, metric='distance'), short]
+        with patch.object(server, 'get_text', side_effect=[json.dumps(reply) for reply in replies]) as get, \
+                patch.object(server.time, 'sleep'):
+            time_area = server.fetch_walking_area(35.68, 139.76, 5)
+            distance_area = server.fetch_walking_area(35.68, 139.76, distance_km=5)
+            self.assertEqual(time_area['metric'], 'time')
+            self.assertEqual(distance_area['metric'], 'distance')
+            self.assertTrue(server.fetch_walking_area(35.68, 139.76, distance_km=5)['cached'])
+            self.assertTrue(server.fetch_walking_area(35.68, 139.76, 5)['cached'])
+            self.assertEqual(get.call_count, 4)
+
+    def test_distance_budget_includes_its_boundary_and_excludes_ferry_paths(self):
+        data = expansion()
+        data['features'] = []
+        for distance, duration, status in [(1000, 600, 's'), (900, 5000, 's'), (1001, 100, 's'),
+                                            (500, 43200, 's'), (500, 100, 'r'), (float('nan'), 100, 's')]:
+            edge = copy.deepcopy(expansion()['features'][0])
+            edge['properties'] = {'distance': distance, 'duration': duration, 'edge_status': status}
+            data['features'].append(edge)
+        result = server.walking_network(data, 1, 'distance')
+        self.assertEqual(len(result['coordinates']), 2)
+
 
 class WalkingHTTPTest(unittest.TestCase):
     @classmethod
@@ -172,6 +220,20 @@ class WalkingHTTPTest(unittest.TestCase):
                     urlopen(self.base + '/api/walking-area?lat=35&lon=139&minutes=15')
                 self.assertEqual(error.exception.code, 502)
                 self.assertIn('error', json.load(error.exception))
+
+    def test_http_distance_request_and_ambiguous_limits(self):
+        expected = {'metric': 'distance', 'distance_km': 1, 'geometry': contour()['features'][0]['geometry']}
+        with patch.object(server, 'fetch_walking_area', return_value=expected) as fetch:
+            with urlopen(self.base + '/api/walking-area?lat=35.68&lon=139.76&distance_km=1') as response:
+                self.assertEqual(json.load(response), expected)
+            fetch.assert_called_once_with(35.68, 139.76, distance_km=1)
+        for query in ('minutes=15&distance_km=1', 'distance_km=1&distance_km=2', 'distance_km=',
+                      'distance_km=6', 'distance_km=1&unexpected=1', ''):
+            with self.subTest(query=query), patch.object(server, 'fetch_walking_area') as fetch:
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(self.base + '/api/walking-area?lat=35.68&lon=139.76&' + query)
+                self.assertEqual(error.exception.code, 400)
+                fetch.assert_not_called()
 
 
 if __name__ == '__main__':

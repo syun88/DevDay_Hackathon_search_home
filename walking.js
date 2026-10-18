@@ -99,7 +99,7 @@
         entries.delete(name);
       }
       for (const [name, request] of Object.entries(requests)) {
-        const key = JSON.stringify([request.lat, request.lon, request.minutes]);
+        const key = JSON.stringify([request.lat, request.lon, request.minutes ?? null, request.distance_km ?? null]);
         const previous = entries.get(name);
         if (!force && previous?.key === key) continue;
         if (previous) cancel(previous);

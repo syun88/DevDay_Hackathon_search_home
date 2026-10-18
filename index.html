@@ -25,11 +25,11 @@
 <section class="section"><h2>① 起点を選ぶ <span class="pill">最大2か所</span></h2>
 <div class="anchor-card"><div class="anchor-title"><span><span class="dot a"></span>地点A・勤務先など</span><button id="setA" class="btn secondary small">地図で指定</button></div><div class="anchor-name" id="nameA">東京駅</div><div class="field"><input id="queryA" class="input" placeholder="会社・駅・住所を検索"><button class="btn small" id="searchA">検索</button></div><div class="searchchoices" id="choicesA"></div></div>
 <div class="anchor-card"><div class="anchor-title"><span><span class="dot b"></span>地点B・別の会社など</span><button id="setB" class="btn secondary small">地図で指定</button></div><div class="anchor-name" id="nameB">未指定</div><div class="field"><input id="queryB" class="input" placeholder="2か所目を追加（任意）"><button class="btn small" id="searchB">検索</button></div><div class="searchchoices" id="choicesB"></div><label class="muted"><input type="checkbox" id="restrictB"> 地点Bの範囲でも絞り込む（A・B両方）</label></div>
-<div class="control range-mode"><label class="label" for="rangeMode">範囲の指定方法</label><select id="rangeMode" class="input"><option value="walk">徒歩（所要時間）</option><option value="distance">直線距離（半径）</option></select></div>
+<div class="control range-mode"><label class="label" for="rangeMode">範囲の指定方法</label><select id="rangeMode" class="input"><option value="walk">徒歩（所要時間）</option><option value="walk-distance">徒歩（所要徒歩距離）</option><option value="distance">直線距離（半径）</option></select></div>
 <div class="sliderrow"><label class="label" for="radiusA">Aから</label><input type="range" min="0.5" max="25" step="0.5" id="radiusA" value="3"><strong id="radiusLabelA">3 km</strong></div>
 <div class="chiprow"><button class="chip" data-radius="1">1km</button><button class="chip" data-radius="2">2km</button><button class="chip active" data-radius="3">3km</button><button class="chip" data-radius="5">5km</button><button class="chip" data-radius="10">10km</button></div>
 <div id="bRadiusWrap" style="display:none"><div class="sliderrow"><label class="label" for="radiusB">Bから</label><input type="range" min="0.5" max="25" step="0.5" id="radiusB" value="5"><strong id="radiusLabelB">5 km</strong></div></div>
-<div class="walking-panel" id="walkingPanel"><p id="walkingStatus" role="status" aria-live="polite">徒歩で到達できる範囲を取得中…</p><p id="walkingAreaReference" class="sub"></p><button class="btn ghost small" id="retryWalking" hidden>徒歩圏を再取得</button><p class="sub">徒歩速度4.8km/h（80m/分）で時間内に到達した道路・歩道を着色します。線の太さは見やすさのための表示です。信号待ち・通行規制・建物の入口により実際の所要時間は変わります。</p><p class="sub">徒歩圏：<a href="https://valhalla.openstreetmap.de/" target="_blank" rel="noopener noreferrer">Valhalla / OpenStreetMap</a></p></div>
+<div class="walking-panel" id="walkingPanel"><p id="walkingStatus" role="status" aria-live="polite">徒歩で到達できる範囲を取得中…</p><p id="walkingAreaReference" class="sub"></p><button class="btn ghost small" id="retryWalking" hidden>徒歩圏を再取得</button><p class="sub" id="walkingModelHint">徒歩速度4.8km/h（80m/分）で時間内に到達した道路・歩道を着色します。線の太さは見やすさのための表示です。信号待ち・通行規制・建物の入口により実際の所要時間は変わります。</p><p class="sub">徒歩圏：<a href="https://valhalla.openstreetmap.de/" target="_blank" rel="noopener noreferrer">Valhalla / OpenStreetMap</a></p></div>
 <p class="muted" id="rangeHint">色付きの線は時間内に到達した道路・歩道です。破線は徒歩圏の外周の目安です。</p></section>
 <section class="section"><h2>② 物件を条件で絞る</h2><div class="columns"><div class="control"><label class="label">最大月額総額・売買価格（万円）</label><input id="maxPrice" class="input" type="number" min="0" step="0.5" placeholder="例：8"></div><div class="control"><label class="label">最小面積（㎡）</label><input id="minArea" class="input" type="number" min="0" placeholder="例：25"></div></div>
 <div class="columns"><div class="control"><label class="label">間取り</label><select class="input" id="layout"><option value="">すべて</option><option value="1R">1R</option><option value="1K">1K</option><option value="1DK">1DK</option><option value="1LDK">1LDK</option><option value="2K">2K</option><option value="2DK">2DK</option><option value="2LDK">2LDK</option><option value="3LDK">3LDK</option></select></div><div class="control"><label class="label">築年数（上限・年）</label><input class="input" type="number" id="maxAge" min="0" placeholder="指定なし"></div></div>
@@ -113,16 +113,23 @@ const {t, setText} = window.homeI18n;
 const propertyCore=window.propertyCore,commuteResults=new Map();
 let listingGeneration=0,buildingGeneration=0,editingRecord=null,routeBusy=false;
 let publicView=null;
-const defaults={a:{name:'東京駅',lat:35.681236,lon:139.767125},b:null,ra:3,rb:5,rangeMode:'walk',wa:15,wb:15,properties:[]};
+const defaults={a:{name:'東京駅',lat:35.681236,lon:139.767125},b:null,ra:3,rb:5,rangeMode:'walk',wa:15,wb:15,wda:1,wdb:1,properties:[]};
 let state;try{state=Object.assign({},defaults,JSON.parse(localStorage.getItem('property_map_v2')||'{}'))}catch{state={...defaults}}
 if(!state.a||!Number.isFinite(Number(state.a.lat)))state.a={...defaults.a};if(!Array.isArray(state.properties))state.properties=[];
-if(!['walk','distance'].includes(state.rangeMode))state.rangeMode='walk';
+if(!['walk','walk-distance','distance'].includes(state.rangeMode))state.rangeMode='walk';
 for(const key of ['wa','wb'])if(!Number.isInteger(state[key])||state[key]<5||state[key]>60)state[key]=15;
+for(const key of ['wda','wdb'])if(!Number.isFinite(state[key])||state[key]<0.1||state[key]>5)state[key]=1;
 let center={lat:state.a.lat,lon:state.a.lon}, zoom=12, mode='view', editId=null,activePointer=null,pointMoved=false,renderPending=false,tilesLoaded=0,tilesErrors=0,geoTime=0,tileCache=new Map();
 const persist=()=>{try{localStorage.setItem('property_map_v2',JSON.stringify(state))}catch{}};
 const valid=(lat,lon)=>Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=85&&Math.abs(lon)<=180;
 const clamp=(v,lo,hi)=>Math.min(hi,Math.max(lo,v));
-const walkingMode=()=>state.rangeMode==='walk';
+const walkingMode=()=>state.rangeMode==='walk'||state.rangeMode==='walk-distance';
+const walkingDistanceMode=()=>state.rangeMode==='walk-distance';
+const formatWalkingDistance=km=>km<1?Math.round(km*1000)+'m':Number(km.toFixed(1))+'km';
+function rangeConfig(){
+ if(walkingDistanceMode())return {prefix:'wd',min:0.1,max:5,step:0.1,presets:[0.5,1,2,3,5]};
+ return walkingMode()?{prefix:'w',min:5,max:60,step:5,presets:[5,10,15,30,60]}:{prefix:'r',min:0.5,max:25,step:0.5,presets:[1,2,3,5,10]};
+}
 const requiredWalkingAnchors=()=>state.b&&$('restrictB').checked?['a','b']:['a'];
 let fittedWalkingKey='';
 const walkingAreas=window.homeWalking.createAreaLoader({
@@ -163,9 +170,9 @@ function updateWalkingStatus(){
  $('retryWalking').hidden=!failed;
  const message=()=>entries.map(([which,area])=>{
   const name=which.toUpperCase();
-  if(area?.status==='ready')return t('{0}：徒歩{1}分・道路の合計 約{2}km',[name,state['w'+which],window.homeWalking.networkLengthKm(area.network).toFixed(1)]);
+  if(area?.status==='ready')return walkingDistanceMode()?t('{0}：徒歩{1}以内・道路の合計 約{2}km',[name,formatWalkingDistance(state['wd'+which]),window.homeWalking.networkLengthKm(area.network).toFixed(1)]):t('{0}：徒歩{1}分・道路の合計 約{2}km',[name,state['w'+which],window.homeWalking.networkLengthKm(area.network).toFixed(1)]);
   if(area?.status==='error')return name+'：'+(location.protocol==='file:'?t('徒歩圏の取得には python3 server.py で起動してください。'):t('徒歩圏を取得できません。通信環境を確認して再試行してください。'));
-  return t('{0}：徒歩{1}分の範囲を取得中…',[name,state['w'+which]]);
+  return walkingDistanceMode()?t('{0}：徒歩{1}以内の範囲を取得中…',[name,formatWalkingDistance(state['wd'+which])]):t('{0}：徒歩{1}分の範囲を取得中…',[name,state['w'+which]]);
  }).join(' / ');
  setText($('walkingStatus'),message);setText($('walkingMapSummary'),message);
  setText($('walkingAreaReference'),()=>entries.filter(([,area])=>area?.status==='ready').map(([which,area])=>t('{0}：外周の参考面積 約{1}km²（歩ける地面の面積ではありません）',[which.toUpperCase(),window.homeWalking.areaKm2(area.geometry).toFixed(2)])).join(' / '));
@@ -174,7 +181,7 @@ function updateWalkingStatus(){
 }
 function refreshWalkingAreas(immediate=false,force=false){
  const requests={};
- if(walkingMode())for(const which of requiredWalkingAnchors())requests[which]={lat:state[which].lat,lon:state[which].lon,minutes:state['w'+which]};
+ if(walkingMode())for(const which of requiredWalkingAnchors())requests[which]={lat:state[which].lat,lon:state[which].lon,...(walkingDistanceMode()?{distance_km:state['wd'+which]}:{minutes:state['w'+which]})};
  walkingAreas.update(requests,{immediate,force});
 }
 const formatKm=n=>n<1?Math.round(n*1000)+'m':(n<10?n.toFixed(2):n.toFixed(1))+'km';
@@ -295,18 +302,19 @@ async function importCSV(file){if(!file)return;try{const rows=csvParse((await fi
 function sync(){
  setText($('nameA'),()=>state.a.name);setText($('nameB'),()=>state.b?.name||t('未指定'));
  $('rangeMode').value=state.rangeMode;
- const walk=walkingMode(),presets=walk?[5,10,15,30,60]:[1,2,3,5,10];
+ const walk=walkingMode(),config=rangeConfig(),presets=config.presets;
  for(const which of ['a','b']){
-  const upper=which.toUpperCase(),input=$('radius'+upper),value=state[(walk?'w':'r')+which];
-  input.min=walk?'5':'0.5';input.max=walk?'60':'25';input.step=walk?'5':'0.5';input.value=value;
-  setText($('radiusLabel'+upper),()=>walk?t('徒歩{0}分',[value]):value+' km');
+  const upper=which.toUpperCase(),input=$('radius'+upper),value=state[config.prefix+which];
+  input.min=config.min;input.max=config.max;input.step=config.step;input.value=value;
+  setText($('radiusLabel'+upper),()=>walkingDistanceMode()?t('徒歩{0}',[formatWalkingDistance(value)]):walk?t('徒歩{0}分',[value]):value+' km');
  }
- document.querySelectorAll('[data-radius]').forEach((button,index)=>{button.dataset.radius=presets[index];setText(button,()=>walk?t('{0}分',[presets[index]]):presets[index]+'km');button.classList.toggle('active',presets[index]===state[(walk?'w':'r')+'a'])});
+ document.querySelectorAll('[data-radius]').forEach((button,index)=>{button.dataset.radius=presets[index];setText(button,()=>walkingDistanceMode()?formatWalkingDistance(presets[index]):walk?t('{0}分',[presets[index]]):presets[index]+'km');button.classList.toggle('active',presets[index]===state[config.prefix+'a'])});
  $('bRadiusWrap').style.display=state.b&&$('restrictB').checked?'block':'none';
  $('walkingPanel').hidden=!walk;$('walkingMapSummary').hidden=!walk;
- setText($('rangeHint'),()=>walk?t('色付きの線は時間内に到達した道路・歩道です。破線は徒歩圏の外周の目安です。'):t('円は直線距離です。地点A・Bの「地図で指定」を押してから地図をクリックしてください。会社名で見つからない場合は住所検索、またはGoogle マップ検索をお試しください。'));
+ setText($('rangeHint'),()=>walkingDistanceMode()?t('色付きの線は指定距離以内に道路・歩道を歩いて到達した区間です。破線は外周の目安です。'):walk?t('色付きの線は時間内に到達した道路・歩道です。破線は徒歩圏の外周の目安です。'):t('円は直線距離です。地点A・Bの「地図で指定」を押してから地図をクリックしてください。会社名で見つからない場合は住所検索、またはGoogle マップ検索をお試しください。'));
+ setText($('walkingModelHint'),()=>walkingDistanceMode()?t('道路・歩道に沿って歩く累積距離で計算します。線の太さは見やすさのための表示です。建物入口までの個別の徒歩距離は未確認です。'):t('徒歩速度4.8km/h（80m/分）で時間内に到達した道路・歩道を着色します。線の太さは見やすさのための表示です。信号待ち・通行規制・建物の入口により実際の所要時間は変わります。'));
 }
-function changeRadius(which,v){state[(walkingMode()?'w':'r')+which]=+v;persist();sync();refreshWalkingAreas();refreshRangeResults()}
+function changeRadius(which,v){state[rangeConfig().prefix+which]=+v;persist();sync();refreshWalkingAreas();refreshRangeResults()}
 function mapClick(e){const p=geoFromScreen(e.clientX,e.clientY);if(mode==='a'||mode==='b')setAnchor(mode,{name:'地図上で指定',lat:p.lat,lon:p.lon});else if(mode==='property'){setMode('view');openModal(null,p.lat,p.lon)}}
 
 function bind(){for(const w of ['a','b']){let W=w.toUpperCase();$('set'+W).onclick=()=>setMode(w);$('search'+W).onclick=()=>searchAnchor(w);$('query'+W).onkeydown=e=>{if(e.key==='Enter')searchAnchor(w)}}$('restrictB').onchange=()=>{sync();refreshWalkingAreas();refreshRangeResults()};$('rangeMode').onchange=()=>{state.rangeMode=$('rangeMode').value;persist();sync();refreshWalkingAreas();refreshRangeResults()};$('retryWalking').onclick=()=>refreshWalkingAreas(true,true);$('radiusA').oninput=e=>changeRadius('a',e.target.value);$('radiusB').oninput=e=>changeRadius('b',e.target.value);document.querySelectorAll('[data-radius]').forEach(b=>b.onclick=()=>changeRadius('a',b.dataset.radius));for(const id of ['maxPrice','minArea','layout','maxAge','type','pets','parking','insideOnly','sort'])$(id).addEventListener('input',renderSoon);$('addBtn').onclick=()=>{setMode('property');toast(t('地図をタップして登録、または再度＋から座標を入力してください'));openModal(null)};$('modalCancel').onclick=closeModal;$('modalSave').onclick=saveModal;$('geocodeProperty').onclick=geocodeProperty;$('modalOuter').onclick=e=>{if(e.target===$('modalOuter'))closeModal()};$('importBtn').onclick=()=>$('csvFile').click();$('csvFile').onchange=e=>importCSV(e.target.files[0]);$('templateBtn').onclick=templateCSV;$('exportBtn').onclick=()=>csvExport([headers,...state.properties.map(pRow)],'property-candidates.csv');$('zoomIn').onclick=()=>{zoom=clamp(zoom+1,3,18);renderSoon()};$('zoomOut').onclick=()=>{zoom=clamp(zoom-1,3,18);renderSoon()};$('resetView').onclick=()=>{center={lat:state.a.lat,lon:state.a.lon};zoom=12;if(walkingMode())fitWalkingAreas(true);renderSoon()};
