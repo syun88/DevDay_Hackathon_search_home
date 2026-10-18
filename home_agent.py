@@ -21,6 +21,8 @@ from web_search import WebSearchError, MAPPABLE_KINDS
 import web_search as web_search_module
 
 AGENT_CONFIG_VERSION = 6
+INSTANCE = uuid4().hex  # Identifies this process for worker leases.
+LEASE_SECONDS = 20
 WEB_SEARCHES_PER_MESSAGE = 3  # A fallback plus one refinement, or explicit searches.
 RELIABLE_TARGET = 2  # Refine once when fewer verified listing pages are found.
 PINNABLE_LEVELS = ('block', 'chome')
@@ -745,12 +747,49 @@ class HomeAgent:
         with self.lock:
             if session_id in self.workers:
                 return
+        # Several stateless instances may serve one session: a durable lease lets exactly one
+        # run the turn. A worker on a frozen instance loses it and another open request takes over.
+        def claim(s):
+            lease = s['chat'].get('lease') or {}
+            if lease.get('owner') not in (None, INSTANCE) and lease.get('until', 0) > time.time():
+                return False
+            s['chat']['lease'] = {'owner': INSTANCE, 'until': time.time() + LEASE_SECONDS}
+            return True
+        try:
+            if not self.store.mutate(session_id, claim)[1]:
+                return
+        except KeyError:
+            return
+        with self.lock:
+            if session_id in self.workers:
+                return
             self.workers.add(session_id)
         target = self.run if session['chat']['status'] == 'running' else self.lifecycle
-        threading.Thread(target=target, args=(session_id,), daemon=True).start()
+        threading.Thread(target=self.leased, args=(session_id, target), daemon=True).start()
+
+    def leased(self, session_id, target):
+        """Run a worker while renewing its lease, including during long tool calls."""
+        stop = threading.Event()
+        def heartbeat():
+            while not stop.wait(LEASE_SECONDS / 4):
+                def renew(s):
+                    lease = s['chat'].get('lease') or {}
+                    if lease.get('owner') == INSTANCE:
+                        lease['until'] = time.time() + LEASE_SECONDS
+                try:
+                    self.store.mutate(session_id, renew)
+                except Exception:
+                    pass
+        threading.Thread(target=heartbeat, daemon=True).start()
+        try:
+            target(session_id)
+        finally:
+            stop.set()
 
     def mark(self, session_id, request_id, **values):
         def change(session):
+            if (session['chat'].get('lease') or {}).get('owner') not in (None, INSTANCE):
+                raise AgentError('lease_lost')  # Another instance now owns this turn.
             if session['chat'].get('request_id') != request_id or session['chat'].get('status') != 'running':
                 raise AgentError('cancelled')
             session['chat'].update(values)
@@ -842,6 +881,8 @@ class HomeAgent:
         except Exception as error:
             code = str(error) if isinstance(error, AgentError) else 'agent_error'
             def fail(s):
+                if code == 'lease_lost' or (s['chat'].get('lease') or {}).get('owner') not in (None, INSTANCE):
+                    return  # The current owner reports the outcome.
                 if s['chat'].get('request_id') == request_id and s['chat'].get('status') == 'running':
                     recoverable = code != 'turn_failed'
                     s['chat'].update(status='error', error=code, progress='', recoverable=recoverable)
@@ -869,6 +910,13 @@ class HomeAgent:
                                       'created_at': datetime.now(timezone.utc).isoformat()})
 
     def worker_done(self, session_id):
+        def release(s):
+            if (s['chat'].get('lease') or {}).get('owner') == INSTANCE:
+                s['chat'].pop('lease', None)
+        try:
+            self.store.mutate(session_id, release)
+        except Exception:
+            pass
         with self.lock:
             self.workers.discard(session_id)
         self.resume(session_id)

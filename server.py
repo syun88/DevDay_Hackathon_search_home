@@ -26,7 +26,7 @@ from contextlib import contextmanager
 import xml.etree.ElementTree as ET
 import os, json, re, math, threading, time
 from listing_feed import normalize_feed
-from session_store import SessionStore, RevisionConflict, CRITERIA_SCHEMA, UPDATE_SCHEMA, SCHEMA_VERSION, public_session
+from session_store import SessionStore, RevisionConflict, open_store, CRITERIA_SCHEMA, UPDATE_SCHEMA, SCHEMA_VERSION, public_session
 from home_agent import HomeAgent, AgentError
 from listing_details import read_details
 from suumo_bridge import SuumoError, search as search_suumo, validate_search, validate_filters, validate_page, RENT_STEPS, PAGE_SIZE as SUUMO_PAGE_SIZE
@@ -77,7 +77,8 @@ _cache: dict[str, tuple[float, dict]] = {}
 _cache_lock = threading.Lock()
 _suumo_cache: dict[tuple[float, float, float, float | None, str | None, int], tuple[float, dict]] = {}
 MAX_BYTES = 1_000_000
-SESSION_STORE = SessionStore(BASE / '.local' / 'sessions.sqlite3')
+STREAM_SECONDS = 270 if os.environ.get('VERCEL') else 600
+SESSION_STORE = open_store(BASE / '.local' / 'sessions.sqlite3')
 VALHALLA_URL = os.environ.get('VALHALLA_URL', 'https://valhalla1.openstreetmap.de').rstrip('/')
 WALKING_SPEED_KMH = 4.8
 WALKING_FERRY_BOARDING_SECONDS = 43200
@@ -676,10 +677,7 @@ class Handler(SimpleHTTPRequestHandler):
         return result
 
     def update_session(self, action='session'):
-        host = self.headers.get('Host', '')
-        allowed_hosts = {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
-        if (host not in allowed_hosts or self.headers.get('Sec-Fetch-Site') == 'cross-site'
-                or self.headers.get('Origin', 'http://' + host) != 'http://' + host):
+        if not self.same_origin(writes=True):
             return self.respond(403, {'error': 'Same-origin request required'})
         if self.headers.get('Content-Type', '').split(';')[0].lower() != 'application/json':
             return self.respond(415, {'error': 'application/json required'})
@@ -759,11 +757,25 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError, UnicodeError):
             return self.respond(400, {'error': 'Invalid session update'})
 
+    def origin_scheme(self):
+        # Behind Vercel the platform terminates TLS; locally the server speaks plain HTTP.
+        return 'https' if os.environ.get('VERCEL') and self.headers.get('X-Forwarded-Proto', 'https') == 'https' else 'http'
+
+    def same_origin(self, writes=False):
+        """Requests must target this app's own host; writes must also come from its own origin."""
+        host = self.headers.get('Host', '')
+        allowed = {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
+        if os.environ.get('VERCEL'):
+            allowed |= {h for h in (os.environ.get(k, '') for k in ('VERCEL_URL', 'VERCEL_BRANCH_URL', 'VERCEL_PROJECT_PRODUCTION_URL')) if h}
+            allowed |= {h.strip() for h in os.environ.get('APP_HOSTS', '').split(',') if h.strip()}
+        if host not in allowed or self.headers.get('Sec-Fetch-Site') == 'cross-site':
+            return False
+        origin = self.origin_scheme() + '://' + host
+        return not writes or self.headers.get('Origin', origin) == origin
+
     def stream_chat(self):
         """Server-sent events with streamed assistant text, tool activity and saved-state changes."""
-        host = self.headers.get('Host', '')
-        if (host not in {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
-                or self.headers.get('Sec-Fetch-Site') == 'cross-site'):
+        if not self.same_origin():
             return self.respond(403, {'error': 'Same-origin request required'})
         session_id = self.session_id()
         session = SESSION_STORE.get(session_id) if session_id else None
@@ -782,7 +794,8 @@ class Handler(SimpleHTTPRequestHandler):
         seen, state, sent, started = (-1, -1), None, {}, time.monotonic()
         try:
             self.wfile.write(b'retry: 1500\n\n'); self.wfile.flush()
-            while time.monotonic() - started < 600:
+            # A cycle ends before the platform's function duration; EventSource reconnects.
+            while time.monotonic() - started < STREAM_SECONDS:
                 version = HOME_AGENT.wait_change(session_id, seen, 15)
                 changed, durable = version != seen, version[1] != seen[1]
                 seen = version
@@ -816,6 +829,7 @@ class Handler(SimpleHTTPRequestHandler):
                         sent.update(text=live['text'], activity=live['activity'], note=live['note'])
                 if not changed:
                     self.wfile.write(b': keepalive\n\n')
+                    HOME_AGENT.resume(session_id)  # This open request can own a stalled turn.
                 self.wfile.flush()
                 time.sleep(.05)
         except (BrokenPipeError, ConnectionResetError, OSError):
@@ -878,7 +892,7 @@ class Handler(SimpleHTTPRequestHandler):
                 HOME_AGENT.resume(session_id)
                 return self.respond(200, public_session(session))
             session_id, session = SESSION_STORE.create()
-            return self.respond(200, public_session(session), cookie=f'search_session={session_id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000')
+            return self.respond(200, public_session(session), cookie=f'search_session={session_id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000' + ('; Secure' if self.origin_scheme() == 'https' else ''))
         if u.path == '/':
             self.path = '/index.html'
             return super().do_GET()

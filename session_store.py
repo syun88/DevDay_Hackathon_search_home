@@ -6,6 +6,7 @@ from pathlib import Path
 import json
 from hashlib import sha256
 import math
+import os
 import secrets
 import sqlite3
 
@@ -248,3 +249,55 @@ def public_session(session):
     result['chat'] = {key: value for key, value in session.get('chat', {}).items()
                       if key in ('status', 'request_id', 'progress', 'error', 'message', 'recoverable', 'operation', 'reset_search', 'partial')}
     return result
+
+
+class _PostgresConnection:
+    """sqlite3-shaped wrapper so SessionStore transactions run unchanged on Postgres.
+
+    `BEGIN IMMEDIATE` (a write lock in SQLite) becomes row locks: session reads inside such a
+    transaction use SELECT ... FOR UPDATE, so concurrent instances serialize per session.
+    """
+    def __init__(self, connection):
+        self.connection, self.locking = connection, False
+
+    def execute(self, sql, params=()):
+        if sql == 'BEGIN IMMEDIATE':
+            self.locking = True
+            return self.connection.execute('SELECT 1')
+        if sql.startswith('INSERT OR REPLACE INTO archived_chats'):
+            sql = ('INSERT INTO archived_chats VALUES (?,?,?,?,?) ON CONFLICT (owner,id) DO UPDATE SET '
+                   'title=EXCLUDED.title, data=EXCLUDED.data, updated_at=EXCLUDED.updated_at')
+        if self.locking and sql.startswith('SELECT data FROM sessions WHERE id=?'):
+            sql += ' FOR UPDATE'
+        return self.connection.execute(sql.replace('?', '%s'), params)
+
+
+class PostgresSessionStore(SessionStore):
+    """Durable shared storage for stateless deployments (DATABASE_URL), same data model."""
+    def __init__(self, url):
+        import psycopg  # Only needed when a database URL is configured.
+        self.psycopg, self.url, self.ready = psycopg, url, False
+
+    @contextmanager
+    def connect(self):
+        # No server-side prepared statements: the pooled Neon endpoint runs in transaction mode.
+        with self.psycopg.connect(self.url, connect_timeout=10, autocommit=False, prepare_threshold=None) as connection:
+            if not self.ready:
+                connection.execute('CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
+                connection.execute('CREATE TABLE IF NOT EXISTS archived_chats (owner TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, '
+                                   'data TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner,id))')
+                connection.commit()
+                self.ready = True
+            # psycopg commits on success and rolls back on an exception when the block exits.
+            yield _PostgresConnection(connection)
+
+
+def open_store(local_path):
+    """Postgres when DATABASE_URL is set; local SQLite otherwise. A serverless deployment
+    without a database refuses to start instead of silently using ephemeral storage."""
+    url = os.environ.get('DATABASE_URL') or os.environ.get('POSTGRES_URL')
+    if url:
+        return PostgresSessionStore(url)
+    if os.environ.get('VERCEL'):
+        raise RuntimeError('DATABASE_URL is required on Vercel: local SQLite would not persist between instances')
+    return SessionStore(local_path)

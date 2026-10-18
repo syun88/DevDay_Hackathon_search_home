@@ -1,0 +1,11 @@
+[project]
+name = "search-home"
+version = "0.1.0"
+description = "Map-first home search with a conversational agent"
+requires-python = ">=3.12"
+# Local development needs no packages (stdlib server + SQLite). The Postgres driver is used
+# only when DATABASE_URL is set, as on Vercel.
+dependencies = ["psycopg[binary]>=3.2,<4"]
+
+[tool.vercel]
+entrypoint = "vercel_app:app"
