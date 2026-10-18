@@ -619,7 +619,8 @@ def agent_page_check(url, extracted):
     return page_verify.verify(url, extracted, restricted_hosts())
 
 
-HOME_AGENT = HomeAgent(SESSION_STORE, OPENAI_KEY, agent_listings, router=route_time, detail_reader=permitted_details, public_search=public_housing.search, public_geocode=public_housing.geocode, web_search=agent_web_search, page_verifier=agent_page_check)
+HOME_AGENT = HomeAgent(SESSION_STORE, OPENAI_KEY, agent_listings, router=route_time, detail_reader=permitted_details, public_search=public_housing.search, public_geocode=public_housing.geocode, web_search=agent_web_search, page_verifier=agent_page_check,
+                       listing_providers=['auto', 'bing'] + (['brave'] if SEARCH_KEY else []) + (['feed'] if FEED_PATH or FEED_URL else []))
 
 
 class Handler(SimpleHTTPRequestHandler):

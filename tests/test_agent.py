@@ -217,6 +217,60 @@ class AgentToolsTest(unittest.TestCase):
         self.assertEqual(result['_agent'], {})
 
 
+    def test_unconfigured_provider_is_not_offered_or_saved(self):
+        from home_agent import tools
+        self.agent.listing_providers = ('auto', 'bing')
+        schema = next(t for t in tools(self.agent.listing_providers) if t['name'] == 'update_search')
+        provider = schema['parameters']['properties']['criteria']['properties']['listing_provider']
+        self.assertEqual(provider['enum'], ['auto', 'bing'])
+        self.assertIn('SUUMO', provider['description'])
+        before = self.store.get(self.token)['criteria']
+        result = self.execute('update_search', {'criteria': {'listing_provider': 'feed', 'max_price_yen': 150000}})
+        self.assertEqual(result['error'], 'listing_provider_unavailable')
+        self.assertEqual(self.store.get(self.token)['criteria'], before)
+
+
+    def test_old_unconfigured_feed_can_recover_without_losing_filters(self):
+        self.agent.listing_providers = ('auto', 'bing')
+        self.store.mutate(self.token, lambda s: s['criteria'].update(listing_provider='feed', layout='1K', max_price_yen=150000))
+        with patch.object(self.agent, 'search', side_effect=AssertionError('An unconfigured feed must never run')):
+            failed = self.execute('search_listings')
+        self.assertEqual(failed['error'], 'listing_provider_unavailable')
+        self.assertNotIn('feed', failed['available_providers'])
+        self.execute('update_search', {'criteria': {'listing_provider': 'auto'}})
+        result = self.execute('search_listings')
+        self.assertNotIn('error', result)
+        criteria = self.store.get(self.token)['criteria']
+        self.assertEqual((criteria['listing_provider'], criteria['layout'], criteria['max_price_yen']), ('auto', '1K', 150000))
+
+
+    def test_new_turn_migrates_old_unconfigured_source_before_first_search(self):
+        self.agent.listing_providers = ('auto', 'bing')
+        def old_chat(s):
+            s['chat']['status'] = 'idle'
+            s['criteria'].update(listing_provider='feed', layout='1K', max_price_yen=150000, radius_a_km=2)
+        self.store.mutate(self.token, old_chat)
+        request = 'migrate_old_feed_1234'
+        started = self.agent.start(self.token, {'request_id': request, 'message': 'Search SUUMO again', 'expected_revision': 1, 'language': 'en'})
+        self.assertEqual(started['criteria']['listing_provider'], 'auto')
+        self.assertEqual(started['revision'], 2)
+        with patch.object(self.agent, 'search', return_value=self.raw) as search:
+            result = self.agent.execute(self.token, request, {'call_id': 'first_search', 'name': 'search_listings', 'arguments': {}})
+        self.assertNotIn('error', result)
+        self.assertEqual(search.call_args.args[3], 'auto')
+        criteria = self.store.get(self.token)['criteria']
+        self.assertEqual((criteria['layout'], criteria['max_price_yen'], criteria['radius_a_km']), ('1K', 150000, 2))
+        self.assertEqual(len(self.store.get(self.token)['conversation']), 2)
+
+
+    def test_new_turn_preserves_available_provider_selection(self):
+        self.agent.listing_providers = ('auto', 'bing', 'feed')
+        self.store.mutate(self.token, lambda s: (s['chat'].update(status='idle'), s['criteria'].update(listing_provider='feed')))
+        started = self.agent.start(self.token, {'request_id': 'preserve_feed_12345', 'message': 'Search again', 'expected_revision': 1, 'language': 'en'})
+        self.assertEqual(started['criteria']['listing_provider'], 'feed')
+
+
+
 class AgentLifecycleTest(unittest.TestCase):
     def test_agent_executes_required_tool_then_returns_saved_final_message(self):
         class FakeAPI:

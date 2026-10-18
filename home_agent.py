@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 from web_search import WebSearchError, MAPPABLE_KINDS
 import web_search as web_search_module
 
-AGENT_CONFIG_VERSION = 6
+AGENT_CONFIG_VERSION = 7
 WEB_SEARCHES_PER_MESSAGE = 3  # A fallback plus one refinement, or explicit searches.
 RELIABLE_TARGET = 2  # Refine once when fewer verified listing pages are found.
 PINNABLE_LEVELS = ('block', 'chome')
@@ -258,6 +258,10 @@ or relax required filters; offer alternatives if no results. 'Cheaper' can sort 
 user gives a new budget. Use undo_search to undo the last criteria edit.
 Use tools for real data and calculations. Do not invent properties, source URLs, prices, commute times,
 availability or neighborhood facts.
+For SUUMO searches use listing_provider=auto. It selects the live SUUMO map source when supported.
+Keep listing_provider=auto unless the user explicitly requests another available provider. bing returns
+search links, not the SUUMO map source. feed means a separately configured licensed feed, not SUUMO.
+If listing_provider_unavailable is returned, change listing_provider to auto and search again without relaxing the user's other criteria.
 SEARCH RESULTS: search_listings and web_search return a compact summary with three tiers.
 `exact`: homes whose listing page the app opened and whose key facts meet every criterion. Present each
 briefly: name as a link, monthly total (rent + management), layout, area, station access or area, distance.
@@ -301,10 +305,14 @@ def tool(name, description, properties=None, required=None):
                            'properties': properties or {}, 'required': required or []}}
 
 
-def tools():
+def tools(listing_providers=None):
     patch_schema = deepcopy(CRITERIA_SCHEMA)
     for key in ('origin_a', 'origin_b'):
         del patch_schema['properties'][key]
+    provider = patch_schema['properties']['listing_provider']
+    if listing_providers is not None:
+        provider['enum'] = list(listing_providers)
+    provider['description'] = 'Use auto for SUUMO map listings and ordinary searches. bing returns search links only; brave requires a configured key; feed means a separately configured licensed feed, not SUUMO. Change only when the user explicitly requests another available source.'
     ident = {'type': 'string', 'maxLength': 100}
     return [
         tool('search_public_housing', 'Load the SAME licensed public housing layers as the existing UI, geocode up to five records using its validated address adapter, and show them on the map. These are reference records, not confirmed vacancies or budget matches.',
@@ -641,7 +649,7 @@ def search_context(criteria):
 
 
 class HomeAgent:
-    def __init__(self, store, key, search, model=None, api=None, geocoder=None, router=None, detail_reader=None, public_search=None, public_geocode=None, web_search=None, page_verifier=None):
+    def __init__(self, store, key, search, model=None, api=None, geocoder=None, router=None, detail_reader=None, public_search=None, public_geocode=None, web_search=None, page_verifier=None, listing_providers=None):
         self.store, self.key, self.search = store, key, search
         self.api = api or AgentsAPI(key, model or os.environ.get('OPENAI_AGENT_MODEL', 'gpt-6.1-sol'))
         self.geocoder = geocoder or resolve_places
@@ -650,6 +658,7 @@ class HomeAgent:
         self.public_search, self.public_geocode = public_search, public_geocode
         self.web_search = web_search
         self.page_verifier = page_verifier
+        self.listing_providers = tuple(listing_providers) if listing_providers is not None else tuple(CRITERIA_SCHEMA['properties']['listing_provider']['enum'])
         self.lock = threading.Lock()
         self.workers = set()
         # Streamed output and change notifications for local browser SSE subscribers.
@@ -725,6 +734,10 @@ class HomeAgent:
                 raise RevisionConflict(session)
             if len(session['conversation']) >= 200:
                 raise AgentError('conversation_limit')
+            # Old chats may retain a source that this backend has never configured.
+            # Migrate before building the model context so its first search can run.
+            if session['criteria']['listing_provider'] not in self.listing_providers:
+                session['criteria']['listing_provider'] = 'auto'
             if session['_agent'].get('session_id') and session['_agent'].get('config_version') != AGENT_CONFIG_VERSION:
                 session['_agent'].setdefault('previous_sessions', []).append(session['_agent'].pop('session_id'))
             session['conversation'].append({'id': request_id, 'role': 'user', 'text': payload['message'].strip(),
@@ -780,7 +793,7 @@ class HomeAgent:
             if not provider_id:
                 streamed = getattr(self.api, 'stream', None) is not None and not session['chat'].get('create_unstreamed')
                 body = session['chat'].get('create_body') or {'agent': {'model': self.api.model,
-                    'instructions': INSTRUCTIONS, 'reasoning': {'effort': 'low'}, 'tools': tools()},
+                    'instructions': INSTRUCTIONS, 'reasoning': {'effort': 'low'}, 'tools': tools(self.listing_providers)},
                     'environment': {'type': 'none'}, 'input': text, **({'stream': True} if streamed else {})}
                 self.mark(session_id, request_id, create_body=body)
                 created = None
@@ -1071,7 +1084,7 @@ class HomeAgent:
             except ValueError: return {'error': 'invalid_arguments'}
         if not isinstance(args, dict):
             return {'error': 'invalid_arguments'}
-        definition = next((item['parameters'] for item in tools() if item['name'] == name), None)
+        definition = next((item['parameters'] for item in tools(self.listing_providers) if item['name'] == name), None)
         if definition is None or set(args) - definition['properties'].keys() or set(definition['required']) - args.keys():
             return {'error': 'invalid_arguments'}
         for field, value in args.items():
@@ -1120,6 +1133,8 @@ class HomeAgent:
                             'commute_mode': c['commute_mode'], 'commute_origins': origins}
             if name == 'search_listings':
                 c = local['criteria']
+                if c['listing_provider'] not in self.listing_providers:
+                    return self.unavailable_provider()
                 place = c['listing_area'] or c['origin_a']['name']
                 keywords = c['listing_keywords'] + (' ペット可' if c['pets'] else '') + (' 駐車場' if c['parking'] else '')
                 if c['max_price_yen'] is not None:
@@ -1360,6 +1375,8 @@ class HomeAgent:
 
     def change_criteria(self, s, patch, record=True):
         patch = validate_patch(patch)
+        if 'listing_provider' in patch and patch['listing_provider'] not in self.listing_providers:
+            return self.unavailable_provider()
         if s['revision'] != s['chat']['expected_revision']:
             return {'error': 'stale_revision', 'current_state': self.context(s)}
         updated = {**s['criteria'], **patch}
@@ -1369,6 +1386,10 @@ class HomeAgent:
             s['criteria'] = updated; s['revision'] += 1
             s['chat']['expected_revision'] = s['revision']
         return {'criteria': s['criteria'], 'revision': s['revision']}
+
+    def unavailable_provider(self):
+        return {'error': 'listing_provider_unavailable', 'available_providers': list(self.listing_providers),
+                'note': 'This source is not configured. Use listing_provider=auto for SUUMO map searches; preserve all other criteria.'}
 
     def apply_tool(self, s, name, args, external, original_criteria):
         if name == 'search_public_housing':
