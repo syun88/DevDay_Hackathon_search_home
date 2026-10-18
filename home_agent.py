@@ -24,6 +24,7 @@ AGENT_CONFIG_VERSION = 6
 WEB_SEARCHES_PER_MESSAGE = 3  # A fallback plus one refinement, or explicit searches.
 RELIABLE_TARGET = 2  # Refine once when fewer verified listing pages are found.
 PINNABLE_LEVELS = ('block', 'chome')
+PAGE_SOURCES = ('page', 'opened_page')  # Read from the listing page by the app or by the hosted search.
 # Single-unit listing URL shapes on major portals, for checking pages the search consulted.
 DETAIL_URL = re.compile(r'^https://(www\.homes\.co\.jp/chintai/(b-\d+|room/[0-9a-f]{20,})|www\.eheya\.net/detail/\d+'
                         r'|realestate\.yahoo\.co\.jp/rent/detail/_?[0-9a-f]{20,}|www\.athome\.co\.jp/chintai/\d{6,}'
@@ -428,6 +429,12 @@ def apply_verification(item, check):
         item['listing_status'] = item['reliability'] = 'ended_or_moved'
         item['limitations'] = item.get('limitations', []) + ['The listing page no longer exists (HTTP %s)' % check.get('http_status')]
         return item
+    if check.get('status') in ('blocked', 'robots_disallowed', 'unreachable') and item.get('opened_by_search') and item.get('page_kind') in MAPPABLE_KINDS:
+        # The app may not fetch this page, but the hosted search opened it during this search,
+        # so its stated values come from the page itself (not an index snippet).
+        item['reliability'] = 'page_checked'
+        item['fact_sources'] = {k: 'opened_page' for k in item['fact_sources']}
+        return item
     if check.get('status') != 'ok':
         item['reliability'] = 'search_page' if item.get('page_kind') not in MAPPABLE_KINDS else 'page_not_checked'
         return item
@@ -449,6 +456,12 @@ def apply_verification(item, check):
     if fee is not None and item.get('page_kind') in MAPPABLE_KINDS and x.get('management_fee_yen') in (None, fee):
         x['management_fee_yen'] = fee
         item['fact_sources']['management_fee_yen'] = 'page'
+    if item.get('page_kind') in MAPPABLE_KINDS:
+        # Fill values the summary missed from the page's own title (rent, layout, area, address).
+        for field, value in (check.get('title_facts') or {}).items():
+            if x.get(field) is None:
+                x[field] = value
+                item['fact_sources'][field] = 'page'
     if not x.get('address') and check.get('page_addresses') and item.get('page_kind') in MAPPABLE_KINDS:
         x['address'] = check['page_addresses'][0]
         item['fact_sources']['address'] = 'page'
@@ -531,7 +544,7 @@ def qualify(item, criteria):
         return 'excluded', [], []
     sources, x = item.get('fact_sources') or {}, item.get('extracted') or {}
     if (not item.get('web_result') or item.get('page_kind') != 'listing_detail' or item.get('reliability') != 'page_checked'
-            or sources.get('price') != 'page' or sources.get('address') != 'page'
+            or sources.get('price') not in PAGE_SOURCES or sources.get('address') not in PAGE_SOURCES
             or item.get('lat') is None or item.get('geocode_level') not in PINNABLE_LEVELS):
         # Not a confirmed individual home with a usable location: a browsing link at most.
         return 'browse', [], []
@@ -540,16 +553,16 @@ def qualify(item, criteria):
     budget = checks.get('budget')
     if budget:
         rent = round(x['price'] * 10000)
-        fee = x.get('management_fee_yen') if sources.get('management_fee_yen') == 'page' else None
+        fee = x.get('management_fee_yen') if sources.get('management_fee_yen') in PAGE_SOURCES else None
         if budget['result'] == 'fail':
             differences.append({'criterion': 'budget', 'over_yen': rent + (fee or 0) - criteria['max_price_yen'], 'at_least': fee is None})
         elif budget['result'] != 'pass_known' or fee is None:
             unconfirmed.append('management_fee')
     layout = checks.get('layout')
     if layout:
-        if layout['result'] == 'fail' and sources.get('layout') == 'page':
+        if layout['result'] == 'fail' and sources.get('layout') in PAGE_SOURCES:
             differences.append({'criterion': 'layout', 'stated': x.get('layout')})
-        elif layout['result'] != 'pass' or sources.get('layout') != 'page':
+        elif layout['result'] != 'pass' or sources.get('layout') not in PAGE_SOURCES:
             unconfirmed.append('layout')
     for name, check in checks.items():
         if name.startswith('radius_'):
@@ -559,7 +572,7 @@ def qualify(item, criteria):
             elif check['result'] != 'pass':
                 unconfirmed.append('radius_' + name[-1])
     if criteria.get('min_area_m2'):
-        if x.get('area') is not None and sources.get('area') == 'page':
+        if x.get('area') is not None and sources.get('area') in PAGE_SOURCES:
             if x['area'] < criteria['min_area_m2']:
                 differences.append({'criterion': 'area', 'stated_m2': x['area']})
         else:

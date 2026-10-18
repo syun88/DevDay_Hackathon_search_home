@@ -157,6 +157,9 @@ def number(value, low, high, kind=int):
 def parse(data, query, restricted_hosts=(), retrieved_at=None):
     """Validated discovery records from a Responses API web search response."""
     urls, queries, searched = evidence(data)
+    opened = {normalize_url(item['action']['url']) for item in data.get('output', []) if isinstance(data, dict) and isinstance(item, dict)
+              and item.get('type') == 'web_search_call' and isinstance(item.get('action'), dict)
+              and item['action'].get('type') in ('open_page', 'find_in_page') and isinstance(item['action'].get('url'), str)} if isinstance(data, dict) else set()
     if not searched:
         return {'status': 'not_run', 'query': query, 'queries': queries, 'results': [], 'summary': '', 'source_count': len(urls)}
     try:
@@ -198,7 +201,7 @@ def parse(data, query, restricted_hosts=(), retrieved_at=None):
             limitations.append('Source reuse is not permitted here: open the source page for its details')
         records.append({
             'title': clean_text(row.get('title'), 160) or host, 'url': url, 'source': host,
-            'web_result': True, 'discovery_only': True, 'page_kind': kind,
+            'web_result': True, 'discovery_only': True, 'page_kind': kind, 'opened_by_search': key in opened,
             'snippet': '' if restricted else clean_text(row.get('snippet'), 360),
             'availability_status': 'unknown', 'last_verified_at': None, 'retrieved_at': retrieved_at,
             'lat': None, 'lon': None, 'geo_precision': 'unknown', 'extracted': extracted,

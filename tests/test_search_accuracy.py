@@ -311,6 +311,36 @@ class TierTest(unittest.TestCase):
         self.assertNotIn('Do not discard all leads', INSTRUCTIONS)
 
 
+class OpenedPageTest(unittest.TestCase):
+    def test_page_opened_by_the_search_counts_when_the_app_is_blocked_but_snippets_do_not(self):
+        opened = {'url': HOMES, 'page_kind': 'listing_detail', 'opened_by_search': True, 'extracted': {'price': 14.0, 'address': '東京都中央区明石町'}}
+        apply_verification(opened, {'status': 'blocked', 'http_status': 403})
+        self.assertEqual((opened['reliability'], opened['fact_sources']), ('page_checked', {'price': 'opened_page', 'address': 'opened_page'}))
+        snippet = {'url': HOMES, 'page_kind': 'listing_detail', 'opened_by_search': False, 'extracted': {'price': 14.0}}
+        apply_verification(snippet, {'status': 'blocked', 'http_status': 403})
+        self.assertEqual(snippet['reliability'], 'page_not_checked')
+        gone = {'url': HOMES, 'page_kind': 'listing_detail', 'opened_by_search': True, 'extracted': {'price': 14.0}}
+        apply_verification(gone, {'status': 'gone', 'http_status': 404})
+        self.assertEqual(gone['reliability'], 'ended_or_moved')
+
+    def test_opened_pages_are_marked_from_documented_open_page_actions(self):
+        body = {'status': 'completed', 'output': [
+            {'type': 'web_search_call', 'status': 'completed', 'action': {'type': 'search', 'query': 'q', 'sources': [{'type': 'url', 'url': HOMES}, {'type': 'url', 'url': LIST}]}},
+            {'type': 'web_search_call', 'status': 'completed', 'action': {'type': 'open_page', 'url': HOMES}},
+            {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps({'summary': '', 'results': [
+                {'url': HOMES, 'title': 't', 'kind': 'listing_detail', 'snippet': '', 'address': None, 'rent_yen': None, 'management_fee_yen': None, 'layout': None, 'area_m2': None, 'station_access': None},
+                {'url': LIST, 'title': 't', 'kind': 'listing_detail', 'snippet': '', 'address': None, 'rent_yen': None, 'management_fee_yen': None, 'layout': None, 'area_m2': None, 'station_access': None}]})}]}]}
+        records = web_search.parse(body, 'q')['results']
+        self.assertEqual([r['opened_by_search'] for r in records], [True, False])
+
+    def test_title_facts_fill_values_the_summary_missed(self):
+        item = {'url': DETAIL, 'page_kind': 'listing_detail', 'extracted': {'layout': '1LDK', 'price': None, 'address': None}}
+        apply_verification(item, {'status': 'ok', 'final_url': DETAIL, 'facts': {'layout': 'page'},
+                                  'title_facts': {'price': 13.0, 'address': '東京都中央区新川1', 'layout': '2LDK'}})
+        self.assertEqual((item['extracted']['price'], item['extracted']['address'], item['extracted']['layout']), (13.0, '東京都中央区新川1', '1LDK'))
+        self.assertEqual(item['fact_sources'], {'layout': 'page', 'price': 'page', 'address': 'page'})
+
+
 class TierSummaryTest(AgentAccuracyTest):
     def test_summary_separates_exact_alternatives_and_browsing_and_pins_only_homes(self):
         exact, over, ended = ('https://www.homes.co.jp/chintai/room/e/', 'https://www.homes.co.jp/chintai/room/o/', 'https://www.homes.co.jp/chintai/room/x/')

@@ -631,7 +631,7 @@ window.mountSearchWorkspace({
     const difference=d=>d.criterion==='budget'?t(d.at_least?'予算より{0}以上高い':'予算より{0}高い',[yen(d.over_yen)]):d.criterion==='radius'?t('地点{0}の範囲から約{1}km外',[d.origin,d.beyond_km]):d.criterion==='layout'?t('間取りは{0}',[d.stated]):d.criterion==='area'?t('面積は{0}㎡',[d.stated_m2]):'';
     const unconfirmedLabels={management_fee:'管理費の記載なし',layout:'間取り未確認',radius_A:'地点Aからの距離未確認',radius_B:'地点Bからの距離未確認',area:'面積未確認',pets:'ペット可否は未確認',parking:'駐車場は未確認',max_age_years:'築年数は未確認',max_commute_minutes:'通勤時間は未確認'};
     function homeCard(item){
-      const x=item.extracted||{},rent=x.price!=null?x.price*10000:null,fee=item.fact_sources?.management_fee_yen==='page'?x.management_fee_yen:null;
+      const x=item.extracted||{},rent=x.price!=null?x.price*10000:null,fee=['page','opened_page'].includes(item.fact_sources?.management_fee_yen)?x.management_fee_yen:null;
       const card=makeEl('article','external-item home-card '+item.tier);card.dataset.listingId=item.id;
       const title=makeEl('h4');title.append(makeLink(item.title,item.url));card.append(title);
       if(rent!=null)card.append(makeEl('p','listing-price',fee!=null?t('月額 {0}',[yen(rent+fee)])+' '+t('（賃料{0}＋管理費{1}）',[yen(rent),yen(fee)]):t('賃料 {0}',[yen(rent)])));
