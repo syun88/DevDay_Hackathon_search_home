@@ -32,7 +32,7 @@ Describe your location, budget and preferences in English or Japanese. The assis
 - **Memory:** The same remote agent session retains conversation context. Explicit preferences and named places (such as your office), local message history, up to five result snapshots, saved candidates and twenty criteria revisions persist in `.local/sessions.sqlite3`. Reloading or restarting the server restores the conversation. Use the sidebar to create or switch saved chats; each chat keeps its own criteria, conversation, memory and results. Saved legacy manual candidates retain their existing browser storage.
 - **Actions and recovery:** Messages use stable submission IDs. Tool side effects and their results are journaled together so recovery does not apply a change twice. Stop cancels the remote turn. Retry resumes uncertain work; failed actions are never presented as successful. Manual changes are protected by revision checks.
 - **Privacy controls:** “Clear chat & memory” deletes the remote session and local conversation/memory, retaining criteria and saved candidates. “New search” also resets criteria. These operations complete asynchronously; a failed remote deletion is shown as an error rather than a successful clear.
-- **Limits:** Maps, geocoding and Bing listing discovery work without extra keys; Brave is optional. Search-engine results provide discovery links only. Without a verified feed, chat also uses the bounded Tokyo SUUMO prototype to return real source leads with known rent/management fees. These appear separately as unverified leads, with source links; vacancy, other fees, building type and precise location remain unknown. The prototype inspects at most five records in a query of at most 2 km and does not search all Tokyo. Unsupported areas or source failures still return source-search links rather than implying no homes exist. Current candidates require a permitted source feed/import with confirmed availability verified within one hour. Rental budgets include rent, management and mandatory monthly fees; missing fees stay unknown. Road walking/bike/car estimates use OSRM without another API key; train commute and live traffic are unsupported. Zero results remain zero. The separate SUUMO prototype remains available under Advanced, with its original unverified-data warnings.
+- **Limits:** Maps, geocoding and Bing listing discovery work without extra keys. Brave discovery is removed. Search-engine results provide discovery links only. Without a verified feed, chat also uses the bounded Tokyo SUUMO prototype to return real source leads with known rent/management fees. These appear separately as unverified leads, with source links; vacancy, other fees, building type and precise location remain unknown. The prototype inspects at most five records in a query of at most 2 km and does not search all Tokyo. Unsupported areas or source failures still return source-search links rather than implying no homes exist. Current candidates require a permitted source feed/import with confirmed availability verified within one hour. Rental budgets include rent, management and mandatory monthly fees; missing fees stay unknown. Road walking/bike/car estimates use OSRM without another API key; train commute and live traffic are unsupported. Zero results remain zero. The separate SUUMO prototype remains available under Advanced, with its original unverified-data warnings.
 - **Upgrades:** Earlier prototype budgets excluded fees. Schema v3 preserves such a cap as a historical note and asks for a new total budget instead of silently reusing it. Agent configuration changes start a fresh provider session with recent local context; clearing that chat deletes its current and previous provider sessions.
 - **Local app:** Browser profiles receive separate HttpOnly, SameSite=Strict session cookies; tabs share one session. This is not an authenticated multi-user service. Cookies expire after 30 days; automatic database retention cleanup is not implemented. Environment and database files are ignored by Git and blocked from HTTP access.
 
@@ -56,11 +56,11 @@ Optional keys: copy `.env.example` to `.env`, fill in your keys, then restart th
 任意のAPIキー:
 
 ```bash
-BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
+OPENAI_API_KEY=... python3 server.py
 ```
 
 - **APIキーなし**: 住所・駅・会社検索（Nominatim/GSI）、OSMタイル、Valhallaによる徒歩道路網・到達圏、Overpassによる建物探索、2地点の直線距離、許可済み募集JSON/CSVの取り込み、管理費・その他必須費用込みの条件判定、Bing RSSによる掲載元リンク探索（ベストエフォート）、徒歩・自転車・車の経路時間照会。
-- **Braveのキーあり**: 安定的なWeb掲載ページの発見（課金・クォータ依存）。SUUMO／HOME'S／at homeの本文スクレイピングは行わない。
+- **検索先**: 自動（許可済みフィード優先、未設定ならBing）／Bing／許可済みフィード。Brave連携は撤去しました。Bingの停止や0件でも募集物件を捏造しません。既存のチャットのWeb検索フォールバックと掲載元検索リンクは維持します。
 - **OpenAIのキーあり**: 検索で見つかった掲載ページの種類をボタンで分類（Decisions API / `gpt-6-luna`）。利用者が操作したときのみ呼び出し、空室確認には使わない。
 
 **募集情報の鮮度**: 検索索引の取得時刻では掲載元の募集状況を確認できないため、検索結果の家賃・間取り・住所は募集候補に採用せず、掲載元リンクだけを表示します。候補に採用するのは、出典URLと提供元の募集確認日時を持ち、確認から1時間以内のデータです。不明・未来日時・募集終了・古いデータは除外し、表示中も30秒ごとに期限を再判定します。確認日時は提供元の申告であり、リアルタイム空室の保証ではありません。掲載元で最終確認してください。
@@ -79,11 +79,13 @@ BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
 
 ## 徒歩範囲の表示
 
-- 「範囲の指定方法」で**徒歩（所要時間）／徒歩（所要徒歩距離）／直線距離（半径）**を選べます。初期表示は徒歩15分。時間は5〜60分、徒歩距離は100m〜5km（100m刻み、初期1km）を指定できます。距離指定のボタンは500m・1・2・3・5km。地点A・Bそれぞれの時間・徒歩距離・直線半径を保持します。
+- 「範囲の指定方法」で**徒歩（所要時間）／徒歩（所要徒歩距離）／直線距離（半径）**を選べます。初期表示は徒歩15分。時間は5〜60分、徒歩距離は100m〜5km（100m刻み、初期1km）を指定できます。距離指定のボタンは500m・1・2・3・5km。地点A・Bそれぞれの時間・徒歩距離・直線半径は共有セッションに独立して保存し、チップ・手動操作・会話で同じ方式と値を使います。再読み込み・チャット切り替え・Undoでも復元します。
 - **色付きの線は、OSMの道路・歩道に沿って指定した時間または徒歩距離以内に到達した区間**です。Valhallaの `pedestrian` 探索から、確定した区間のうち累積所要時間または累積徒歩距離が上限以内のものだけを表示します。徒歩距離は道路・歩道を歩く累積距離で、直線半径とは別です。川・堀・線路敷などを含めた外周全体の塗りつぶしは行いません。橋や地下道など、地図に徒歩経路が登録されている区間は表示します。フェリーへの乗船は検索の上限60分を超える設定にし、徒歩距離の指定でも乗船時間を含む経路を表示対象から除外します。起点もフェリー航路へ接続しません。線幅は視認性のためのもので、道路の実幅ではありません。
 - 破線は等時間圏を補間した**外周の参考線**です。保存候補・建物・掲載ページの範囲条件はこの外周内かどうかで概略判定します。個々の建物入口までの徒歩時間の確定判定ではありません。地点Bも有効にするとA・B両方の外周内にある候補を表示します。
 - 道路の総延長を地図上に、外周の参考面積をサイドバーに表示します。参考面積は川・建物等を除いた「歩ける地面の面積」ではありません。徒歩速度は4.8km/h（80m/分）。信号待ち・最新の通行規制・建物入口などにより実際の所要時間は変わります。候補カードの距離・近い順は直線距離です。
 - 地点・時間・徒歩距離の変更時は古い表示を直ちに無効化します。取得失敗時は再取得ボタンを表示し、未取得の範囲を確認済みとして扱いません。共通フィルターの募集鮮度・総費用・位置精度などの条件も適用します。道路網が取得できない場合に円や外周の塗りつぶしへ自動置換することはありません。
+
+共有セッションのスキーマv4では、保存済みのBrave選択を自動検索へ移行します。過去の会話で共有保存されていなかった範囲方式・徒歩設定は、初期値の徒歩15分／徒歩距離1kmを使います。既存の直線半径は保持し、徒歩時間・徒歩距離へ換算しません。徒歩のチップからは現在の範囲スライダーを開きます。エージェントの条件判定は徒歩外周内かどうかを独立検証しないため未確認とし、直線半径で代用しません。候補カードの距離は引き続き直線距離です。
 
 徒歩機能には同梱サーバーとインターネット接続が必要です。既定では[FOSSGISの公開Valhallaデモサーバー](https://github.com/valhalla/valhalla#demo-server)を使用するため、利用制限・停止の影響を受けます。60分圏など広い範囲の道路網取得には1分以上かかる場合があります。操作を450msまとめ、サーバーからの照会を直列化して1秒以上間隔を空け、同一条件を15分キャッシュします。取得済みの条件への切り替えは広域照会の完了を待ちません。本番公開時は提供者のfair-use方針・アプリの連絡依頼を確認し、自前のValhallaなどへ切り替えてください。
 
@@ -110,7 +112,7 @@ VALHALLA_URL=http://127.0.0.1:8002 python3 server.py
 - `workspace.js` / `workspace.css`: bilingual chat shell, editable chips and advanced panel
 - `index.html`: レスポンシブ地図UI（依存ライブラリなし）、地点A/B、徒歩道路網・距離円、外部検索、候補保存、CSV
 - `walking.js`: GeoJSON描画・範囲判定・道路延長・参考面積、取得の間引きと古い応答の排除
-- `server.py`: localhost専用HTTPサーバー、徒歩API・キャッシュ、Bing RSS/Brave検索、正規化と出典、任意Decisions API分類
+- `server.py`: localhost専用HTTPサーバー、徒歩API・キャッシュ、Bing RSS検索、正規化と出典、任意Decisions API分類
 - `listing_feed.py`: 許可済み募集データの正規化、鮮度・出典・位置精度の確認
 - `property_core.js`: 保存候補と取り込み候補に共通の費用・不明値・距離・通勤時間の判定
 - `public_housing.py` / `public_housing.js`: 許諾確認済みオープンCSVの取得・正規化、公的資料レイヤーと地図・共通条件の接続

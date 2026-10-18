@@ -8,7 +8,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 import server
-from session_store import SessionStore, RevisionConflict, DEFAULT_CRITERIA, validate_patch
+from session_store import SessionStore, RevisionConflict, DEFAULT_CRITERIA, CRITERIA_SCHEMA, validate_patch
 
 
 class SessionStoreTest(unittest.TestCase):
@@ -41,6 +41,49 @@ class SessionStoreTest(unittest.TestCase):
         self.assertEqual(validate_patch({'max_price_yen': 0, 'max_age_years': 0,
             'origin_b': None, 'origin_a': {'name': '日付変更線', 'lat': 85, 'lon': 180}})['max_price_yen'], 0)
         validate_patch({'max_price_yen': None})
+
+    def test_range_contract_and_provider_migration_preserve_map_state(self):
+        self.assertEqual(CRITERIA_SCHEMA['properties']['listing_provider']['enum'], ['auto', 'bing', 'feed'])
+        for invalid in ({'listing_provider':'brave'}, {'range_mode':'train'}, {'walk_a_minutes':6}, {'walk_b_minutes':65}, {'walk_a_km':.15}, {'walk_b_km':5.1}):
+            with self.assertRaises(ValueError):
+                validate_patch(invalid)
+        legacy = self.store.get(self.token)
+        legacy['criteria']['listing_provider'] = 'brave'
+        legacy['criteria'].pop('range_mode', None)
+        legacy['history'] = [dict(legacy['criteria'])]
+        legacy['map_view']['zoom'] = 14
+        with self.store.connect() as db:
+            db.execute('UPDATE sessions SET data=? WHERE id=?', (json.dumps(legacy), self.token))
+        restored = self.store.get(self.token)
+        self.assertEqual(restored['criteria']['listing_provider'], 'auto')
+        self.assertEqual(restored['criteria']['range_mode'], 'walk')
+        self.assertEqual(restored['history'][0]['listing_provider'], 'auto')
+        self.assertEqual(restored['history'][0]['range_mode'], 'walk')
+        self.assertEqual(restored['map_view']['zoom'], 14)
+        self.assertEqual(SessionStore.upgrade(restored), restored)
+
+    def test_walking_settings_restore_independently_for_each_chat(self):
+        criteria = {'range_mode':'walk-distance', 'walk_a_minutes':25, 'walk_b_minutes':30,
+                    'walk_a_km':1.5, 'walk_b_km':2.5, 'radius_a_km':3, 'radius_b_km':5}
+        first = self.store.update(self.token, {'expected_revision':0, 'criteria':criteria})
+        for key, value in criteria.items():
+            self.assertEqual(SessionStore(self.store.path).get(self.token)['criteria'][key], value)
+        second = self.store.switch_chat(self.token, first['revision'])
+        self.assertEqual(second['criteria']['range_mode'], 'walk')
+        restored = self.store.switch_chat(self.token, second['revision'], first['chat_id'])
+        for key, value in criteria.items():
+            self.assertEqual(restored['criteria'][key], value)
+
+    def test_archived_brave_selection_migrates_when_restored(self):
+        first = self.store.get(self.token)
+        second = self.store.switch_chat(self.token, first['revision'])
+        with self.store.connect() as db:
+            row = db.execute('SELECT data FROM archived_chats WHERE owner=? AND id=?', (self.token, first['chat_id'])).fetchone()
+            archived = json.loads(row[0])
+            archived['criteria']['listing_provider'] = 'brave'
+            db.execute('UPDATE archived_chats SET data=? WHERE owner=? AND id=?', (json.dumps(archived), self.token, first['chat_id']))
+        restored = self.store.switch_chat(self.token, second['revision'], first['chat_id'])
+        self.assertEqual(restored['criteria']['listing_provider'], 'auto')
 
     def test_sessions_are_isolated_and_defaults_not_mutated(self):
         second, _ = self.store.create()
@@ -155,7 +198,7 @@ class SessionHTTPTest(unittest.TestCase):
         self.assertEqual(self.request('POST', '/api/session', {'expected_revision': 0}, cookie, 'https://evil.example')[0], 403)
         self.assertEqual(self.request('POST', '/api/session', {'expected_revision': 0})[0], 404)
         self.assertEqual(self.request('POST', '/api/session', {'expected_revision': 0, 'criteria': {'pets': 1}}, cookie)[0], 400)
-        self.assertEqual(self.request('GET', '/api/session/schema')[2]['schema_version'], 3)
+        self.assertEqual(self.request('GET', '/api/session/schema')[2]['schema_version'], 4)
 
     def test_chat_endpoint_is_cookie_bound_and_hides_provider_state(self):
         from home_agent import HomeAgent

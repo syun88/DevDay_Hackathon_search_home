@@ -22,15 +22,17 @@ class Element {
  getBoundingClientRect(){return {left:390,top:0,width:900,height:700};}
  setPointerCapture(){}
  closest(){return null;}
- focus(){}
+ focus(){this.focused=true;}
  scrollIntoView(){}
  click(){this.onclick?.();}
 }
 
-function app({rangeMode='distance',geolocation,secureContext=true}={}){
+function app({rangeMode='distance',geolocation,secureContext=true,workspace=false,savedCriteria={}}={}){
  const elements=new Map(),frames=[],requests=[];
  const element=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
  for(const id of ['insideOnly','listingOnlyWithin','publicSource_tokyo','publicSource_tsubata','publicSource_permitted','publicLayer_inventory','publicLayer_vacancy','publicLayer_recruitment','publicLayer_municipal'])element(id).checked=true;
+ for(const id of ['insideOnly','listingOnlyWithin','pets','parking','restrictB','includeUnknown'])element(id).type='checkbox';
+ for(const id of ['maxPrice','minArea','maxAge','maxCommute'])element(id).validity={valid:true};
  element('publicProvider').value='tokyo';element('publicArea').value='千代田区';
  element('commuteMode').value='foot';
  const storage=new Map();
@@ -43,7 +45,7 @@ function app({rangeMode='distance',geolocation,secureContext=true}={}){
   URL,URLSearchParams,AbortSignal,AbortController,confirm:()=>true,
   fetch:async(url,options)=>{
    requests.push({url,options});
-   let body={listings_enabled:true,has_brave_key:false,decisions_enabled:false,feed_enabled:false,provider:'Bing RSS'};
+   let body={listings_enabled:true,decisions_enabled:false,feed_enabled:false,provider:'Bing RSS'};
    if(url==='/api/import')body={results:context.records,rejected:0,provider:'feed'};
    if(url==='/api/route')body={status:'ok',duration_seconds:600,distance_meters:600,checked_at:new Date().toISOString(),source:'TEST ONLY route'};
    if(url.startsWith('/api/listings?'))body={results:[],discovery_links:[{url:'https://suumo.jp/test-only',source:'suumo.jp'}],provider:'bing'};
@@ -59,6 +61,22 @@ function app({rangeMode='distance',geolocation,secureContext=true}={}){
    return {ok:true,json:async()=>body};
   },records:[],publicRecords:[],
  };
+ if(workspace){
+  class Session{
+   constructor(){this.criteria={};this.draft='';this.status='saved';this.pending={};this.saving=false;this.listeners=[];}
+   addEventListener(type,listener){this.listeners.push(listener);}
+   emit(){for(const listener of this.listeners)listener();}
+   load(){this.criteria={...this.criteria,...savedCriteria};this.snapshot={revision:0,criteria:this.criteria};this.emit();}
+   patch(criteria,draft=this.draft){this.criteria={...this.criteria,...criteria};this.draft=draft;this.snapshot={...this.snapshot,criteria:this.criteria};this.emit();}
+   async flush(){}
+  }
+  context.window.SearchSession=Session;
+  context.window.mountSearchShell=()=>{};
+  context.window.mountHomeChat=()=>{};
+  context.window.mountMapAgent=()=>{context.mapAgentMounted=true;};
+  context.document.querySelector=()=>element('criteriaNote');
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'..','workspace.js'),'utf8'),context);
+ }
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'..','public_housing.js'),'utf8'),context);
  vm.runInNewContext(script,context);
  function flush(){while(frames.length)frames.shift()();}
@@ -79,6 +97,49 @@ function app({rangeMode='distance',geolocation,secureContext=true}={}){
  }
  return {element,context,requests,storage,flush,importRecord,allNodes,settleWalking};
 }
+
+test('workspace walking chips, controls and shared criteria agree in all range modes',async()=>{
+ const harness=app({workspace:true,rangeMode:'walk'});await harness.settleWalking();
+ const session=harness.context.window.searchWorkspace.session;
+ const chips=()=>harness.element('criteriaChips').textContent;
+ assert.equal(harness.context.mapAgentMounted,true);
+ assert.match(chips(),/A：徒歩15分以内/);
+ assert.doesNotMatch(chips(),/Aから3km/);
+ harness.element('radiusA').oninput({target:{value:'25'}});
+ assert.equal(session.criteria.walk_a_minutes,25);
+ assert.equal(session.criteria.radius_a_km,3);
+ assert.match(chips(),/A：徒歩25分以内/);
+ harness.element('rangeMode').value='walk-distance';
+ harness.element('rangeMode').onchange();
+ for(const listener of harness.element('rangeMode').listeners.change)listener();
+ harness.element('radiusA').oninput({target:{value:'1.5'}});
+ assert.equal(session.criteria.range_mode,'walk-distance');
+ assert.equal(session.criteria.walk_a_km,1.5);
+ assert.match(chips(),/A：徒歩1.5km以内/);
+ const rangeChip=harness.element('criteriaChips').children.find(node=>node.dataset.criterion==='radius_a_km');
+ rangeChip.click();assert.equal(harness.element('radiusA').focused,true);
+ session.patch({range_mode:'distance'});
+ assert.match(chips(),/Aから3km以内/);
+ assert.equal(harness.element('rangeMode').value,'distance');
+ assert.equal(harness.element('radiusLabelA').textContent,'3 km');
+ session.patch({range_mode:'walk'});
+ assert.equal(harness.element('radiusLabelA').textContent,'徒歩25分');
+ assert.match(harness.element('criteriaNote').textContent,/徒歩道路網/);
+});
+
+test('workspace restores A and B walking settings without losing their straight-line radii',async()=>{
+ const harness=app({workspace:true,savedCriteria:{range_mode:'walk-distance',walk_a_minutes:25,walk_b_minutes:30,
+  walk_a_km:1.5,walk_b_km:2.5,restrict_b:true,origin_b:{name:'TEST B',lat:35.69,lon:139.77}}});
+ await harness.settleWalking();
+ assert.equal(harness.element('rangeMode').value,'walk-distance');
+ assert.equal(harness.element('radiusLabelA').textContent,'徒歩1.5km');
+ assert.equal(harness.element('radiusLabelB').textContent,'徒歩2.5km');
+ assert.match(harness.element('criteriaChips').textContent,/B：徒歩2.5km以内/);
+ const session=harness.context.window.searchWorkspace.session;
+ session.patch({range_mode:'distance'});
+ assert.equal(harness.element('radiusLabelA').textContent,'3 km');
+ assert.equal(harness.element('radiusLabelB').textContent,'5 km');
+});
 
 test('walking distance sends kilometres, preserves independent settings and switches back to time',async()=>{
  const harness=app({rangeMode:'walk-distance'});await harness.settleWalking();
