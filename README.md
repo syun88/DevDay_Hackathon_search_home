@@ -1,154 +1,213 @@
-# Search Home — 地図 × 物件検索 × 通勤圏
+# Search Home — 自然な会話と、指定した場所からの徒歩圏で住まいを探す
 
-## SUUMO接続のローカル試作（初期状態は停止）
+**自然言語で相談できること。そして、指定した場所からの徒歩時間・徒歩距離・直線距離で探せること。** この2つを同じ画面で組み合わせ、生活の起点から住まいを考えるローカルWebアプリです。
 
-この機能はローカル技術検証用で、公開サービスとしての利用許可は未取得です。**初期状態ではサーバー側で接続を拒否し、ボタンも無効化します。** 取得・再利用の許諾を得た運用者のみ `SUUMO_REUSE_PERMITTED=1` を設定してください。環境変数は許諾を取得する機能ではありません。許諾がない場合は公式検索リンクをご利用ください。
+- **普段の言葉で探す**：「東京駅の近くで1LDK、月15万円以内」「予算だけ変えて」など、日本語・英語で希望を伝え、検索・地図操作・比較・保存を進められます。
+- **自分の行き先から探す**：職場・学校・駅・地図上の任意の地点を起点に、「徒歩15分」「歩いて1km」「直線3km」の範囲を指定できます。徒歩では道路・歩道に沿って到達できる区間を表示し、生活圏を見ながら候補を検討できます。2つの起点の範囲を重ねた絞り込みにも対応します。
 
-ボタンを押すと、ブラウザーは同一オリジンの `GET /api/suumo-search?lat=...&lon=...&radius_km=...&max_rent_man=15&layout=1K&page=1` のみを呼びます。家賃上限と間取りは指定した場合だけ送ります。ローカルサーバーがSUUMOの公開地図ページからその時点の匿名検索パラメーターを受け取り、賃貸地図へ **1ページ20件の1リクエスト** を送ります。ページ由来の値はサーバー内でのみ使い、ブラウザーやログに返しません。成功結果は同じ中心・半径・家賃上限・間取り・ページについて120秒キャッシュします。検索は東京都内中心、半径0.1〜2kmに限定します。
-
-家賃上限は公開地図スクリプトの `CHINRYOMAX`（万円）、間取りは公開地図HTMLの `CINM` チェックボックス値と同スクリプトのチェック済み項目送信から対応付けました。例えば15万円は `CHINRYOMAX=15`、1Kは `CINM=02` です。家賃上限は公開地図スライダーの選択値のみ受け付けます。サーバーは返った各物件でも賃料・間取りを照合し、不明値や条件外は除外します。家賃上限は**賃料**の上限であり、管理費などを足した月額総額の上限ではありません。
-
-表示するのはSUUMO応答のうち住所が東京都で始まる物件だけです。都外住所は件数だけ示し、応答の地図座標は使用しません。家賃・管理費は別々に表示し、小計は**判明している月額項目のみ**です。空室、掲載元の更新日、他の費用、正確な位置、指定半径内かどうかは未確認です。SUUMOがHTTP 200でエラーJSONを返しても検索失敗として表示し、保存済みのサンプルを代用しません。
-
-2026-10-18のライブ検証で、画面から条件を送信して実データを表示し、1件を掲載元と照合しました。生レスポンス・掲載情報の複製・認証値はこのリポジトリに含めません。
-
-**条件の限界**: SUUMO試作結果には賃貸、上限家賃、間取り（指定時）、住所先頭が東京都であることを適用します。1ページ20件で、次ページに進めます。地点Aと半径は上流の地図検索範囲に渡しますが、レスポンスの座標に不一致を見つけたため、各住戸が指定半径内かは独立に確認していません。画面上部の最小面積・築年数・ペット可・駐車場・地点Bなどの絞り込みは、SUUMO結果には適用されません。これらは保存済み候補と別の掲載ページ探索に使う条件です。したがってSUUMO試作結果を「半径内を含めすべての条件に合う物件」と解釈しないでください。
-
-
-
-住所・会社名・駅名から起点を検索し、徒歩範囲の道路網・周辺の建物と、掲載元が1時間以内に募集確認した候補を地図上で比較するローカルWebアプリ。**実物件を架空データで補完しません。** 通常の地図クリックでは起点を動かさず、地点指定モードで変更します。
-
-ヘッダーの **EN / JP** ボタンで表示言語を切り替えられます。選択はブラウザーに保存されます。住所・掲載元の文章・検索条件は元の言語を維持します。
-
-Use **EN / JP** in the header to switch the interface language. Your choice is remembered in this browser; addresses and source listing text stay in their original language.
-
-## 会話で住まいを探す / Chat with your home-search agent
-
-EN/JPのチャットで、場所・予算・間取り・こだわりを伝えて検索できます。「予算だけ下げて」「職場の近く」「2番目を保存」「さっきの変更を戻して」と会話を続けられます。条件チップと詳細設定も同じ検索状態を使います。
-
-Describe your location, budget and preferences in English or Japanese. The assistant can update criteria, resolve places, search real listing pages, compare/save retrieved candidates and undo a criteria change. The original map sits above the chat dock; drag the divider to resize it. The left rail opens saved chats, results, remembered preferences and **Advanced** settings. The original white/blue styling and map interactions are retained.
-
-- **Required for chat:** `OPENAI_API_KEY` with Agents API read/write and model inference access. The app uses the [OpenAI Agents API](https://developers.openai.com/api/docs/guides/agents-api/quickstart) directly through HTTPS, with `environment: none`; no sandbox or extra Python package is needed. `OPENAI_AGENT_MODEL` defaults to `gpt-6.1-sol` for new conversations.
-- **Memory:** The same remote agent session retains conversation context. Explicit preferences and named places (such as your office), local message history, up to five result snapshots, saved candidates and twenty criteria revisions persist in `.local/sessions.sqlite3`. Reloading or restarting the server restores the conversation. Use the sidebar to create or switch saved chats; each chat keeps its own criteria, conversation, memory and results. Saved legacy manual candidates retain their existing browser storage.
-- **Typing:** Enter sends and Shift+Enter adds a new line. Enter that confirms Japanese IME conversion never sends. Suggested prompts appear in an empty chat.
-- **Streaming and activity:** Replies stream as they are written. The server consumes the documented Agents API event stream (`agent.session.turn.output_text.delta`/`.done`, assistant item phases, `requires_action`, root turn outcomes) and relays it to the browser over a local Server-Sent Events endpoint. A pulsing status shows the actual step: thinking, a running tool (for example searching the web or updating the map), or writing. A step list records each tool's real outcome, for example a map command waiting for, or acknowledged by, the browser. Motion stops with `prefers-reduced-motion`; the log is marked busy while streaming so screen readers announce the finished reply. Saved turn items stay authoritative. Partial text is saved durably and restored after reload; a stopped or failed reply keeps its text, explicitly marked incomplete.
-- **Map agent:** The agent reads the real viewport, visible pins and the selected home, and can fit results, focus a home, zoom or show a resolved place through the original map. Pins, cards and chat use the same stable IDs, and clicking a pin updates the agent's context. A map command counts as done only after the browser acknowledges it. A newer manual pan, zoom or selection always wins over an older agent plan; the agent's own moves and origin recenters are not mistaken for manual pans.
-- **Web search fallback:** When listing sources return no results or leads, `search_listings` automatically runs a real, bounded web search. The agent can also search on request ("Can you search the web?"). It uses the OpenAI Responses API hosted `web_search` tool with the same key and model. Only pages that the search actually consulted or cited are kept, at most two searches run per message, and results are cached for ten minutes. Results appear as source-linked cards labelled as a specific listing page, a building page or a search/list page. They are unverified leads, never verified matches. A listing page whose stated address geocodes to a matching area gets an approximate pin; search pages stay links. SUUMO pages stay link-only while reuse permission is off. A failed or empty search reports its real status and keeps the source search links.
-- **Actions and recovery:** Messages use stable submission IDs. Tool side effects and their results are journaled together so recovery does not apply a change twice. Stop cancels the remote turn; if stopping cannot be confirmed, Retry repeats the stop rather than resuming. Retry resumes other uncertain work; failed actions are never presented as successful. Manual changes are protected by revision checks.
-- **Privacy controls:** “Clear chat & memory” deletes the remote session and local conversation/memory, retaining criteria and saved candidates. “New search” also resets criteria. These operations complete asynchronously; a failed remote deletion is shown as an error rather than a successful clear.
-- **Limits:** Maps, geocoding and Bing listing discovery work without extra keys; Brave is optional. Search-engine results provide discovery links only. Without a verified feed, chat also uses the bounded Tokyo SUUMO prototype to return real source leads with known rent/management fees. These appear separately as unverified leads, with source links; vacancy, other fees, building type and precise location remain unknown. When reuse is permitted, the prototype inspects one page of up to 20 records in a query of at most 2 km and does not search all Tokyo. Unsupported areas or source failures still return source-search links rather than implying no homes exist. Current candidates require a permitted source feed/import with confirmed availability verified within one hour. Rental budgets include rent, management and mandatory monthly fees; missing fees stay unknown. Road walking/bike/car estimates use OSRM without another API key; train commute and live traffic are unsupported. Zero results remain zero. The separate SUUMO prototype remains available under Advanced, with its original unverified-data warnings.
-- **Upgrades:** Earlier prototype budgets excluded fees. Schema v3 preserves such a cap as a historical note and asks for a new total budget instead of silently reusing it. Agent configuration changes start a fresh provider session with recent local context; clearing that chat deletes its current and previous provider sessions.
-- **Local app:** Browser profiles receive separate HttpOnly, SameSite=Strict session cookies; tabs share one session. This is not an authenticated multi-user service. Cookies expire after 30 days; automatic database retention cleanup is not implemented. Environment and database files are ignored by Git and blocked from HTTP access.
-
-例 / Example: “Remember that I have a cat named Mochi. Find a 1K rental near Tokyo Station under ¥100,000 including monthly fees.” Then: “Change only the budget to ¥85,000,” “What is my cat’s name?” or “Undo the last change.” Pet/cat permission remains unverified until supported by the source.
+**AIが検索・操作を進め、プログラムが条件と根拠を確認します。** 建物の存在、掲載ページの発見、現在募集中であることを区別し、取得できない物件・家賃・空室情報を創作しません。
 
 ## 起動
 
-Python 3.10+ が必要（追加パッケージ不要）。
+Python 3.10以上が必要です。追加のPythonパッケージ、npm install、フロントエンドのビルドは不要です。
 
 ```bash
+git clone https://github.com/syun88/DevDay_Hackathon_search_home.git
+cd DevDay_Hackathon_search_home
 python3 server.py
-# http://127.0.0.1:8765/
 ```
 
-Linux: `./start-linux.sh` / Windows: `start-windows.bat` でも起動可能。
+ブラウザで **[http://127.0.0.1:8765/](http://127.0.0.1:8765/)** を開きます。Linuxは `./start-linux.sh`、Windowsは `start-windows.bat` でも起動できます。
 
-任意のAPIキーは `.env.example` を `.env` にコピーして設定できます。サーバーは起動時に `.env` を読み込みます（環境変数の指定を優先）。編集後はサーバーを再起動してください。`.env` はGit管理対象外です。
+- **キーなし**：地図、場所検索、徒歩範囲、公的データ、掲載元リンク探索、許可済みデータの取り込み、手動比較が使えます。外部データ取得にはインターネット接続が必要です。
+- **AIを使う場合**：`.env.example` を `.env` にコピーして `OPENAI_API_KEY` を設定し、サーバーを再起動します。Agents APIの利用権限とモデルの推論権限が必要です。AI・Web検索には利用料が発生します。
+- **接続先に注意**：サーバーの既定ポートは `8765`、`.env.example` の設定は `8766` です。コピー後は **[http://127.0.0.1:8766/](http://127.0.0.1:8766/)**、または起動ログのURLを開いてください。環境変数は `.env` より優先されます。
 
-Optional keys: copy `.env.example` to `.env`, fill in your keys, then restart the server. The file loads automatically; existing environment variables take priority. `.env` is ignored by Git.
+## できること
 
-任意のAPIキー:
+| 機能 | できる操作 |
+|---|---|
+| 会話で検索・絞り込み | 「東京駅から3km以内、1LDK、月15万円まで」などの希望を整理して検索。「予算だけ変更」「直前の条件に戻す」にも対応 |
+| 起点A・Bの指定 | 住所・会社・駅名を検索、地図で指定、現在地を地点Aに設定。地点Bも使う場合は両地点の範囲で絞り込み |
+| 指定地点から徒歩・距離で探す | 起点からの徒歩時間・徒歩距離・直線半径を切り替え、範囲内の候補を検討。徒歩では到達した道路・歩道と外周の目安を表示 |
+| 会話で地図を操作 | 検索結果全体を表示、候補に移動、ズーム、選択中の物件の既知の条件・不明点を説明。公的住宅の読み込みも依頼可能 |
+| 条件比較 | 賃貸／売買、価格、間取り、面積、築年、ペット、駐車場、距離、道路の通勤時間。データがある項目だけ判定 |
+| 掲載ページの探索と候補の提案 | AIのWeb検索で掲載ページを確認し、一致候補・代替候補・参考リンクを区別。予算超過額や距離・間取りの違いを表示。Bing RSS／任意のBraveも利用可能 |
+| 公的住宅・自治体空き家 | 東京都の都営住宅団地CSV、津幡町の空き家CSV、許諾済み公的フィードを参考レイヤーとして表示 |
+| 実在する建物の探索 | OpenStreetMapの集合住宅を周辺検索。建物データは賃貸募集とは別表示 |
+| 候補・条件の保存 | チャットごとの条件・会話・明示した希望・「職場」などの場所・候補を保存。手動登録候補のCSV読み込み／出力も可能 |
+| 操作の継続・切り替え | 複数チャット、下書き復元、途中回答とツール進捗の表示、停止・再試行、EN／JP切り替え、地図とチャットの高さ調整 |
 
-```bash
-BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
+### 想定利用者（ペルソナ）
+
+**想定例：転勤・進学で土地勘のない地域へ引っ越す人。** 勤務先や学校への距離、月額総額、間取りなどを一緒に考えたいものの、候補地域をまだ絞れていない場面を想定しています。
+
+会話で希望を整理し、地図で位置関係や徒歩範囲を確認し、出典付きの候補を比較・保存する流れを支援します。2つの勤務地・通学先を起点A・Bに置いて検討する使い方にも対応します。電車の所要時間は外部の経路案内で確認します。
+
+## 使い方
+
+1. AIキーを設定した場合は、チャットに希望を入力します。キーなしの場合は、左の「詳細設定」で場所・条件を指定します。
+2. 条件チップで現在の設定を確認し、「掲載ページを検索」または会話から検索します。結果・保存済み候補は左のメニューから開けます。
+3. 候補の地図位置・掲載元・分かっている費用と不明点を確認し、比較・保存します。
+4. 追加の希望を伝えるか、条件を手動編集して再検索します。会話による条件変更でも、無関係な条件は保持します。
+
+会話の入力例：
+
+> 東京駅から直線3km以内、1LDK、管理費などを含めて月15万円以内の賃貸を探して。
+>
+> 予算だけ13万円に変えて、もう一度探して。
+>
+> 2番目の候補を地図に表示して、分かっている条件と不明点を教えて。
+>
+> その候補を保存して。直前の検索条件の変更は元に戻して。
+
+**徒歩範囲で探す例**：「詳細設定」で職場を地点Aに設定 → 「範囲の指定方法」で「徒歩（所要時間）」の15分、または「徒歩（所要徒歩距離）」の1kmを選択 → 到達した道路・歩道と周辺候補を確認します。「範囲内のみ」で候補を絞り込めます。範囲は外周による概略判定で、入口までの個別経路は別途確認します。
+
+チャットと条件チップの距離指定は**直線半径**です。徒歩時間・徒歩距離は上記の「詳細設定」で選び、会話での希望整理や候補比較と組み合わせます。
+
+現在地は、地図右上の上から3番目の **「⌖」**、または地点Aの「現在地」から取得します。操作時にだけブラウザへ要求し、許可が必要です。HTTPSまたはlocalhostで利用し、取得できない端末・ブラウザでは住所検索や地図指定を使ってください。
+
+## 検索結果の読み方
+
+会話からの検索では、候補を次の3つに分けて表示します。**条件を満たす候補がない場合も、希望条件を勝手に変えず、どこに柔軟性が必要かを具体的に伝えます。**
+
+| 表示 | 意味 |
+|---|---|
+| 条件に合う物件 | 提供元確認済み募集の条件一致、または掲載ページの主要項目と位置の根拠を確認でき、指定条件に不一致・未確認判定がないWeb候補 |
+| 条件を緩めた場合の候補 | 掲載ページを確認できた個別物件で、予算・距離・間取り・面積の差、または指定条件の未確認項目がある候補。「予算より12,000円高い」「指定範囲から約1.2km外」などを表示 |
+| ほかに見られるページ | 一覧・検索ページ、十分な根拠を確認できなかったページなど。折りたたんだ参考リンクとして表示し、物件ピンにはしない |
+
+Web候補の「条件に合う」は、ページ上の確認項目に対する判定です。**Web候補の「月額」は家賃＋管理費の判明分で、その他必須費用と現在の空室を確認した意味ではありません。** 提供元が確認した募集データとは区別し、契約前に掲載元で確認します。
+
+| 表示する情報 | 根拠と限界 |
+|---|---|
+| 提供元が確認した募集データ | 許可済みJSON／CSV・フィードから取得。提供元の募集確認が1時間以内で、出典URLがあるものを採用。将来の空室は保証しない |
+| Web検索で見つかったページ | 個別物件・建物・検索一覧・公的情報を区別。掲載ページの確認結果と、家賃・管理費・間取り・住所などの根拠を保持。検索要約だけでは一致候補にしない |
+| Bing／Braveの検索結果 | 掲載元へのリンク探索に使用。抜粋から推定した価格・間取りを確認済み募集に変換しない |
+| 都営住宅台帳・自治体CSV | 公開資料の参考表示。資料基準日・ファイル更新日・取得日時・募集確認日時を分ける。台帳や空き住戸数だけでは募集中としない |
+| OSMの建物・住所ピン | 建物の存在や住所の概略位置。正確な住戸位置、家賃、空室を示すものではない |
+| SUUMO試作の候補 | 許諾を設定したときだけ取得する未確認の参考候補。範囲・全条件への適合や現在の空室は未確認 |
+
+**入力する賃貸予算は家賃＋管理費＋その他必須月額費用の総額**です。提供元確認済み募集の判定では、不明費用を0円にしません。Web候補は上記の判明分で判定するため、表示された月額が最終的な総額とは限りません。「条件が未確認の候補も表示」を選んでも、既知の不一致や期限切れの募集は一致候補になりません。売買では売買価格を比較します。
+
+Web候補のピンは、丁目・番地付近まで住所を照合できた個別物件の一致候補・代替候補に限ります。町域・市区町村までしか分からない場所、一覧ページ、掲載終了・削除・別ページへの移動と判定した候補は物件ピンにしません。概略位置の距離判定には位置精度に応じた余裕幅を持たせ、境界付近は未確認にします。ピンは建物入口の正確な位置や個別の徒歩経路を保証しません。**結果0件は、その取得範囲・データ源・確認条件での結果**であり、地域に物件が存在しないことの証明ではありません。
+
+## 裏側の技術
+
+### 全体構成
+
+```mermaid
+flowchart TB
+    UI["ブラウザ：地図・条件・チャット"] <-->|JSON / SSE| API["Python HTTPサーバー"]
+    API <--> DB[(SQLite)]
+    API <-->|HTTPS| AI["OpenAI：会話・Web検索・分類"]
+    API --> DATA["募集フィード・公的CSV・地名検索・経路API"]
+    UI --> MAP["OSMタイル・地名検索・Overpass"]
 ```
 
-- **APIキーなし**: 住所・駅・会社検索（Nominatim/GSI）、OSMタイル、Valhallaによる徒歩道路網・到達圏、Overpassによる建物探索、2地点の直線距離、許可済み募集JSON/CSVの取り込み、管理費・その他必須費用込みの条件判定、Bing RSSによる掲載元リンク探索（ベストエフォート）、徒歩・自転車・車の経路時間照会。
-- **Braveのキーあり**: 安定的なWeb掲載ページの発見（課金・クォータ依存）。SUUMO／HOME'S／at homeの本文スクレイピングは行わない。
-- **OpenAIのキーあり**: 検索で見つかった掲載ページの種類をボタンで分類（Decisions API / `gpt-6-luna`）。利用者が操作したときのみ呼び出し、空室確認には使わない。
+| 部分 | 実装と役割 |
+|---|---|
+| 画面 | HTML／CSS／素のJavaScript。地図のタイル配置・ズーム・ピン・SVG描画を自前実装。Reactや地図SDKへの依存なし |
+| 地図計算 | Web Mercatorで座標を画面へ投影。直線距離はHaversine式、徒歩外周はGeoJSONのPolygon／MultiPolygonとして内外判定し、穴も除外 |
+| ローカルAPI | Python標準の `ThreadingHTTPServer` と `urllib`。JSONの検索・セッションAPIと、SSEによる回答・進捗配信を提供 |
+| 会話エージェント | OpenAI Agents APIをHTTPSで直接呼び出し。既定モデルは `gpt-6.1-sol`。`environment: none` で、アプリが定義したツールだけを実行 |
+| AIのWeb検索とページ確認 | Responses APIのhosted `web_search` とJSON Schemaを使用。参照・引用されたURLから、掲載ページ・数値の根拠・住所精度を確認し、候補を分類。検索回数と取得件数を制限 |
+| 補助分類 | Decisions API／`gpt-6-luna` でページ種別を分類する任意機能。募集の最新性・空室の証明には使用しない |
+| 保存 | SQLiteが会話・共通検索条件・記憶・検索結果・候補の正本。ブラウザのLocalStorageは言語、徒歩設定、従来の手動候補などに使用 |
 
-**募集情報の鮮度**: 検索索引の取得時刻では掲載元の募集状況を確認できないため、検索結果の家賃・間取り・住所は募集候補に採用せず、掲載元リンクだけを表示します。候補に採用するのは、出典URLと提供元の募集確認日時を持ち、確認から1時間以内のデータです。不明・未来日時・募集終了・古いデータは除外し、表示中も30秒ごとに期限を再判定します。確認日時は提供元の申告であり、リアルタイム空室の保証ではありません。掲載元で最終確認してください。
+### AI APIの役割と短いデモ
 
-**取り込み**: 「許可済みJSON / CSVを取り込む」から利用許可を確認して読み込めます。自動連携には `LISTINGS_FEED_PATH`（JSONファイル）または `LISTINGS_FEED_URL`（許可済みHTTPS JSONフィード）を設定します。形式は [募集データ仕様](docs/listing-feed.md) を参照。未設定の場合、現在募集中の物件を自動取得できません。データを捏造して補完しません。
+- **Agents API：会話と操作の進行役。** 希望を整理し、条件更新・場所検索・掲載検索・地図操作・比較・保存など、アプリのツールを選んで実行します。同じセッションで会話の文脈を引き継ぎます。
+- **Responses API：Web上の情報を探す役。** エージェントの `web_search` ツールから呼び出し、実際に検索で参照・引用されたページを出典付きで返します。
+- **Decisions API：掲載文の種類を判定する役。** 候補カードの「AIで広告を分類」を押すと、タイトル・抜粋を「単一住戸の具体的な掲載／一覧・検索ページ／その他」に分類します。任意の補助機能で、空室や条件一致の判定はしません。
 
-**条件判定**: 賃貸の予算は家賃＋管理費＋その他必須月額費用です。費用不明を0円にはせず、必須条件不明の候補は初期状態で除外します。「条件が未確認の候補も表示」を有効にしても、不一致・古い募集は採用しません。概略座標は厳密な距離条件に合格させません。保存済みの古い候補は再確認・編集から更新できます。
+AIキーを設定した状態でのデモ手順：
 
-**無料の通勤時間**: 各候補の「通勤時間を取得」で、住戸から勤務地A（Bの絞り込みを有効にした場合はBも）への道路経路を [FOSSGIS / OSRM](https://routing.openstreetmap.de/about.html) に照会します。APIキー・課金設定は不要。リクエストは利用者の操作時のみ、プロセス全体で1.1秒以上の間隔を設け、取得結果は同じ座標・移動手段に対して5分間だけ判定に使用します。道路の位置合わせは100m以内に限定し、経路なし・失敗時に直線距離から時間を捏造しません。公開サービスの利用制限・停止時には未判定と表示します。
+1. 「東京駅の近くで1LDK、月15万円以内」と入力 → **Agents API** が条件設定と検索を進める。
+2. 「Webでも探して」と追加 → **Responses API** のWeb検索とアプリのページ確認を経て、一致候補・条件の違いがある代替候補・参考リンクを確認する。
+3. 許可済み募集JSON／CSVを読み込み、候補カードの「AIで広告を分類」を押す → **Decisions API** の分類を確認する。
 
-道路経路の時間は推定値で、リアルタイムの渋滞・運休や現在の道路規制を保証しません。**電車の時刻・所要時間はアプリ内で取得せず、候補のGoogle Maps外部リンクで確認します。電車時間による絞り込みは未対応です。** Google Routes APIは呼び出しません。大規模公開・大量照会には公開OSRMを使わず、別途運用可能な経路基盤を用意してください。
+家賃総額の計算・募集の鮮度・距離条件は、アプリのコードが検査します。
 
-## ブラウザの現在地を使う
+**AIのペルソナ：日本の住まい探しを支援する案内役。** [`home_agent.py`](home_agent.py) の `INSTRUCTIONS` で、利用者の言語に合わせて簡潔に応答し、判断に必要な不足条件を確認しながら、ツールで検索・地図操作を進めるよう指示しています。予算や必須条件を勝手に緩めず、一致候補がなければ具体的な条件差を添えて代替候補を提示します。判断に関係する不明点を伝え、一般的な注意書きの繰り返しは抑える方針です。
 
-地図右上の上から3番目の「⌖」ボタン、または地点Aの「現在地」を押し、ブラウザの位置情報利用を許可すると、取得した現在地を地点Aとして保存し、地図を移動します。選択中の徒歩範囲・距離条件も更新します。ページを開くだけでは位置情報を要求しません。HTTPSまたは `http://127.0.0.1:8765/` / localhost で利用してください。許可済みの場合、ブラウザの確認は再表示されないことがあります。拒否・取得失敗・タイムアウト時は理由を表示し、既存の地点Aを保持します。
+### Web検索から候補を提案するまで
 
-## 徒歩範囲の表示
+1. **検索**：掲載データ源から候補が得られない場合はWeb検索へ進みます。明示的な「Webで探して」にも対応。確認できた個別掲載ページが少ない場合は、対象ポータルを絞った再検索を行います。再検索も含め1メッセージ最大3回、検索結果は10分間キャッシュします。
+2. **ページ確認**：[`page_verify.py`](page_verify.py) が、robots.txtと取得対象の制限に従って公開HTTPSページを確認します。取得量・タイムアウトを制限し、転送先・掲載終了の表示・404／410・一覧ページへの移動を判定。タイトル・構造化住所・管理費の記載などから、読めた項目だけを補います。検索が参照した未返却の個別掲載ページも、件数を制限して確認します。
+3. **根拠と位置の照合**：アプリが直接読めないページでも、その検索中に同じページを開いた記録があれば、そこで取得した値を根拠にできます。検索要約だけの値とは区別します。住所検索は一致する候補のうち最も具体的な住所を選び、丁目・番地と町域・市区町村の精度を分けます。
+4. **提案と地図表示**：予算・間取り・距離等を検査し、一致候補、条件差や未確認項目のある代替候補、参考リンクに分類。会話・カード・地図で同じ候補IDと区分を使い、掲載終了と判定したページは提案から除外します。
 
-- 「範囲の指定方法」で**徒歩（所要時間）／徒歩（所要徒歩距離）／直線距離（半径）**を選べます。初期表示は徒歩15分。時間は5〜60分、徒歩距離は100m〜5km（100m刻み、初期1km）を指定できます。距離指定のボタンは500m・1・2・3・5km。地点A・Bそれぞれの時間・徒歩距離・直線半径を保持します。
-- **色付きの線は、OSMの道路・歩道に沿って指定した時間または徒歩距離以内に到達した区間**です。Valhallaの `pedestrian` 探索から、確定した区間のうち累積所要時間または累積徒歩距離が上限以内のものだけを表示します。徒歩距離は道路・歩道を歩く累積距離で、直線半径とは別です。川・堀・線路敷などを含めた外周全体の塗りつぶしは行いません。橋や地下道など、地図に徒歩経路が登録されている区間は表示します。フェリーへの乗船は検索の上限60分を超える設定にし、徒歩距離の指定でも乗船時間を含む経路を表示対象から除外します。起点もフェリー航路へ接続しません。線幅は視認性のためのもので、道路の実幅ではありません。
-- 破線は等時間圏を補間した**外周の参考線**です。保存候補・建物・掲載ページの範囲条件はこの外周内かどうかで概略判定します。個々の建物入口までの徒歩時間の確定判定ではありません。地点Bも有効にするとA・B両方の外周内にある候補を表示します。
-- 道路の総延長を地図上に、外周の参考面積をサイドバーに表示します。参考面積は川・建物等を除いた「歩ける地面の面積」ではありません。徒歩速度は4.8km/h（80m/分）。信号待ち・最新の通行規制・建物入口などにより実際の所要時間は変わります。候補カードの距離・近い順は直線距離です。
-- 地点・時間・徒歩距離の変更時は古い表示を直ちに無効化します。取得失敗時は再取得ボタンを表示し、未取得の範囲を確認済みとして扱いません。共通フィルターの募集鮮度・総費用・位置精度などの条件も適用します。道路網が取得できない場合に円や外周の塗りつぶしへ自動置換することはありません。
+CHINTAIと、再利用許諾を設定していないSUUMOはリンク案内に限定し、掲載値の抽出やアプリからのページ取得は行いません。ページが読めたことは、現在の空室確認とは別です。
 
-徒歩機能には同梱サーバーとインターネット接続が必要です。既定では[FOSSGISの公開Valhallaデモサーバー](https://github.com/valhalla/valhalla#demo-server)を使用するため、利用制限・停止の影響を受けます。60分圏など広い範囲の道路網取得には1分以上かかる場合があります。操作を450msまとめ、サーバーからの照会を直列化して1秒以上間隔を空け、同一条件を15分キャッシュします。取得済みの条件への切り替えは広域照会の完了を待ちません。本番公開時は提供者のfair-use方針・アプリの連絡依頼を確認し、自前のValhallaなどへ切り替えてください。
+### ツール連携とMCPの位置づけ
 
-```bash
-VALHALLA_URL=http://127.0.0.1:8002 python3 server.py
-```
+**実装済み：Function callingによるツール連携。** [`home_agent.py`](home_agent.py) で操作と引数をJSON Schemaとして定義し、Agents APIが選んだツールをサーバーが検証・実行します。例えば `resolve_place` で場所を検索し、`update_search` で条件を更新、`search_listings` で候補を取得、`control_map` で地図表示を指示します。地図操作はブラウザの適用確認を待ち、保存などの更新は実行記録で二重処理を防ぎます。
 
-連携仕様：[Isochrone API](https://valhalla.github.io/valhalla/api/isochrone/)、[Expansion API](https://valhalla.github.io/valhalla/api/expansion/)。Expansion APIはBETAです。建物探索は負荷を抑えるため周辺最大5km・取得最大220件に制限し、取得範囲が足りない場合は画面に表示します。
+**将来拡張：MCPで他のAIクライアントからも検索。** [Model Context Protocol（MCP）](https://modelcontextprotocol.io/docs/learn/architecture) は、AIアプリと外部のツール・データを接続する標準です。本アプリでは、地名検索や公的住宅検索をMCPサーバー経由で提供し、他の対応クライアントから再利用する拡張が考えられます。現時点ではMCPクライアント／サーバーは未実装で、接続デモもありません。
 
-## 構成
+### 地理データと経路の使い分け
 
-### 公的住宅・自治体空き家
+- **Nominatim／国土地理院**：会社・駅・住所から座標を検索。AIも取得済みの地点IDから起点を選び、座標を自由生成しません。
+- **OSMタイル／Overpass**：背景地図と実在する集合住宅を取得。建物探索には照会半径・件数の上限があり、網羅検索ではありません。
+- **Valhalla**：徒歩時間は5〜60分、徒歩距離は100m〜5km。Isochroneで外周、Expansionで到達道路網を取得します。徒歩速度は4.8km/hで、確定した探索区間のうち時間または距離の上限内だけを着色し、フェリー経路を除外します。
+- **外周と道路の区別**：破線は外周の参考線、色付きの線は到達した道路・歩道です。外周内の川や土地を「歩ける面積」として塗りつぶしません。保存候補等の範囲判定は外周による概略判定で、入口までの個別経路の確認とは別です。
+- **FOSSGIS／OSRM**：正確な座標を持つ候補から起点A・Bへの徒歩・自転車・車の道路経路を照会します。通勤条件には5分以内の経路結果を使い、経路なし・取得失敗を直線距離の推定時間で埋めません。
 
-「公的住宅・自治体空き家データ」で、ソースと地域・団地名を選び「公開データ取得」を押します。**APIキー・追加パッケージ・課金設定は不要**です。東京都の都営住宅CSVと津幡町のCC BY空き家CSVを公式配布元から取得し、住所の概略位置を地図に表示します。UR・JKK東京・全国版空き家バンクには公式検索リンクを用意しています。
+外部サービスへの操作は間引き・頻度制限・キャッシュで抑制します。徒歩条件を変えたら古い道路網を直ちに無効化し、遅れて届いた応答で新しい条件を上書きしません。公開サービスの停止・制限で失敗した場合は未判定と再試行を表示します。広い徒歩範囲の取得には時間がかかることがあります。
 
-**台帳や公開ファイルはリアルタイム募集ではありません。** 基準日・ファイル更新日・取得日時・募集確認日時を区別し、成約済みは除外します。参考表示は共通条件OFFが初期値です。ONにすると既存の地点A/B・半径・家賃総額/売買価格・間取り等で絞り込みます。不明な家賃、費用、間取り、募集状況や概略座標を厳密な条件一致とは扱いません。「条件が未確認の候補も表示」を選ぶと参考候補を含められますが、判明している不一致は除外します。
+### 会話・地図・手動編集を一致させる仕組み
 
-都営の空き住戸PDFは自動転載許諾を確認できないため**公式リンクのみ**です。空き住戸数・確認済み募集は別レイヤーを持ち、許諾済みフィードを設定したときだけ実データを表示します。UR/JKKの実データAPIや全国全自治体の網羅取得は未接続です。利用条件・接続範囲・フィード形式は [公的住宅データ](docs/public-housing.md) を参照してください。
+1. **共通状態**：会話と手動フォームは同じ検索条件を参照し、更新時にリビジョン番号を照合します。古いAIの処理や別タブが、新しい編集を黙って上書きするのを防ぎます。
+2. **限定したツール**：条件更新、場所検索、掲載ページ検索、比較・保存、明示的な希望の記憶、公的資料の取得、地図操作などをサーバーで検証します。候補は結果セットID・物件IDで参照し、「2番目」をその時の表示順と照合します。
+3. **実際の地図を確認**：ブラウザが表示範囲・選択候補・コマンドの適用結果を返します。指示を送っただけでは地図操作成功にせず、利用者の後からの移動・ズームを優先します。
+4. **継続と復旧**：同じリモート会話セッションに文脈を保持し、ローカルには明示した希望・場所・履歴を保存。送信IDとツール結果を記録し、副作用と実行記録を同じSQLiteトランザクションで確定して、再試行時の二重更新を防ぎます。
+5. **ストリーミング**：OpenAIからの回答断片・ツール進捗をSSEでブラウザへ配信。途中の本文も保存し、切断時は保存状態と照合して未完了と完成を区別します。停止・再試行・リロード後の復旧に対応し、停止の確認に失敗した場合の再試行は停止を再要求します。Enterで送信、Shift+Enterで改行、日本語IMEの変換確定では送信しません。
 
-- `home_agent.py`: Agents API client, durable conversation worker, validated search/memory/save/Undo tools
-- `chat.js`: streamed replies, activity status/steps, Enter-to-send with IME handling, cancellation, recovery and memory controls
-- `web_search.py`: bounded Responses API web search; keeps only pages the search actually returned
-- `map_agent.py` / `map_agent.js`: owned viewport, selection and acknowledged map commands connected to the original map
-- `session_store.py`: shared criteria schema, SQLite sessions and atomic revision checks
-- `session.js`: queued session updates, draft persistence, conflict/error recovery
-- `workspace.js` / `workspace.css`: bilingual chat shell, editable chips and advanced panel
-- `index.html`: レスポンシブ地図UI（依存ライブラリなし）、地点A/B、徒歩道路網・距離円、外部検索、候補保存、CSV
-- `walking.js`: GeoJSON描画・範囲判定・道路延長・参考面積、取得の間引きと古い応答の排除
-- `server.py`: localhost専用HTTPサーバー、徒歩API・キャッシュ、Bing RSS/Brave検索、正規化と出典、任意Decisions API分類
-- `listing_feed.py`: 許可済み募集データの正規化、鮮度・出典・位置精度の確認
-- `property_core.js`: 保存候補と取り込み候補に共通の費用・不明値・距離・通勤時間の判定
-- `public_housing.py` / `public_housing.js`: 許諾確認済みオープンCSVの取得・正規化、公的資料レイヤーと地図・共通条件の接続
-- `filter_core.py`: 複数地点AND/ORと月額費用の厳密フィルタ参照実装（不明値は除外）
-- `ARCHITECTURE.md`: 設計全体、データ源・公式API、PostGIS／経路／ハザード／通知への拡張方針
-- `tests/`: 抽出、URL制約、距離、未知値・境界条件、AI通信モック検証
+### 保存先と外部送信
 
-## API
+会話・共通条件・明示的な記憶・候補は **`.local/sessions.sqlite3`** に保存します。チャットごとに検索結果は直近5セット、条件のUndoは直近20変更を保持します。従来の手動登録候補と徒歩設定はブラウザ保存なので、チャット保存や候補CSVと同じ範囲ではありません。
 
-- `GET /api/health`: 機能・APIキー設定状態（キー自体は返さない）
-- `GET /api/walking-area?lat=35.681236&lon=139.767125&minutes=15`: 外周のPolygon/MultiPolygonと時間内に到達した道路のMultiLineString、徒歩速度・起点・出典。緯度±85度、経度±180度、時間5〜60分の整数に制限。不正入力は400、上流通信・応答の異常は502。
-- `GET /api/walking-area?lat=35.681236&lon=139.767125&distance_km=1`: 道路・歩道を1km歩いて到達する範囲。距離は0.1〜5km。`metric: "distance"` と `distance_km`、距離以内の道路網・参考外周を返す。`minutes` と `distance_km` はどちらか1つだけ指定する。時間と距離は別々にキャッシュする。
-- `GET /api/listings?place=渋谷区&kind=rent&provider=auto&layout=1K`: 設定済みフィードの新しい募集、または検索エンジンの掲載元リンク。検索索引から抽出した価格は返さない
-- `GET /api/suumo-search?lat=35.681236&lon=139.767125&radius_km=1&max_rent_man=15&layout=1K&page=1`: ローカル試作の明示的なSUUMO匿名検索。家賃・間取りを上流へ渡し、先頭最大20件を再検証して表示する。都外住所と未確認座標を除外
-- `POST /api/classify` (`{"title":"...","description":"..."}`): 任意AI分類。`OPENAI_API_KEY`がある場合のみ
-- `POST /api/import` (`{"permitted":true,"records":[...]}`): 許可済みデータを検証・正規化。最大1MB・500件
-- `POST /api/route` (`{"origin":{"lat":35,"lon":139},"destination":{"lat":35.01,"lon":139},"mode":"foot"}`): 無料道路経路。`foot` / `bike` / `car`。経路なしの場合は `duration_seconds:null`
-- `GET /api/public-housing?source=tokyo&area=千代田区&offset=0`: 公式公開CSVの参考資料。`source` は `tokyo` / `tsubata` / 設定時の `permitted`。20件単位
-- `POST /api/public-geocode` (`{"source":"tokyo","id":"取得結果のid"}`): 公開住所の概略位置照会。任意URLや任意住所は受け付けない
+AIを利用すると、入力した会話、検索条件、明示的な記憶、検索結果や地図状態が処理の文脈としてOpenAIへ送られます。検索結果のページ確認では掲載元サイトへアクセスします。住所・地名は地理検索サービスへ、経路や徒歩圏の起点座標は経路サービスへ送ります。APIキーはサーバー側に置き、`.env`・DB・サーバーソースはHTTPで配信しません。
 
-- `GET /api/session`: create or restore the cookie-bound search session (no API key)
-- `POST /api/session`: update with `{"expected_revision":0,"criteria":{"max_price_yen":100000}}`; returns 409 if another update has already advanced the revision
-- `GET /api/session/schema`: versioned criteria and partial-update schemas (schema version 2)
-- `POST /api/chat`: submit `{request_id,message,expected_revision,language}`; returns a persisted running session immediately
-- `GET /api/session`: read progress, messages, memory and result snapshots; resumes interrupted workers
-- `GET /api/chat/stream`: Server-Sent Events for the cookie's session: `state` (saved-state changes) and `live` (streamed text as offset-checked appends or full replacements, activity steps)
-- `POST /api/map`: browser map report (viewport, visible/selected stable IDs, command acknowledgement, change cause, public record list with its version)
-- `POST /api/chat/resume`: resume an uncertain turn with its `request_id`
-- `POST /api/chat/cancel`: stop the current `request_id`
-- `POST /api/chat/reset`: clear remote/local chat and memory with `{expected_revision,reset_search}`; `reset_search: true` also resets criteria
+「会話と記憶を削除」は対象チャットのリモート会話セッションを削除してからローカル会話・記憶を消し、検索条件・保存候補を残します。「新しい検索」は条件も初期化します。別の履歴チャットは残ります。削除失敗は成功表示にしません。CookieはHttpOnly／SameSite=Strictで、同じブラウザプロファイルのタブはセッションを共有します。
 
-## テスト
+## 設定とデータ接続
+
+| 環境変数 | 用途 |
+|---|---|
+| `OPENAI_API_KEY` | 会話エージェント、AIからのWeb検索、任意のページ分類 |
+| `OPENAI_AGENT_MODEL` | 新しく作るリモート会話のモデル。既定値 `gpt-6.1-sol` |
+| `BRAVE_SEARCH_API_KEY` | 通常の掲載元リンク探索にBraveを追加。未設定時はBing RSS |
+| `PORT` | ローカルHTTPサーバーのポート |
+| `LISTINGS_FEED_PATH` / `LISTINGS_FEED_URL` | 許可済み募集JSONのファイル／HTTPSフィード。両方指定時はファイル優先 |
+| `PUBLIC_HOUSING_FEED_PATH` | 許可済み公的住宅JSONの追加レイヤー |
+| `VALHALLA_URL` | 徒歩APIの接続先を変更。自前運用のValhalla等に切り替える場合に使用 |
+| `SUUMO_REUSE_PERMITTED` | 取得・再利用の許諾を得た運用者が `1` を設定した場合だけSUUMO試作を有効化 |
+
+募集JSON／CSVは画面からも取り込めます。入力項目・単位・鮮度の契約は [募集データ仕様](docs/listing-feed.md)、公的CSVの接続範囲・出典・利用条件は [公的住宅データ](docs/public-housing.md) を参照してください。
+
+<details>
+<summary>SUUMO試作の範囲と仕組み</summary>
+
+初期状態は停止し、サーバーも未許諾の取得を拒否します。環境変数の設定自体が利用許諾を取得するものではありません。起動に追加Pythonパッケージは不要ですが、この試作の通信には `curl` コマンドが必要です。
+
+公開地図ページから匿名検索用の値をメモリ上で読み、東京都内の地図中心・半径0.1〜2kmに限って、家賃・間取り付きの地図検索を行います。ページ由来の値はブラウザやログに返しません。詳細設定の手動検索は1ページ20件でページ送りができ、チャット検索は先頭ページを使います。対応する取得済み物件だけ、掲載元の詳細表を読む機能もあります。
+
+手動試作の家賃上限は**賃料のみ**です。チャットでは、対応する家賃の選択値へ照会範囲を広げても利用者の予算自体は変えず、判明した家賃＋管理費が総額予算を超える候補を除外します。ただしその他必須費用は不明なので、総額条件一致とはしません。
+
+上流の座標は表示に使いません。チャットのSUUMO試作候補は参考リンクとして扱い、ページ確認を経たWeb検索の一致候補・代替候補の物件ピンとは分けます。手動試作では面積・築年・ペット・駐車場・地点B等の共通フィルターは適用されません。戸建て種別の絞り込み、都内全域の網羅検索、公式な物件API連携ではありません。
+
+</details>
+
+## 現時点の制約
+
+- **ローカル個人利用向け**：サーバーは `127.0.0.1` にのみ待ち受けます。認証付きの複数利用者向け公開サービスではなく、DBの自動保管期限処理もありません。
+- **接続範囲**：公的CSVの標準接続は東京都と津幡町です。UR・JKK東京・全国版空き家バンクは公式サイトへのリンクで、全国の募集を自動収集しません。
+- **未対応**：リアルタイム空室保証、電車時間による絞り込み、最新の渋滞・運休、災害レイヤー、初期費用の完全計算、自動新着通知。電車経路は外部のGoogle Mapsで確認します。
+- **データと提供元に依存**：許可済み募集フィードや取り込みデータを用意しなければ、確認済み募集の在庫は接続されていません。Web検索・参考候補・掲載元リンクで探索できますが、価格・空室・条件は掲載元で最終確認してください。
+
+## 開発・検証・詳しい設計
 
 ```bash
 python3 -m unittest discover -s tests -v
@@ -156,18 +215,10 @@ python3 filter_core.py
 node --test tests/*.cjs
 ```
 
-地図のホイール操作と徒歩範囲の回帰テストには Node.js 18+ が必要です。アプリの起動には不要です。自動テストは公開の経路サービスへ通信しません。
+Python標準のunittestとNode.js標準のテストランナーを使用します。`filter_core.py` の成功出力は `OK: distance/cost/unknown-field tests passed` です。GitHub Actionsでも同じコマンドを実行します。
 
-## 今後の優先度
+テストは外部通信をモックし、鮮度・費用・座標、条件の競合、セッション分離、送信・ツールの再実行、地図の適用確認、Web検索の出典・掲載終了・条件差・候補分類・住所精度、ストリーミングと復旧などを検証します。公開サービスや実端末の位置情報が動くかどうかは別途ライブ確認が必要です。
 
-1. 物件オーナー・管理会社等の**許可された正式な募集物件フィード**を用意し、実データの更新頻度・確認日時を検証する。接続機能のテストと実在募集データの検証は区別する。
-2. 電車の時間条件（料金・提供条件を確認できるデータ源が必要）、ハザード・生活環境レイヤー、複数広告にまたがる同一住戸の照合を追加する。
-3. PostgreSQL/PostGIS、差分通知、検索条件保存、AIによる希望条件の補助採点へ拡張する。
+実装を読む入口：画面と地図は [`index.html`](index.html)、会話・状態同期は [`chat.js`](chat.js)／[`workspace.js`](workspace.js)、AIのツール実行は [`home_agent.py`](home_agent.py)、APIとデータ接続は [`server.py`](server.py)、永続化は [`session_store.py`](session_store.py) です。条件判定は [`property_core.js`](property_core.js)、Web検索の出典検証は [`web_search.py`](web_search.py)、掲載ページの確認は [`page_verify.py`](page_verify.py) にあります。
 
-詳細なAPI URL・利用条件は [ARCHITECTURE.md](./ARCHITECTURE.md) を参照。OSMタイル・Nominatim・Overpassの利用規約、各掲載サイトの利用規約を守ってください。
-
-### 件数について
-
-初期試作は明示的に5件だけ取得し、都外・条件外を除外していたため4件表示の場合がありました。SUUMO全体の取得上限ではありません。通常サイトの一覧と同じ1ページ20件へ変更し、上流の該当総数と取得・除外後の表示件数を分けて表示します。取得総数のアプリ独自上限はありません。`page`（1以上の整数）を指定して、SUUMOが返す該当範囲を順に表示できます。操作なしで全件を自動取得する処理はありません。既存のライブ確認は変更前の5件で実施したものです。
-
-返却JSONには `page`・`page_size`・`has_next`・`upstream_totalhits` を含みます。条件変更時は1ページ目に戻り、ページごとにキャッシュを分離します。
+拡張案を含む設計は [ARCHITECTURE.md](ARCHITECTURE.md) を参照してください。記載されたReact／FastAPI／PostGIS等の将来構成は、現在の採用技術ではありません。
