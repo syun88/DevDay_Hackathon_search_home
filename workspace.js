@@ -12,6 +12,7 @@ window.mountSearchWorkspace = adapter => {
     listingArea: 'listing_area', listingKeywords: 'listing_keywords',
     listingProvider: 'listing_provider', listingOnlyWithin: 'listing_only_within',
     includeUnknown: 'include_unknown', commuteMode: 'commute_mode', maxCommute: 'max_commute_minutes',
+    rangeMode: 'range_mode',
   };
   const numeric = new Set(['maxPrice', 'minArea', 'maxAge', 'maxCommute']);
   let ready = false, editing = null, applying = false;
@@ -20,7 +21,8 @@ window.mountSearchWorkspace = adapter => {
     : element.value;
   const readControls = () => {
     const map = adapter.getMapState();
-    const criteria = {origin_a:map.a,origin_b:map.b,radius_a_km:map.ra,radius_b_km:map.rb};
+    const criteria = {origin_a:map.a,origin_b:map.b,radius_a_km:map.ra,radius_b_km:map.rb,
+      walk_a_minutes:map.wa??15,walk_b_minutes:map.wb??15,walk_a_km:map.wda??1,walk_b_km:map.wdb??1};
     for (const [id, key] of Object.entries(fields)) criteria[key] = readValue(id, $(id));
     return criteria;
   };
@@ -75,8 +77,12 @@ window.mountSearchWorkspace = adapter => {
     $('criteriaChips').replaceChildren();
     addChip(t('起点A：{0}', [c.origin_a.name]), () => openAdvanced('queryA'), 'origin_a');
     if (c.origin_b) addChip(t('起点B：{0}', [c.origin_b.name]), () => openAdvanced('queryB'), 'origin_b');
-    addChip(t('Aから{0}km以内', [c.radius_a_km]), () => edit('radius_a_km'), 'radius_a_km');
-    if (c.origin_b) addChip(c.restrict_b ? t('Bから{0}km以内', [c.radius_b_km]) : t('Bの距離制限なし'), () => openAdvanced('restrictB'), 'restrict_b');
+    const walking=c.range_mode==='walk'||c.range_mode==='walk-distance';
+    const range=which=>c.range_mode==='walk-distance'?t('{0}：徒歩{1}km以内',[which.toUpperCase(),c['walk_'+which+'_km']]):t('{0}：徒歩{1}分以内',[which.toUpperCase(),c['walk_'+which+'_minutes']]);
+    addChip(walking?range('a'):t('Aから{0}km以内', [c.radius_a_km]), () => walking?openAdvanced('rangeMode'):edit('radius_a_km'), 'radius_a_km');
+    if (c.origin_b) addChip(c.restrict_b ? walking?range('b'):t('Bから{0}km以内', [c.radius_b_km]) : t('Bの距離制限なし'), () => openAdvanced('restrictB'), 'restrict_b');
+    const note=document.querySelector('.shell-criteria .criteria-note')||document.querySelector('.criteria-note');
+    setText(note,()=>t(walking?'範囲は徒歩道路網による概算です。カードの距離は直線距離です。':'距離は直線距離です。賃貸の予算は管理費・必須月額費用を含む総額です。'));
     if(c.property_type)addChip(t(c.property_type==='rent'?'賃貸':'売買'), () => edit('property_type'), 'property_type');
     const amount = c.max_price_yen == null ? t('価格上限なし') : t('価格上限：¥{0}', [c.max_price_yen.toLocaleString()]);
     addChip(amount, () => edit('max_price_yen'), 'max_price_yen');
@@ -142,7 +148,7 @@ window.mountSearchWorkspace = adapter => {
     $('advancedContent').inert = session.status === 'loading';
     $('criteriaChips').inert = session.status === 'loading';
     $('chatDraft').disabled = !session.snapshot || session.status === 'loading';
-    $('primarySearchAction').inert = session.status === 'loading';
+    $('searchListings').inert = session.status === 'loading';
     $('sessionReload').disabled = session.saving;
   }
   session.addEventListener('change', () => {

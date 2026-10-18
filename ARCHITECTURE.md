@@ -21,6 +21,8 @@
 
 処理例：`起点検索 → 距離・移動時間範囲 → 物件収集 → 正規化・重複統合 → ハード条件検索 → 周辺情報・リスク付加 → ソフト条件評価 → 地図・通知`。
 
+現行の徒歩機能：`server.py` がValhallaの `pedestrian` でIsochrone/IsodistanceとExpansionを照会する。徒歩時間（5〜60分・4.8km/h）と徒歩距離（100m〜5km）は別の条件として保持し、`time` / `distance` の外周と到達道路網を返す。Expansionの累積距離はm、API指定の距離はkmなので1000倍して判定し、時間指定からの換算は行わない。地図は確定済み（`edge_status=s`）かつ選んだ上限以内の道路・歩道区間だけを着色し、川等を含む外周内の全面塗りつぶしは行わない。外周は破線で表示し、候補の概略範囲判定に用いる。共通フィルターの募集確認・費用・位置精度の判定を維持する。外周の参考面積は歩行可能な地面の面積ではなく、建物入口までの個別の経路は未検証。地点・条件変更時に古い道路網を無効化し、失敗時は未判定と再試行を表示する。公開デモの利用制限に備え、操作の間引き・直列照会・単位別の15分キャッシュと `VALHALLA_URL` による接続先変更を実装している。
+
 ## 2. 機能要件
 
 - **起点・範囲**：住所／会社／学校／駅／施設名で候補検索、地図クリック、複数起点、起点ごとの直線半径（0.5～50km）、徒歩・自転車・車・電車の所要時間、AND/OR条件、地図上に手描きした多角形検索。直線の円と移動時間の等時間圏を区別。
@@ -167,6 +169,8 @@ curl -sS https://api.openai.com/v1/decisions \
 `shell.js` owns layout and disclosure, not search state: four labelled rail actions, core chips plus active optional constraints, results/saved tabs and four settings groups. Public data, map helpers, integrations/prototypes and manual CSV management are collapsed initially, not deleted. Drawers expose dialog semantics, trap focus, make background controls inert and restore focus on close. Picking a map origin exits the drawer first. Stop, Retry and Undo remain near the conversation; destructive management stays in History. The missing-key state points to manual search without a blocking setup alert. `session.js`/SQLite remain the shared authority for chat and manual edits.
 
 Brave is removed from network code, UI, environment setup and the criteria contract. Schema v4 maps old `brave` preferences to `auto` on load, including Undo history and archived-chat restoration. `auto` prefers a permitted feed, otherwise Bing; no search provider can establish vacancy from an index snippet. `FRONTEND_ASSETS` is the single allowlist for both GET and HEAD, preserving public-data scripts while excluding server code and private files.
+
+The latest merged walking-range and SUUMO-pagination work is retained. Range mode, A/B walking minutes and walking kilometres join the shared criteria contract, independently of A/B straight-line radii. Existing chat defaults remain straight-line 3 km to avoid silently reinterpreting a radius as walking time. Chips, manual controls, restored chats and agent context agree on the selected mode. The browser retains its approximate walking-outline check; agent evidence reports walking-area membership as unknown instead of substituting a radius or inventing route evidence. SUUMO discovery remains bounded and permission-gated, while its manual paging controls stay under integrations.
 
 The Agents API already orchestrates location resolution, criteria edits, search, evidence-based comparison, saving, explicit memory and Undo in a durable session. This PR adds `classify_listing_page` as a narrow optional tool over a retrieved stable listing ID. It reuses the existing Decisions classifier rather than duplicating an AI pipeline. Instructions require agreement to the extra paid classification; the tool schema cannot accept arbitrary text or a URL. The server sends only that record's title/snippet, returns an advisory page type and journals the result for replay. It never updates criteria, availability, match evidence or candidate order. Failures or unknown references do not fabricate a classification. This is not a separate deterministic billing-approval system; chat confirmation is instruction-based.
 

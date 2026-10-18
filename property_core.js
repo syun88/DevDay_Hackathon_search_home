@@ -47,6 +47,11 @@ function evaluateConditions(record,filters,origins,distance){
  }
  if(filters.insideOnly){
   if(record.geo_precision!=='exact'||!Number.isFinite(record.lat)||!Number.isFinite(record.lon))unknown.push('位置');
+  else if(typeof filters.spatialCheck==='function'){
+   const within=filters.spatialCheck(record);
+   if(within==null)unknown.push('範囲未判定');
+   else if(!within)failures.push('指定範囲外');
+  }
   else if(origins.some(origin=>distance(record,origin)>origin.radius))failures.push('指定半径外');
  }
  const commute=number(filters.maxCommute);

@@ -90,6 +90,15 @@ class HttpTest(unittest.TestCase):
         for path in ['/.git/config', '/server.py', '/listing_feed.py', '/public_housing.py', '/.env']:
             self.assertEqual(self.request(path)[0], 404)
 
+    def test_removed_provider_is_not_advertised_and_cannot_make_network_calls(self):
+        status, health = self.request('/api/health')
+        self.assertEqual(status, 200)
+        self.assertEqual(health['providers'], ['bing'])
+        self.assertNotIn('has_brave_key', health)
+        with patch.object(server, 'fetch_listings') as fetch:
+            self.assertEqual(self.request('/api/listings?place=Tokyo&provider=brave')[0], 400)
+            fetch.assert_not_called()
+
     def test_invalid_imports_and_routes_are_rejected(self):
         self.assertEqual(self.request('/api/import', {'permitted': True, 'records': {}})[0], 400)
         self.assertEqual(self.request('/api/route', {'mode': 'transit'})[0], 400)
@@ -124,3 +133,8 @@ class HttpTest(unittest.TestCase):
         with urlopen(self.base + '/public_housing.js', timeout=3) as response:
             self.assertEqual(response.status, 200)
             self.assertIn(b'root.publicHousing', response.read())
+
+    def test_walking_ui_module_is_served_with_the_restricted_static_allowlist(self):
+        with urlopen(self.base + '/walking.js', timeout=3) as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn(b'root.homeWalking', response.read())

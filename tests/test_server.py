@@ -106,9 +106,9 @@ class SuumoHttpTest(unittest.TestCase):
 
     def test_cache_uses_every_search_condition_without_rounding(self):
         query = 'lat=35.681236&lon=139.767125&radius_km=1'
-        def result(lat, lon, radius, rent, layout):
+        def result(lat, lon, radius, rent, layout, page):
             return {'filters': {'max_rent_man': rent, 'layout': layout},
-                    'query': [lat, lon, radius], 'results': []}
+                    'query': [lat, lon, radius, page], 'results': []}
         with patch.object(server, 'search_suumo', side_effect=result) as search:
             self.assertFalse(self.get(query)[1]['cached'])
             self.assertTrue(self.get(query)[1]['cached'])
@@ -117,7 +117,9 @@ class SuumoHttpTest(unittest.TestCase):
             self.assertFalse(self.get(query + '&max_rent_man=15&layout=1K')[1]['cached'])
             self.assertFalse(self.get(query.replace('35.681236', '35.681237'))[1]['cached'])
             self.assertFalse(self.get(query.replace('radius_km=1', 'radius_km=1.001'))[1]['cached'])
-        self.assertEqual(search.call_count, 6)
+            self.assertFalse(self.get(query + '&page=2')[1]['cached'])
+            self.assertTrue(self.get(query + '&page=2')[1]['cached'])
+        self.assertEqual(search.call_count, 7)
 
     def test_unpermitted_suumo_never_contacts_upstream_or_serves_cached_data(self):
         server._suumo_cache[(35.681236, 139.767125, 1, None, None)] = (time.monotonic(), {'results': ['TEST ONLY cached']})
@@ -132,7 +134,7 @@ class SuumoHttpTest(unittest.TestCase):
         invalid = [query + '&max_rent_man=10.5', query + '&layout=bad',
                    query + '&radius_km=2', query.replace('lat=35.681236', 'lat=nan'),
                    query.replace('radius_km=1', 'radius_km=3'),
-                   query + '&unexpected=1', query + '&layout=1K&layout=1R']
+                   query + '&page=0', query + '&page=-1', query + '&page=1.5', query + '&page=abc', query + '&unexpected=1', query + '&layout=1K&layout=1R']
         with patch.object(server, 'search_suumo', side_effect=server.SuumoError('transport', '通信失敗')) as search:
             for request in invalid:
                 self.assertEqual(self.get(request)[0], 400, request)

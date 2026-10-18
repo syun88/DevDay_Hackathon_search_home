@@ -87,6 +87,20 @@ test('results and saved tabs show different panes and support keyboard navigatio
  assert.equal(app.document.activeElement?.id,'resultTab1');
 });
 
+test('walking mode chips do not mislabel a walking range as a straight-line radius',()=>{
+ const app=workspace();
+ app.session.patch({range_mode:'walk',walk_a_minutes:25});
+ assert.match(app.element('criteriaChips').textContent,/徒歩25分以内/);
+ assert.doesNotMatch(app.element('criteriaChips').textContent,/Aから3km/);
+ assert.equal(app.element('rangeMode').value,'walk');
+ app.session.patch({range_mode:'walk-distance',walk_a_km:1.5});
+ assert.match(app.element('criteriaChips').textContent,/徒歩1.5km以内/);
+ app.document.querySelector('[data-criterion=radius_a_km]').click();
+ assert.equal(app.element('coreSettings').open,true);
+ app.session.patch({range_mode:'distance'});
+ assert.match(app.element('criteriaChips').textContent,/Aから3km/);
+});
+
 test('drawers restore focus, reveal a requested hidden group and exit for map picking',()=>{
  const app=workspace();app.element('editConditions').focus();app.element('editConditions').click();
  assert.equal(app.document.querySelector('.settings-drawer').hidden,false);
@@ -118,6 +132,13 @@ test('missing AI configuration leaves a clear manual-search path without a provi
  app.element('searchListings').click();assert.equal(app.searches(),1);
  assert.equal(app.element('resultsDrawer').hidden,false);
  assert.ok(!app.requests.includes('/api/chat'));
+});
+
+test('relocated search action remains unavailable while criteria are loading',()=>{
+ const app=workspace();app.session.status='loading';app.session.emit();
+ assert.equal(app.element('searchListings').inert,true);
+ app.session.status='saved';app.session.emit();
+ assert.equal(app.element('searchListings').inert,false);
 });
 
 test('empty chat drafts cannot be sent and changing a draft does not submit it',async()=>{

@@ -300,6 +300,13 @@ class CurrentListingRulesTest(unittest.TestCase):
         item['last_verified_at'] = '2000-01-01T00:00:00+00:00'
         self.assertEqual(evidence(item, DEFAULT_CRITERIA)['status'], 'mismatch')
 
+    def test_agent_never_substitutes_a_radius_for_walking_area_evidence(self):
+        from session_store import DEFAULT_CRITERIA
+        for mode in ('walk', 'walk-distance'):
+            flags = evidence(self.record(), {**DEFAULT_CRITERIA, 'range_mode':mode})
+            self.assertEqual(flags['status'], 'unverified')
+            self.assertIn('walking area', flags['unknown'])
+
     def test_prototype_listed_budget_requires_reconfirmation_after_upgrade(self):
         from session_store import DEFAULT_CRITERIA
         session = SessionStore.upgrade({'created_at':'2026-01-01', 'schema_version':2, 'revision':4,

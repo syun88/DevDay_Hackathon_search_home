@@ -13,6 +13,8 @@ SCHEMA_VERSION = 4
 DEFAULT_CRITERIA = {
     'origin_a': {'name': '東京駅', 'lat': 35.681236, 'lon': 139.767125},
     'origin_b': None, 'radius_a_km': 3, 'radius_b_km': 5,
+    'range_mode': 'distance', 'walk_a_minutes': 15, 'walk_b_minutes': 15,
+    'walk_a_km': 1, 'walk_b_km': 1,
     'restrict_b': False, 'max_price_yen': None, 'min_area_m2': None,
     'max_age_years': None, 'layout': '', 'property_type': '',
     'pets': False, 'parking': False, 'inside_only': True, 'sort': 'distance',
@@ -34,6 +36,9 @@ CRITERIA_SCHEMA = {
         'origin_a': PLACE_SCHEMA, 'origin_b': {'anyOf': [PLACE_SCHEMA, {'type': 'null'}]},
         'radius_a_km': {'type': 'number', 'minimum': .5, 'maximum': 25, 'multipleOf': .5},
         'radius_b_km': {'type': 'number', 'minimum': .5, 'maximum': 25, 'multipleOf': .5},
+        'range_mode': {'type': 'string', 'enum': ['distance', 'walk', 'walk-distance']},
+        **{key: {'type': 'integer', 'minimum': 5, 'maximum': 60, 'multipleOf': 5} for key in ('walk_a_minutes', 'walk_b_minutes')},
+        **{key: {'type': 'number', 'minimum': .1, 'maximum': 5, 'multipleOf': .1} for key in ('walk_a_km', 'walk_b_km')},
         'max_price_yen': {'type': ['integer', 'null'], 'minimum': 0, 'maximum': 10**11},
         'min_area_m2': {'type': ['number', 'null'], 'minimum': 0, 'maximum': 10**6},
         'max_age_years': {'type': ['integer', 'null'], 'minimum': 0, 'maximum': 300},

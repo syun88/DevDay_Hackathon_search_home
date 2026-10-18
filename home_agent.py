@@ -61,6 +61,12 @@ property_type=rent; yen budgets are whole yen, including rent, management and ma
 Missing fees are unknown, never zero. For sale the cap is the sale price. A previous_listed_rent_cap_yen memory is historical only: ask for the total budget before setting a new cap.
 Road walking/bike/car commute can be estimated using get_commute; setting max_commute_minutes requires route evidence before a match. Call get_commute for promising candidates when a road commute limit is requested. Train commute is unsupported: do not convert minutes into a radius without the
 user choosing that fallback. A cat requires specific cat permission; generic pets allowed is not proof.
+range_mode distinguishes a straight-line radius (distance) from approximate map walking-time or
+walking-distance areas. Keep walk_a_minutes/walk_b_minutes and walk_a_km/walk_b_km separate from
+radius_a_km/radius_b_km. Never convert walking time into a straight-line radius. The map can
+show walking outlines but your evidence tools cannot verify their polygon membership; describe
+walking-area matches as unverified and direct the user to the map. Discovery coverage may be
+smaller than the selected walking area, and is never complete inventory coverage.
 Interpret corrections as replacements and keep unrelated conditions. Never silently raise a budget
 or relax required filters; offer alternatives if no results. 'Cheaper' can sort by price unless the
 user gives a new budget. Use undo_search to undo the last criteria edit.
@@ -204,7 +210,9 @@ def evidence(item, criteria):
             if x.get(field) is None: unknown.append(field)
             elif x[field] is not True: mismatches.append(field)
     if criteria['listing_only_within']:
-        if item.get('geo_precision') != 'exact' or item.get('lat') is None or item.get('lon') is None:
+        if criteria.get('range_mode', 'distance') != 'distance':
+            unknown.append('walking area')
+        elif item.get('geo_precision') != 'exact' or item.get('lat') is None or item.get('lon') is None:
             unknown.append('exact location / distance')
         else:
             for which in ('a', 'b'):

@@ -5,6 +5,7 @@ const vm=require('node:vm');
 const {test}=require('node:test');
 const core=require('../property_core.js');
 const publicHousing=require('../public_housing.js');
+const walking=require('../walking.js');
 const script=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
 
 class Element {
@@ -26,7 +27,7 @@ class Element {
  click(){this.onclick?.();}
 }
 
-function app(){
+function app({rangeMode='distance'}={}){
  const elements=new Map(),frames=[],requests=[];
  const element=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
  for(const id of ['insideOnly','listingOnlyWithin','publicSource_tokyo','publicSource_tsubata','publicSource_permitted','publicLayer_inventory','publicLayer_vacancy','publicLayer_recruitment','publicLayer_municipal'])element(id).checked=true;
@@ -34,9 +35,10 @@ function app(){
  element('commuteMode').value='foot';
  const storage=new Map();
  const context={
-  window:{mountSearchWorkspace(){},propertyCore:core,publicHousing,homeI18n:{t:(text,values=[])=>String(text).replace(/\{(\d+)\}/g,(_,index)=>values[index]??''),setText:(node,render)=>{node.textContent=render();}},addEventListener(){}},
+  window:{mountSearchWorkspace(){},propertyCore:core,publicHousing,homeWalking:walking,homeI18n:{t:(text,values=[])=>String(text).replace(/\{(\d+)\}/g,(_,index)=>values[index]??''),setText:(node,render)=>{node.textContent=render();}},addEventListener(){}},
   document:{getElementById:element,createElement:()=>new Element(),createDocumentFragment:()=>new Element(),querySelectorAll:()=>[],addEventListener(){}},
-  localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)},
+  // Existing radius/filter tests start with the straight-line preference.
+  localStorage:{getItem:key=>storage.get(key)||(key==='property_map_v2'?JSON.stringify({rangeMode}):null),setItem:(key,value)=>storage.set(key,value)},
   location:{protocol:'http:'},requestAnimationFrame:callback=>frames.push(callback),setInterval(){},setTimeout:()=>1,clearTimeout(){},
   URL,URLSearchParams,AbortSignal,AbortController,confirm:()=>true,
   fetch:async(url,options)=>{
@@ -46,6 +48,13 @@ function app(){
    if(url==='/api/route')body={status:'ok',duration_seconds:600,distance_meters:600,checked_at:new Date().toISOString(),source:'TEST ONLY route'};
    if(url.startsWith('/api/listings?'))body={results:[],discovery_links:[{url:'https://suumo.jp/test-only',source:'suumo.jp'}],provider:'bing'};
    if(url.startsWith('/api/public-housing?'))body={records:context.publicRecords,municipalities:['千代田区'],total:context.publicRecords.length,ended_excluded:0,next_offset:null};
+   if(url.startsWith('/api/walking-area?')){
+    const params=new URLSearchParams(url.split('?')[1]);
+    body={metric:params.has('distance_km')?'distance':'time',
+     geometry:{type:'Polygon',coordinates:[[[139.75,35.67],[139.79,35.67],[139.79,35.70],[139.75,35.70],[139.75,35.67]]]},
+     network:{type:'MultiLineString',coordinates:[[[139.767,35.681],[139.768,35.681]]]},
+     ...(params.has('distance_km')?{distance_km:Number(params.get('distance_km'))}:{minutes:Number(params.get('minutes'))})};
+   }
    if(url==='/api/public-geocode')body={lat:35.681236,lon:139.767125,geo_precision:'approximate'};
    return {ok:true,json:async()=>body};
   },records:[],publicRecords:[],
@@ -60,8 +69,44 @@ function app(){
   await target.onchange({target});flush();
  }
  function allNodes(root){return [root,...root.children.flatMap(allNodes)];}
- return {element,context,requests,storage,flush,importRecord,allNodes};
+ async function settleWalking(){
+  for(let count=0;count<200;count++){
+   flush();
+   if(!element('walkingStatus').textContent.includes('取得中'))return;
+   await new Promise(resolve=>setTimeout(resolve,5));
+  }
+  assert.fail('Walking range did not settle');
+ }
+ return {element,context,requests,storage,flush,importRecord,allNodes,settleWalking};
 }
+
+test('walking distance sends kilometres, preserves independent settings and switches back to time',async()=>{
+ const harness=app({rangeMode:'walk-distance'});await harness.settleWalking();
+ const requests=()=>harness.requests.filter(request=>request.url.startsWith('/api/walking-area?'));
+ let query=new URLSearchParams(requests().at(-1).url.split('?')[1]);
+ assert.equal(query.get('distance_km'),'1');assert.equal(query.has('minutes'),false);
+ assert.equal(harness.element('radiusLabelA').textContent,'徒歩1km');
+ assert.equal(Number(harness.element('radiusA').min),0.1);
+ harness.element('radiusA').oninput({target:{value:'0.8'}});await harness.settleWalking();
+ assert.equal(harness.element('radiusLabelA').textContent,'徒歩800m');
+ harness.element('setB').onclick();
+ const map=harness.element('map'),event={target:new Element(),button:0,pointerType:'mouse',pointerId:1,clientX:1000,clientY:250};
+ map.listeners.pointerdown[0](event);map.listeners.pointerup[0](event);
+ harness.element('restrictB').checked=true;harness.element('restrictB').onchange();await harness.settleWalking();
+ harness.element('radiusB').oninput({target:{value:'0.5'}});await harness.settleWalking();
+ assert.equal(harness.element('radiusLabelB').textContent,'徒歩500m');
+ query=new URLSearchParams(requests().at(-1).url.split('?')[1]);assert.equal(query.get('distance_km'),'0.5');
+ harness.element('rangeMode').value='walk';harness.element('rangeMode').onchange();await harness.settleWalking();
+ query=new URLSearchParams(requests().at(-1).url.split('?')[1]);
+ assert.equal(query.get('minutes'),'15');assert.equal(query.has('distance_km'),false);
+ assert.equal(harness.element('radiusLabelA').textContent,'徒歩15分');
+ harness.element('rangeMode').value='walk-distance';harness.element('rangeMode').onchange();await harness.settleWalking();
+ assert.equal(harness.element('radiusLabelA').textContent,'徒歩800m');
+ const saved=JSON.parse(harness.storage.get('property_map_v2'));
+ assert.deepEqual(Object.keys(saved),['properties']);
+ harness.element('rangeMode').value='distance';harness.element('rangeMode').onchange();harness.flush();
+ assert.equal(harness.element('radiusLabelA').textContent,'3 km');
+});
 
 test('normal map clicks do not mutate the origin; explicit point selection does',()=>{
  const harness=app();harness.flush();

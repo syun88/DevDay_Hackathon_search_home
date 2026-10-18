@@ -14,6 +14,7 @@ import re
 
 MAP_PAGE = 'https://suumo.jp/map/tokyo/sc_shinjuku/'
 API_URL = 'https://suumo.jp/jj/JJ903FC020/'
+PAGE_SIZE = 20  # Matches the ordinary public site's listing page size.
 PAGE_VALUES = re.compile(
     r"'bkApi':\s*\{\s*'UID':\s*'([A-Za-z0-9]+)',\s*'STMP':\s*'(\d+)',\s*'ATT':\s*'([0-9a-fA-F]+)'",
     re.S,
@@ -54,6 +55,12 @@ def validate_filters(max_rent_man: float | None, layout: str | None) -> tuple[fl
     if layout is not None and layout not in LAYOUT_CODES:
         raise ValueError('この間取りはSUUMO地図の選択値に対応していません')
     return max_rent_man, layout
+
+
+def validate_page(page: int) -> int:
+    if isinstance(page, bool) or not isinstance(page, int) or page < 1:
+        raise ValueError('ページは1以上の整数で指定してください')
+    return page
 
 
 def map_bounds(lat: float, lon: float, radius_km: float) -> dict[str, str]:
@@ -130,7 +137,8 @@ def normalize_item(item: dict, fetched_at: str) -> dict | None:
 
 
 def parse_search_response(body: bytes, fetched_at: str, max_rent_man: float | None = None,
-                          layout: str | None = None) -> dict:
+                          layout: str | None = None, page: int = 1) -> dict:
+    page = validate_page(page)
     try:
         doc = json.loads(body)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -149,7 +157,7 @@ def parse_search_response(body: bytes, fetched_at: str, max_rent_man: float | No
     items = resultset.get('item', [] if resultset.get('totalhits') == 0 else None)
     if not isinstance(items, list):
         raise SuumoError('schema', 'SUUMOの物件データ形式が不明です')
-    raw = items[:5]
+    raw = items[:PAGE_SIZE]
     normalized = [normalize_item(x, fetched_at) for x in raw if isinstance(x, dict)]
     in_region = [x for x in normalized if x and x['address'].startswith('東京都')]
     max_rent_jpy = round(max_rent_man * 10_000) if max_rent_man is not None else None
@@ -160,24 +168,27 @@ def parse_search_response(body: bytes, fetched_at: str, max_rent_man: float | No
         'source': 'SUUMO anonymous map page', 'fetched_at': fetched_at,
         'source_updated_at': None, 'availability_status': 'unknown',
         'upstream_totalhits': resultset.get('totalhits'),
+        'page': page, 'page_size': PAGE_SIZE,
+        'has_next': (page * PAGE_SIZE < resultset['totalhits']) if isinstance(resultset.get('totalhits'), int) else len(items) >= PAGE_SIZE,
         'inspected_count': len(raw), 'excluded_out_of_region': sum(bool(x and not x['address'].startswith('東京都')) for x in normalized),
         'excluded_invalid': len(raw) - len([x for x in normalized if x]),
         'excluded_filter_mismatch_or_unknown': len(in_region) - len(valid),
         'filters': {'max_rent_man': max_rent_man, 'layout': layout},
         'results': valid,
-        'note': '東京都住所かつ指定家賃・間取りを満たす先頭最大5件のみ表示。半径内・空室・所在地座標・全費用は未確認。',
+        'note': 'このページの東京都住所かつ指定家賃・間取りを満たす物件を表示。続きは次ページで取得。半径内・空室・所在地座標・全費用は未確認。',
     }
 
 
 def search(lat: float, lon: float, radius_km: float, max_rent_man: float | None = None,
-           layout: str | None = None) -> dict:
+           layout: str | None = None, page: int = 1) -> dict:
+    page = validate_page(page)
     lat, lon, radius_km = validate_search(lat, lon, radius_km)
     max_rent_man, layout = validate_filters(max_rent_man, layout)
-    page = _curl_get(MAP_PAGE, max_bytes=200_000, timeout=12).decode('utf-8', errors='replace')
-    uid, stamp, att = parse_page_values(page)
+    html = _curl_get(MAP_PAGE, max_bytes=200_000, timeout=20).decode('utf-8', errors='replace')
+    uid, stamp, att = parse_page_values(html)
     params = [
         ('UID', uid), ('STMP', stamp), ('ATT', att), ('FORMAT', '1'),
-        ('CALLBACK', 'SUUMO.CALLBACK.FUNCTION'), ('P', '1'), ('CNT', '5'),
+        ('CALLBACK', 'SUUMO.CALLBACK.FUNCTION'), ('P', str(page)), ('CNT', str(PAGE_SIZE)),
         ('GAZO', '2'), ('PROT', '1'), ('SE', '040'),
         *map_bounds(lat, lon, radius_km).items(),
     ]
@@ -187,4 +198,4 @@ def search(lat: float, lon: float, radius_km: float, max_rent_man: float | None 
         params.append(('CINM', LAYOUT_CODES[layout]))
     body = _curl_get(API_URL + '?' + urlencode(params), max_bytes=100_000, timeout=12)
     fetched_at = datetime.now(timezone.utc).isoformat()
-    return parse_search_response(body, fetched_at, max_rent_man, layout)
+    return parse_search_response(body, fetched_at, max_rent_man, layout, page)

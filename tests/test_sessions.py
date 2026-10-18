@@ -64,6 +64,28 @@ class SessionStoreTest(unittest.TestCase):
         self.assertEqual(self.store.get(second)['criteria'], DEFAULT_CRITERIA)
         self.assertIsNone(self.store.get('not-a-session'))
 
+    def test_walking_ranges_persist_separately_from_straight_line_radii(self):
+        criteria = {'range_mode':'walk-distance', 'walk_a_minutes':25, 'walk_b_minutes':30,
+                    'walk_a_km':1.5, 'walk_b_km':2.5, 'radius_a_km':3, 'radius_b_km':5}
+        out = self.store.update(self.token, {'expected_revision':0, 'criteria':criteria})
+        for key, value in criteria.items():
+            self.assertEqual(out['criteria'][key], value)
+            self.assertEqual(SessionStore(self.store.path).get(self.token)['criteria'][key], value)
+        for patch in ({'range_mode':'train'}, {'walk_a_minutes':6}, {'walk_b_minutes':65}, {'walk_a_km':.15}, {'walk_b_km':5.1}):
+            with self.assertRaises(ValueError):
+                validate_patch(patch)
+
+    def test_archived_legacy_provider_is_migrated_on_restore(self):
+        first = self.store.get(self.token)
+        second = self.store.switch_chat(self.token, first['revision'])
+        with self.store.connect() as db:
+            row = db.execute('SELECT data FROM archived_chats WHERE owner=? AND id=?', (self.token, first['chat_id'])).fetchone()
+            archived = json.loads(row[0])
+            archived['criteria']['listing_provider'] = 'brave'
+            db.execute('UPDATE archived_chats SET data=? WHERE owner=? AND id=?', (json.dumps(archived), self.token, first['chat_id']))
+        restored = self.store.switch_chat(self.token, second['revision'], first['chat_id'])
+        self.assertEqual(restored['criteria']['listing_provider'], 'auto')
+
     def test_stale_revision_cannot_overwrite_newer_state(self):
         self.store.update(self.token, {'expected_revision': 0, 'criteria': {'layout': '1K'}})
         with self.assertRaises(RevisionConflict) as conflict:
