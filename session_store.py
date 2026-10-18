@@ -9,7 +9,7 @@ import math
 import secrets
 import sqlite3
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DEFAULT_CRITERIA = {
     'origin_a': {'name': '東京駅', 'lat': 35.681236, 'lon': 139.767125},
     'origin_b': None, 'radius_a_km': 3, 'radius_b_km': 5,
@@ -17,7 +17,7 @@ DEFAULT_CRITERIA = {
     'max_age_years': None, 'layout': '', 'property_type': '',
     'pets': False, 'parking': False, 'inside_only': True, 'sort': 'distance',
     'listing_area': '', 'listing_keywords': '', 'listing_provider': 'auto',
-    'listing_only_within': True,
+    'listing_only_within': True, 'include_unknown': False, 'commute_mode': 'foot', 'max_commute_minutes': None,
 }
 # This is also exposed as the update contract for the next conversational layer.
 PLACE_SCHEMA = {
@@ -37,11 +37,13 @@ CRITERIA_SCHEMA = {
         'max_price_yen': {'type': ['integer', 'null'], 'minimum': 0, 'maximum': 10**11},
         'min_area_m2': {'type': ['number', 'null'], 'minimum': 0, 'maximum': 10**6},
         'max_age_years': {'type': ['integer', 'null'], 'minimum': 0, 'maximum': 300},
-        **{key: {'type': 'boolean'} for key in ('restrict_b', 'pets', 'parking', 'inside_only', 'listing_only_within')},
+        **{key: {'type': 'boolean'} for key in ('restrict_b', 'pets', 'parking', 'inside_only', 'listing_only_within', 'include_unknown')},
         'layout': {'type': 'string', 'enum': ['', '1R', '1K', '1DK', '1LDK', '2K', '2DK', '2LDK', '3LDK']},
         'property_type': {'type': 'string', 'enum': ['', 'rent', 'sale']},
         'sort': {'type': 'string', 'enum': ['distance', 'price', 'area']},
-        'listing_provider': {'type': 'string', 'enum': ['auto', 'bing', 'brave']},
+        'listing_provider': {'type': 'string', 'enum': ['auto', 'bing', 'brave', 'feed']},
+        'commute_mode': {'type': 'string', 'enum': ['foot', 'bike', 'car']},
+        'max_commute_minutes': {'type': ['integer', 'null'], 'minimum': 1, 'maximum': 240},
         'listing_area': {'type': 'string', 'maxLength': 90},
         'listing_keywords': {'type': 'string', 'maxLength': 65},
     },
@@ -119,6 +121,14 @@ class SessionStore:
 
     @staticmethod
     def upgrade(session):
+        old_version = session.get('schema_version', 1)
+        if old_version < 3 and session.get('criteria', {}).get('max_price_yen') is not None:
+            # Earlier prototype caps excluded fees. Do not silently reinterpret them.
+            session.setdefault('memory', {'facts': {}, 'places': {}})['facts']['previous_listed_rent_cap_yen'] = str(session['criteria']['max_price_yen'])
+            session['criteria']['max_price_yen'] = None
+            session['history'] = []
+            session['revision'] += 1
+        session['criteria'] = {**deepcopy(DEFAULT_CRITERIA), **session.get('criteria', {})}
         session['schema_version'] = SCHEMA_VERSION
         session.setdefault('chat_id', 'chat_' + sha256(session['created_at'].encode()).hexdigest()[:24])
         for key, value in {

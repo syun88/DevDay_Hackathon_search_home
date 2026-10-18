@@ -11,8 +11,9 @@ window.mountSearchWorkspace = adapter => {
     insideOnly: 'inside_only', sort: 'sort', restrictB: 'restrict_b',
     listingArea: 'listing_area', listingKeywords: 'listing_keywords',
     listingProvider: 'listing_provider', listingOnlyWithin: 'listing_only_within',
+    includeUnknown: 'include_unknown', commuteMode: 'commute_mode', maxCommute: 'max_commute_minutes',
   };
-  const numeric = new Set(['maxPrice', 'minArea', 'maxAge']);
+  const numeric = new Set(['maxPrice', 'minArea', 'maxAge', 'maxCommute']);
   let ready = false, editing = null, applying = false;
   const readValue = (id, element) => element.type === 'checkbox' ? element.checked
     : numeric.has(id) ? (element.value === '' ? null : Number(element.value) * (id === 'maxPrice' ? 10000 : 1))
@@ -31,7 +32,7 @@ window.mountSearchWorkspace = adapter => {
   $('listingArea').maxLength = 90; $('listingKeywords').maxLength = 65;
   $('primarySearchAction').append($('searchListings'));
   $('primarySearchStatus').append($('listingsStatus'));
-  $('primarySearchResults').append($('externalResults'));
+  $('primarySearchResults').append($('externalResults'), $('discoveryLinks'));
 
   function capture() {
     if (applying || !ready) return;
@@ -83,12 +84,13 @@ window.mountSearchWorkspace = adapter => {
     addChip(c.pets ? t('ペット可・必須') : t('ペット条件なし'), () => edit('pets'), 'pets');
     if (c.min_area_m2 != null) addChip(t('面積：{0}㎡以上', [c.min_area_m2]), () => openAdvanced('minArea'), 'min_area_m2');
     if (c.max_age_years != null) addChip(t('築{0}年以内', [c.max_age_years]), () => openAdvanced('maxAge'), 'max_age_years');
+    if (c.max_commute_minutes != null) addChip(t('通勤時間の上限（分）') + ': ' + c.max_commute_minutes, () => openAdvanced('maxCommute'), 'max_commute_minutes');
     if (c.parking) addChip(t('駐車場・必須'), () => openAdvanced('parking'), 'parking');
     if (c.listing_area) addChip(t('検索地域：{0}', [c.listing_area]), () => openAdvanced('listingArea'), 'listing_area');
     if (c.listing_keywords) addChip(t('キーワード：{0}', [c.listing_keywords]), () => openAdvanced('listingKeywords'), 'listing_keywords');
   }
   const editorLabels = {
-    radius_a_km:'Aからの直線距離（km）', max_price_yen:'価格上限（円・管理費別）',
+    radius_a_km:'Aからの直線距離（km）', max_price_yen:'価格上限（円・月額総額）',
     property_type:'用途・物件種別', layout:'間取り', pets:'ペット条件',
   };
   function closeEditor() {

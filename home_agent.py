@@ -13,6 +13,7 @@ from urllib.error import HTTPError, URLError
 from uuid import uuid4
 from session_store import CRITERIA_SCHEMA, DEFAULT_CRITERIA, RevisionConflict, validate_patch
 from filter_core import haversine_km
+from urllib.parse import urlparse
 
 
 class AgentError(Exception):
@@ -56,15 +57,14 @@ Use remember_preference for explicitly stated lasting preferences; resolve_place
 for named places such as my office. Do not infer a personal fact as confirmed memory.
 When the user requests a search, update their criteria and actually call search_listings once enough
 information is known. Ask only consequential missing questions. When refining a search that already has results, refresh with search_listings after changing criteria unless the user explicitly says not to search. For a new rental search set
-property_type=rent; yen budgets are whole yen and are listed rent ONLY (management fees unavailable).
-Never silently interpret a total/fee-inclusive budget as a listed-rent cap: clarify and explain the
-limitation. Transit commute time is unsupported: do not convert minutes into a radius without the
+property_type=rent; yen budgets are whole yen, including rent, management and mandatory monthly fees.
+Missing fees are unknown, never zero. For sale the cap is the sale price. A previous_listed_rent_cap_yen memory is historical only: ask for the total budget before setting a new cap.
+Road walking/bike/car commute can be estimated using get_commute; setting max_commute_minutes requires route evidence before a match. Call get_commute for promising candidates when a road commute limit is requested. Train commute is unsupported: do not convert minutes into a radius without the
 user choosing that fallback. A cat requires specific cat permission; generic pets allowed is not proof.
 Interpret corrections as replacements and keep unrelated conditions. Never silently raise a budget
 or relax required filters; offer alternatives if no results. 'Cheaper' can sort by price unless the
 user gives a new budget. Use undo_search to undo the last criteria edit.
-Use tools for real data and calculations. Search listings are UNVERIFIED search-engine snippets,
-not live vacancy inventory. Map buildings are not listings. Unknown rent/fees/coordinates/pet policy
+Use tools for real data and calculations. Search-engine results are discovery links ONLY, never property records or evidence of price/availability. Listing records require a permitted feed/import with source-confirmed availability and verification within the last hour. A confirmed source record does not guarantee future availability. Map buildings are not listings. Unknown rent/fees/coordinates/pet policy
 must remain unknown. No record is a verified match solely because a snippet suggests it. A mismatched record must never be counted or recommended as a matching candidate; show it only as an explicitly labelled alternative. Do not
 invent properties, source URLs, prices, commute times, availability or neighborhood facts.
 Explain matches/tradeoffs only with the supplied evidence and source URLs. Distances are straight-line
@@ -100,6 +100,7 @@ def tools():
              {'name': {'type': 'string', 'maxLength': 80}, 'value': {'type': 'string', 'maxLength': 500}}, ['name', 'value']),
         tool('forget_place', 'Forget a named location alias on explicit request.', {'alias': {'type': 'string', 'maxLength': 80}}, ['alias']),
         tool('search_listings', 'Search real listing pages using CURRENT criteria. Unknown/unverified conditions are not confirmed matches.'),
+        tool('get_commute', 'Estimate road walking/bike/car time for a retrieved candidate to each selected origin; never train or live traffic.', {'result_set_id': ident, 'listing_id': ident}, ['result_set_id', 'listing_id']),
         tool('compare_listings', 'Read evidence for specified stable listing IDs from one result set.',
              {'result_set_id': ident, 'listing_ids': {'type': 'array', 'items': ident, 'minItems': 1, 'maxItems': 5}}, ['result_set_id', 'listing_ids']),
         tool('save_listing', 'Save a retrieved candidate by stable result-set and listing IDs.',
@@ -145,51 +146,79 @@ def resolve_places(query):
         return []
 
 
+def fresh_listing(item):
+    try:
+        verified = datetime.fromisoformat(item.get('last_verified_at', '').replace('Z', '+00:00'))
+        parsed = urlparse(item.get('url', ''))
+        return (verified.tzinfo is not None and 0 <= (datetime.now(timezone.utc)-verified).total_seconds() <= 3600
+                and item.get('availability_status') == 'confirmed' and parsed.scheme == 'https'
+                and bool(parsed.hostname) and not parsed.username and not parsed.password)
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
 def evidence(item, criteria):
+    criteria = {**DEFAULT_CRITERIA, **criteria}
     x = item.get('extracted', {})
-    mismatches, unknown = [], ['availability', 'management fees', 'snippet-derived fields']
-    for field, actual, limit, direction in [
-        ('price', x.get('price'), criteria['max_price_yen'], 'max'),
-        ('area', x.get('area'), criteria['min_area_m2'], 'min'),
-        ('age', x.get('age'), criteria['max_age_years'], 'max'),
+    mismatches, unknown = [], []
+    if not fresh_listing(item): mismatches.append('verification / availability expired or unknown')
+    kind = item.get('kind')
+    if criteria['property_type'] and kind != criteria['property_type']: mismatches.append('property type')
+    price = x.get('price')
+    total = price * 10000 if isinstance(price, (int, float)) else None
+    if kind != 'sale':
+        fees = [x.get('management_fee_yen'), x.get('mandatory_fee_yen')]
+        total = total + sum(fees) if total is not None and all(isinstance(f, (int, float)) for f in fees) else None
+    for field, actual, limit, minimum in [
+        ('total monthly cost / sale price', total, criteria['max_price_yen'], False),
+        ('area', x.get('area'), criteria['min_area_m2'], True),
+        ('age', x.get('age'), criteria['max_age_years'], False),
     ]:
-        if limit is None:
-            continue
-        if actual is None:
-            unknown.append(field)
-        elif ((actual * 10000 if field == 'price' else actual) > limit if direction == 'max' else actual < limit):
-            mismatches.append(field)
+        if limit is None: continue
+        if actual is None: unknown.append(field)
+        elif actual < limit if minimum else actual > limit: mismatches.append(field)
     if criteria['layout']:
-        if not x.get('layout'):
-            unknown.append('layout')
-        elif x['layout'] != criteria['layout']:
-            mismatches.append('layout')
-    if criteria['pets']:
-        unknown.append('pet permission (including cat permission)')
-    if criteria['parking']:
-        unknown.append('parking')
-    if item.get('lat') is not None:
-        a = criteria['origin_a']
-        item['distance_a_km'] = round(haversine_km(a['lat'], a['lon'], item['lat'], item['lon']), 3)
-        if criteria['inside_only'] and item['distance_a_km'] > criteria['radius_a_km']:
-            mismatches.append('radius A')
-    else:
-        unknown.append('location / distance')
-    return {'status': 'mismatch' if mismatches else 'unverified', 'mismatches': mismatches, 'unknown': unknown}
+        if not x.get('layout'): unknown.append('layout')
+        elif x['layout'] != criteria['layout']: mismatches.append('layout')
+    for field in ('pets', 'parking'):
+        if criteria[field]:
+            if x.get(field) is None: unknown.append(field)
+            elif x[field] is not True: mismatches.append(field)
+    if criteria['inside_only'] or criteria['listing_only_within']:
+        if item.get('geo_precision') != 'exact' or item.get('lat') is None or item.get('lon') is None:
+            unknown.append('exact location / distance')
+        else:
+            for which in ('a', 'b'):
+                origin = criteria['origin_' + which]
+                if origin and (which == 'a' or criteria['restrict_b']):
+                    distance = haversine_km(origin['lat'], origin['lon'], item['lat'], item['lon'])
+                    item['distance_' + which + '_km'] = round(distance, 3)
+                    if distance > criteria['radius_' + which + '_km']: mismatches.append('radius ' + which.upper())
+    if criteria.get('max_commute_minutes') is not None:
+        origins = [criteria['origin_a']] + ([criteria['origin_b']] if criteria['restrict_b'] and criteria['origin_b'] else [])
+        routes = item.get('commute', [])
+        valid = len(routes) == len(origins) and item.get('commute_mode') == criteria['commute_mode'] and item.get('commute_origins') == origins
+        try:
+            valid = valid and all(r.get('status') == 'ok' and 0 <= (datetime.now(timezone.utc) - datetime.fromisoformat(r['checked_at'].replace('Z', '+00:00'))).total_seconds() <= 300 for r in routes)
+        except (ValueError, KeyError, TypeError): valid = False
+        if not valid: unknown.append('commute time')
+        elif any(r['duration_seconds'] > criteria['max_commute_minutes'] * 60 for r in routes): mismatches.append('commute time')
+    return {'status': 'mismatch' if mismatches else 'unverified' if unknown else 'confirmed', 'mismatches': mismatches, 'unknown': unknown}
 
 
 class HomeAgent:
-    def __init__(self, store, key, search, model=None, api=None, geocoder=None):
+    def __init__(self, store, key, search, model=None, api=None, geocoder=None, router=None):
         self.store, self.key, self.search = store, key, search
         self.api = api or AgentsAPI(key, model or os.environ.get('OPENAI_AGENT_MODEL', 'gpt-6.1-sol'))
         self.geocoder = geocoder or resolve_places
+        self.router = router
         self.lock = threading.Lock()
         self.workers = set()
 
     def context(self, session):
         sets = session.get('result_sets', [])
         return {'revision': session['revision'], 'criteria': session['criteria'], 'memory': session['memory'],
-                'latest_result_set': sets[-1] if sets else None, 'saved_candidates': session['saved_candidates']}
+                'recent_conversation': session['conversation'][-20:], 'latest_result_set': sets[-1] if sets else None, 'saved_candidates': session['saved_candidates']}
 
     def start(self, session_id, payload):
         if not self.key:
@@ -222,6 +251,8 @@ class HomeAgent:
                 raise RevisionConflict(session)
             if len(session['conversation']) >= 200:
                 raise AgentError('conversation_limit')
+            if session['_agent'].get('session_id') and session['_agent'].get('config_version') != 3:
+                session['_agent'].setdefault('previous_sessions', []).append(session['_agent'].pop('session_id'))
             session['conversation'].append({'id': request_id, 'role': 'user', 'text': payload['message'].strip(),
                                             'created_at': datetime.now(timezone.utc).isoformat()})
             session['draft_message'] = ''; session['revision'] += 1
@@ -272,6 +303,7 @@ class HomeAgent:
                     if s['chat'].get('request_id') != request_id or s['chat']['status'] != 'running':
                         raise AgentError('cancelled')
                     s['_agent']['session_id'] = provider_id
+                    s['_agent']['config_version'] = 3
                     s['chat']['submitted'] = True
                 try:
                     self.store.mutate(session_id, attach)
@@ -382,6 +414,15 @@ class HomeAgent:
                 if not isinstance(query, str) or not 2 <= len(query) <= 200:
                     raise ValueError('Invalid query')
                 external = self.geocoder(query)
+            if name == 'get_commute':
+                c = local['criteria']
+                result_set = next(x for x in local['result_sets'] if x['id'] == args['result_set_id'])
+                item = next(x for x in result_set['items'] if x['id'] == args['listing_id'])
+                if not self.router or item.get('geo_precision') != 'exact' or not fresh_listing(item):
+                    return {'error': 'route_unavailable', 'note': 'A fresh candidate with exact coordinates is required.'}
+                origins = [c['origin_a']] + ([c['origin_b']] if c['restrict_b'] and c['origin_b'] else [])
+                external = {'commute': [self.router({'origin': {'lat':item['lat'], 'lon':item['lon']}, 'destination': {'lat':o['lat'], 'lon':o['lon']}, 'mode':c['commute_mode']}) for o in origins],
+                            'commute_mode': c['commute_mode'], 'commute_origins': origins}
             if name == 'search_listings':
                 c = local['criteria']
                 place = c['listing_area'] or c['origin_a']['name']
@@ -389,7 +430,7 @@ class HomeAgent:
                 if c['max_price_yen'] is not None:
                     keywords += ' ' + str(c['max_price_yen'] / 10000) + '万円以下'
                 external = self.search(place, c['property_type'] or 'rent', {'layout': c['layout'], 'keywords': keywords.strip()}, c['listing_provider'])
-                for item in [x for x in external.get('results', []) if x.get('extracted', {}).get('address')][:3]:
+                for item in [x for x in external.get('results', []) if x.get('lat') is None and x.get('extracted', {}).get('address')][:3]:
                     locations = self.geocoder(item['extracted']['address'])
                     if locations:
                         item.update(lat=locations[0]['lat'], lon=locations[0]['lon'],
@@ -462,6 +503,12 @@ class HomeAgent:
         if name == 'forget_place':
             s['memory']['places'].pop(args['alias'], None)
             return {'memory': s['memory']}
+        if name == 'get_commute':
+            if original_criteria != s['criteria']: return {'error': 'stale_revision'}
+            result_set = next(x for x in s['result_sets'] if x['id'] == args['result_set_id'])
+            item = next(x for x in result_set['items'] if x['id'] == args['listing_id'])
+            item.update(external); item['match'] = evidence(item, s['criteria'])
+            return {'candidate': item, 'note': 'Road estimate, without live traffic. Not a train commute.'}
         if name == 'search_listings':
             if original_criteria != s['criteria']:
                 return {'error': 'stale_revision', 'note': 'Criteria changed during search. Search again.'}
@@ -476,10 +523,10 @@ class HomeAgent:
             elif s['criteria']['sort'] == 'area':
                 items.sort(key=lambda item: -(item.get('extracted', {}).get('area') or 0))
             result = {'id': 'results_' + uuid4().hex[:16], 'criteria': deepcopy(s['criteria']),
-                      'items': items, 'provider': external.get('provider'), 'errors': external.get('errors', []),
+                      'items': items, 'discovery_links': external.get('discovery_links', []), 'provider': external.get('provider'), 'errors': external.get('errors', []),
                       'created_at': datetime.now(timezone.utc).isoformat(),
-                      'note': 'All results are unverified search snippets, not confirmed vacancies or confirmed matches.',
-                      'counts': {'retrieved': len(items), 'mismatched': sum(x['match']['status'] == 'mismatch' for x in items), 'confirmed': 0}}
+                      'note': 'Discovery links contain no verified property data. Source records expire after one hour; unknown requirements are not confirmed. Road commute requires the manual route lookup.',
+                      'counts': {'retrieved': len(items), 'mismatched': sum(x['match']['status'] == 'mismatch' for x in items), 'confirmed': sum(x['match']['status'] == 'confirmed' for x in items)}}
             s['result_sets'] = (s['result_sets'] + [result])[-5:]
             return result
         if name in ('compare_listings', 'save_listing'):
@@ -488,6 +535,7 @@ class HomeAgent:
             if not isinstance(ids, list) or not 1 <= len(ids) <= 5:
                 raise ValueError('Invalid listings')
             selected = [next(x for x in result_set['items'] if x['id'] == ident) for ident in ids]
+            for item in selected: item['match'] = evidence(item, s['criteria'])
             if name == 'save_listing':
                 if len(s['saved_candidates']) >= 100:
                     raise ValueError('Too many saved candidates')
@@ -548,8 +596,8 @@ class HomeAgent:
         provider_id = session['_agent'].get('session_id')
         try:
             if operation == 'resetting':
-                if provider_id:
-                    self.api.request('DELETE', '/' + provider_id)
+                for ident in session['_agent'].get('previous_sessions', []) + ([provider_id] if provider_id else []):
+                    self.api.request('DELETE', '/' + ident)
                 def clear(s):
                     reset_search = s['chat'].get('reset_search', False)
                     s.update(conversation=[], memory={'facts': {}, 'places': {}}, result_sets=[], history=[],

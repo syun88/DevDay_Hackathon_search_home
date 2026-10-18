@@ -141,7 +141,7 @@ window.mountHomeChat = ({session, adapter}) => {
     renderMessages(s);renderMemory(s);renderSaved(s);
     const latest=s.result_sets?.at(-1);
     const isCurrent=latest&&JSON.stringify(latest.criteria)===JSON.stringify(session.criteria);
-    const token=isCurrent?latest.id:null;
+    const token=isCurrent?JSON.stringify(latest):null;
     if(token!==lastResults){adapter.applyAgentResults(isCurrent?latest:null);lastResults=token;}
     if(!latest)setText($('listingsStatus'),()=>t('掲載ページを検索できます。'));
     if(latest){
