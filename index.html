@@ -201,7 +201,7 @@ function updateWalkingStatus(){
  $('retryWalking').hidden=!failed;
  const message=()=>entries.map(([which,area])=>{
   const name=which.toUpperCase();
-  if(area?.status==='ready')return walkingDistanceMode()?t('{0}：徒歩{1}以内・道路の合計 約{2}km',[name,formatWalkingDistance(state['wd'+which]),window.homeWalking.networkLengthKm(area.network).toFixed(1)]):t('{0}：徒歩{1}分・道路の合計 約{2}km',[name,state['w'+which],window.homeWalking.networkLengthKm(area.network).toFixed(1)]);
+  if(area?.status==='ready')return walkingDistanceMode()?t('{0}から徒歩{1}以内の道（目安）',[name,formatWalkingDistance(state['wd'+which])]):t('{0}から徒歩{1}分で行ける道（目安）',[name,state['w'+which]]);
   if(area?.status==='error')return name+'：'+(location.protocol==='file:'?t('徒歩圏の取得には python3 server.py で起動してください。'):t('徒歩圏を取得できません。通信環境を確認して再試行してください。'));
   return walkingDistanceMode()?t('{0}：徒歩{1}以内の範囲を取得中…',[name,formatWalkingDistance(state['wd'+which])]):t('{0}：徒歩{1}分の範囲を取得中…',[name,state['w'+which]]);
  }).join(' / ');
@@ -245,7 +245,10 @@ function rangeSVG(which,color){
  if(area?.status!=='ready')return '';
  const rect=$('map').getBoundingClientRect(),origin=project(center.lat,center.lon);
  const onMap=point=>{const p=project(point.lat,point.lon);return {x:rect.width/2+p.x-origin.x,y:rect.height/2+p.y-origin.y}};
- return `<path data-walking-outline="${which}" d="${window.homeWalking.svgPath(area.geometry,onMap)}" stroke="${color}" stroke-width="1" stroke-dasharray="5 5" stroke-opacity=".45" fill="none"/><path data-walking-network="${which}" d="${window.homeWalking.networkPath(area.network,onMap)}" fill="none" stroke="${color}" stroke-width="2.5" stroke-opacity=".8" stroke-linejoin="round" stroke-linecap="round"/>`;
+ // At overview scale, thick strokes merge into a solid blue area and hide street labels.
+ const detail=Math.max(0,Math.min(1,(zoom-12)/4));
+ const roadWidth=(0.8+detail*0.8).toFixed(2),roadOpacity=(0.32+detail*0.24).toFixed(2);
+ return `<path data-walking-outline="${which}" d="${window.homeWalking.svgPath(area.geometry,onMap)}" stroke="${color}" stroke-width="1" stroke-dasharray="5 5" stroke-opacity=".45" fill="none"/><path data-walking-network="${which}" d="${window.homeWalking.networkPath(area.network,onMap)}" fill="none" stroke="${color}" stroke-width="${roadWidth}" stroke-opacity="${roadOpacity}" stroke-linejoin="round" stroke-linecap="round"/>`;
 }
 function renderMap(){const r=$('map').getBoundingClientRect();if(r.width<50||r.height<50)return;const c=project(center.lat,center.lon),left=c.x-r.width/2,top=c.y-r.height/2,tileZoom=Math.floor(zoom),tileSize=256*2**(zoom-tileZoom),sz=2**tileZoom,frag=document.createDocumentFragment();tilesLoaded=0;tilesErrors=0;
 let xMin=Math.floor(left/tileSize),xMax=Math.floor((left+r.width)/tileSize),yMin=Math.max(0,Math.floor(top/tileSize)),yMax=Math.min(sz-1,Math.floor((top+r.height)/tileSize)),nextCache=new Map();for(let x=xMin;x<=xMax;x++)for(let y=yMin;y<=yMax;y++){const key=`${tileZoom}/${(x%sz+sz)%sz}/${y}`;let img=tileCache.get(key);if(!img){img=document.createElement('img');img.loading='eager';img.decoding='async';img.alt='';img.src=`https://tile.openstreetmap.org/${key}.png`;img.onload=()=>{tilesLoaded++;$('mapError').style.display='none'};img.onerror=()=>{tilesErrors++;if(tilesErrors>2&&tilesLoaded===0)$('mapError').style.display='block'}}img.style.width=tileSize+'px';img.style.height=tileSize+'px';img.style.left=(x*tileSize-left)+'px';img.style.top=(y*tileSize-top)+'px';nextCache.set(key,img);frag.append(img)}tileCache=nextCache;$('tiles').replaceChildren(frag);
