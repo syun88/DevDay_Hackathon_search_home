@@ -34,7 +34,7 @@ window.mountSearchWorkspace = adapter => {
   $('listingArea').maxLength = 90; $('listingKeywords').maxLength = 65;
   $('primarySearchAction').append($('searchListings'));
   $('primarySearchStatus').append($('listingsStatus'));
-  $('primarySearchResults').append($('externalResults'), $('discoveryLinks'));
+  $('primarySearchResults').append($('externalResults'), $('discoveryLinks'), $('portals'));
 
   function capture() {
     if (applying || !ready) return;

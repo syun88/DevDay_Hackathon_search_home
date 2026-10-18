@@ -52,6 +52,7 @@ test('real markup mounts once without losing relocated controls or existing acti
  assert.equal(app.document.querySelectorAll('.shell-rail button').length,4);
  assert.equal(app.element('stateRevision'),null);assert.equal(app.element('chatNew'),null);
  assert.ok(app.document.querySelector('.condition-actions #searchListings'));
+ assert.ok(app.document.querySelector('#searchResultsPane #portals #linkSuumo'));
  assert.ok(app.document.querySelector('#publicSettings #publicLoad'));
  assert.ok(app.document.querySelector('#manualSavedSettings #csvFile'));
  app.element('importBtn').click();assert.equal(app.imports(),1);
