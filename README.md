@@ -2,6 +2,10 @@
 
 住所・会社名・駅名から起点を検索し、指定半径内の建物・物件候補を地図上で比較するローカルWebアプリ。**実物件を架空データで補完しません。**
 
+ヘッダーの **EN / JP** ボタンで表示言語を切り替えられます。選択はブラウザーに保存されます。住所・掲載元の文章・検索条件は元の言語を維持します。
+
+Use **EN / JP** in the header to switch the interface language. Your choice is remembered in this browser; addresses and source listing text stay in their original language.
+
 ## 起動
 
 Python 3.10+ が必要（追加パッケージ不要）。
