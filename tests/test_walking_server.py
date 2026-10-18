@@ -6,7 +6,7 @@ import unittest
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import server
 
@@ -62,6 +62,16 @@ class WalkingAreaTest(unittest.TestCase):
         self.assertEqual(network_payload['expansion_properties'], ['duration', 'edge_status'])
         self.assertEqual(result['minutes'], 15)
         self.assertEqual(result['source'], 'Valhalla / OpenStreetMap')
+        self.assertEqual([call.kwargs['timeout'] for call in get.call_args_list], [30, 60])
+
+    def test_busy_service_has_bounded_queue_and_makes_no_upstream_request(self):
+        lock = Mock()
+        lock.acquire.return_value = False
+        with patch.object(server, '_walking_lock', lock), patch.object(server, 'get_text') as get:
+            self.assertRaises(TimeoutError, server.fetch_walking_area, 35.68, 139.76, 15)
+        lock.acquire.assert_called_once_with(timeout=10)
+        lock.release.assert_not_called()
+        get.assert_not_called()
 
     def test_cache_separates_time_and_origin_and_expires(self):
         clock = [100.0]
@@ -214,12 +224,34 @@ class WalkingHTTPTest(unittest.TestCase):
             fetch.assert_not_called()
 
     def test_upstream_failures_return_json_error(self):
-        for failure in (URLError('offline'), ValueError('invalid upstream JSON'), TimeoutError()):
+        for failure in (URLError('offline'), ValueError('invalid upstream JSON')):
             with self.subTest(failure=failure), patch.object(server, 'fetch_walking_area', side_effect=failure):
                 with self.assertRaises(HTTPError) as error:
                     urlopen(self.base + '/api/walking-area?lat=35&lon=139&minutes=15')
                 self.assertEqual(error.exception.code, 502)
                 self.assertIn('error', json.load(error.exception))
+
+    def test_upstream_timeout_returns_actionable_json(self):
+        with patch.object(server, 'fetch_walking_area', side_effect=TimeoutError()):
+            with self.assertRaises(HTTPError) as error:
+                urlopen(self.base + '/api/walking-area?lat=35&lon=139&distance_km=1')
+            self.assertEqual(error.exception.code, 504)
+            self.assertIn('タイムアウト', json.load(error.exception)['error'])
+
+    def test_disconnect_during_headers_or_body_does_not_raise_even_for_errors(self):
+        for code in (200, 502, 504):
+            for stage in ('headers', 'body'):
+                for failure in (BrokenPipeError, ConnectionResetError):
+                    with self.subTest(code=code, stage=stage, failure=failure):
+                        handler = object.__new__(server.Handler)
+                        handler.send_response = Mock()
+                        handler.send_header = Mock()
+                        handler.end_headers = Mock(side_effect=failure() if stage == 'headers' else None)
+                        handler.wfile = Mock()
+                        if stage == 'body':
+                            handler.wfile.write.side_effect = failure()
+                        handler.respond(code, {'error': 'test'})
+                        self.assertTrue(handler.close_connection)
 
     def test_http_distance_request_and_ambiguous_limits(self):
         expected = {'metric': 'distance', 'distance_km': 1, 'geometry': contour()['features'][0]['geometry']}
