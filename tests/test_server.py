@@ -1,7 +1,12 @@
 """No network access required."""
 import json
+import time
 import unittest
 from unittest.mock import patch, MagicMock
+from http.server import ThreadingHTTPServer
+from threading import Thread
+from urllib.request import urlopen
+from urllib.error import HTTPError
 import sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -54,12 +59,79 @@ class SearchServerTest(unittest.TestCase):
 
 class FilterTest(unittest.TestCase):
     def test_origin_and_budget(self):
-        unit={'lat':35.681236,'lon':139.767125,'rent_yen':70000,'management_fee_yen':5000}
+        unit={'lat':35.681236,'lon':139.767125,'rent_yen':70000,'management_fee_yen':5000,'mandatory_fee_yen':0}
         origins=[(35.681236,139.767125,2),(35.681236,139.767125,1)]
         self.assertEqual(len(filter_listings([unit],origins,75000,'all')),1)
         self.assertEqual(len(filter_listings([unit],origins,74999,'any')),0)
         self.assertEqual(filter_listings([{**unit,'management_fee_yen':None}],origins,80000),[])
+        self.assertEqual(filter_listings([{**unit,'mandatory_fee_yen':None}],origins,80000),[])
+        self.assertEqual(filter_listings([{**unit,'mandatory_fee_yen':6000}],origins,80000),[])
+        for value in [float('nan'), float('inf'), -1, True, '5000']:
+            self.assertEqual(filter_listings([{**unit,'management_fee_yen':value}],origins,80000),[])
         self.assertLess(haversine_km(35.681236,139.767125,35.69,139.77),2)
         self.assertRaises(ValueError,filter_listings,[unit],origins,80000,'invalid')
+
+
+class SuumoHttpTest(unittest.TestCase):
+    def setUp(self):
+        permission = patch.object(server, 'SUUMO_REUSE_PERMITTED', True)
+        permission.start()
+        self.addCleanup(permission.stop)
+        server._suumo_cache.clear()
+        self.httpd = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
+        self.worker = Thread(target=self.httpd.serve_forever, daemon=True)
+        self.worker.start()
+        self.base = f'http://127.0.0.1:{self.httpd.server_port}/api/suumo-search?'
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.worker.join()
+        server._suumo_cache.clear()
+
+    def get(self, query):
+        try:
+            with urlopen(self.base + query, timeout=2) as response:
+                return response.status, json.load(response)
+        except HTTPError as error:
+            return error.code, json.load(error)
+
+    def test_cache_uses_every_search_condition_without_rounding(self):
+        query = 'lat=35.681236&lon=139.767125&radius_km=1'
+        def result(lat, lon, radius, rent, layout):
+            return {'filters': {'max_rent_man': rent, 'layout': layout},
+                    'query': [lat, lon, radius], 'results': []}
+        with patch.object(server, 'search_suumo', side_effect=result) as search:
+            self.assertFalse(self.get(query)[1]['cached'])
+            self.assertTrue(self.get(query)[1]['cached'])
+            self.assertFalse(self.get(query + '&max_rent_man=15')[1]['cached'])
+            self.assertFalse(self.get(query + '&layout=1K')[1]['cached'])
+            self.assertFalse(self.get(query + '&max_rent_man=15&layout=1K')[1]['cached'])
+            self.assertFalse(self.get(query.replace('35.681236', '35.681237'))[1]['cached'])
+            self.assertFalse(self.get(query.replace('radius_km=1', 'radius_km=1.001'))[1]['cached'])
+        self.assertEqual(search.call_count, 6)
+
+    def test_unpermitted_suumo_never_contacts_upstream_or_serves_cached_data(self):
+        server._suumo_cache[(35.681236, 139.767125, 1, None, None)] = (time.monotonic(), {'results': ['TEST ONLY cached']})
+        with patch.object(server, 'SUUMO_REUSE_PERMITTED', False), patch.object(server, 'search_suumo') as search:
+            status, body = self.get('lat=35.681236&lon=139.767125&radius_km=1')
+        self.assertEqual(status, 403)
+        self.assertNotIn('results', body)
+        search.assert_not_called()
+
+    def test_invalid_input_and_upstream_failure_do_not_search_or_cache(self):
+        query = 'lat=35.681236&lon=139.767125&radius_km=1'
+        invalid = [query + '&max_rent_man=10.5', query + '&layout=bad',
+                   query + '&radius_km=2', query.replace('lat=35.681236', 'lat=nan'),
+                   query.replace('radius_km=1', 'radius_km=3'),
+                   query + '&unexpected=1', query + '&layout=1K&layout=1R']
+        with patch.object(server, 'search_suumo', side_effect=server.SuumoError('transport', '通信失敗')) as search:
+            for request in invalid:
+                self.assertEqual(self.get(request)[0], 400, request)
+            self.assertEqual(search.call_count, 0)
+            self.assertEqual(self.get(query)[0], 502)
+            self.assertEqual(self.get(query)[0], 502)
+            self.assertEqual(search.call_count, 2)
+            self.assertEqual(server._suumo_cache, {})
 
 if __name__=='__main__': unittest.main()

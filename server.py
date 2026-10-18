@@ -19,17 +19,24 @@ from pathlib import Path
 from html import unescape
 from datetime import datetime, timezone
 import xml.etree.ElementTree as ET
-import os, json, math, re, socket, threading, time
+import os, json, re, math, threading, time
+from listing_feed import normalize_feed
+from suumo_bridge import SuumoError, search as search_suumo, validate_search, validate_filters
+import public_housing
 
 BASE = Path(__file__).resolve().parent
 OPENAI_KEY = os.environ.get('OPENAI_API_KEY', '').strip()
 SEARCH_KEY = os.environ.get('BRAVE_SEARCH_API_KEY', '').strip()
+FEED_PATH = os.environ.get('LISTINGS_FEED_PATH', '').strip()
+FEED_URL = os.environ.get('LISTINGS_FEED_URL', '').strip()
+SUUMO_REUSE_PERMITTED = os.environ.get('SUUMO_REUSE_PERMITTED', '') == '1'
 PORT = int(os.environ.get('PORT', '8765'))
 ALLOWED_DOMAINS = ('suumo.jp', 'homes.co.jp', 'athome.co.jp')
 USER_AGENT = 'PropertyFinderLocal/2.0 (+browser-side user initiated search)'
 CACHE_TTL = 120
 _cache: dict[str, tuple[float, dict]] = {}
 _cache_lock = threading.Lock()
+_suumo_cache: dict[tuple[float, float, float, float | None, str | None], tuple[float, dict]] = {}
 MAX_BYTES = 1_000_000
 VALHALLA_URL = os.environ.get('VALHALLA_URL', 'https://valhalla1.openstreetmap.de').rstrip('/')
 WALKING_SPEED_KMH = 4.8
@@ -38,6 +45,72 @@ _walking_cache: dict[tuple, tuple[float, dict]] = {}
 _walking_cache_lock = threading.Lock()
 _walking_lock = threading.Lock()
 _walking_last_request = 0.0
+
+_route_lock = threading.Lock()
+_last_route_request = 0.0
+
+
+def load_feed():
+    if FEED_PATH:
+        with open(FEED_PATH, 'rb') as source:
+            raw = source.read(MAX_BYTES + 1)
+        if len(raw) > MAX_BYTES:
+            raise ValueError('Feed exceeds 1 MB')
+        data = json.loads(raw)
+    elif FEED_URL:
+        parsed = urlparse(FEED_URL)
+        if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError('Feed URL must use HTTPS')
+        data = json.loads(get_text(FEED_URL))
+    else:
+        raise ValueError('No permitted listing feed configured')
+    return normalize_feed(data.get('records') if isinstance(data, dict) else data)
+
+
+def route_time(payload):
+    global _last_route_request
+    mode = payload.get('mode')
+    if mode not in ('foot', 'bike', 'car'):
+        raise ValueError('Unsupported route mode')
+    coordinates = []
+    for name in ('origin', 'destination'):
+        point = payload.get(name)
+        if not isinstance(point, dict):
+            raise ValueError('Coordinates required')
+        latitude, longitude = point.get('lat'), point.get('lon')
+        if not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) for value in (latitude, longitude)):
+            raise ValueError('Invalid coordinates')
+        if abs(latitude) > 85 or abs(longitude) > 180:
+            raise ValueError('Invalid coordinates')
+        coordinates.append(f'{longitude:.6f},{latitude:.6f}')
+    with _route_lock:
+        delay = max(0, 1.1 - (time.monotonic() - _last_route_request))
+        if delay:
+            time.sleep(delay)
+        _last_route_request = time.monotonic()
+    url = f'https://routing.openstreetmap.de/routed-{mode}/route/v1/{mode}/' + ';'.join(coordinates)
+    try:
+        data = json.loads(get_text(url + '?overview=false&steps=false&radiuses=100;100', timeout=15))
+    except HTTPError as error:
+        if error.code != 400:
+            raise
+        with error:
+            data = json.loads(error.read(10000))
+        if data.get('code') not in ('NoRoute', 'NoSegment'):
+            raise
+    if not isinstance(data, dict):
+        raise ValueError('Invalid route response')
+    routes = data.get('routes', [])
+    if data.get('code') != 'Ok' or not routes:
+        return {'status': 'unavailable', 'mode': mode, 'duration_seconds': None, 'reason': data.get('code')}
+    if not isinstance(routes, list) or not isinstance(routes[0], dict):
+        raise ValueError('Invalid route response')
+    duration, distance = routes[0].get('duration'), routes[0].get('distance')
+    if not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0 for value in (duration, distance)):
+        raise ValueError('Invalid route response')
+    return {'status': 'ok', 'mode': mode, 'duration_seconds': duration, 'distance_meters': distance,
+            'checked_at': datetime.now(timezone.utc).isoformat(), 'source': 'FOSSGIS OSRM / OpenStreetMap',
+            'source_url': 'https://routing.openstreetmap.de/about.html', 'live_traffic': False}
 
 
 def get_text(url: str, headers: dict | None = None, timeout=12, max_bytes=MAX_BYTES) -> str:
@@ -284,7 +357,8 @@ def normalize_results(raw: list[dict], kind='rent') -> list[dict]:
         results.append({'title':title, 'description':description, 'url':url, 'source':source,
                         'extracted': parse_fields(title, description, kind),
                         'data_quality':'検索結果の抜粋から推定・未確認', 'retrieved_at':datetime.now(timezone.utc).isoformat(),
-                        'availability_status':'unknown', 'geo_precision':'unknown'})
+                        'availability_status':'unknown', 'geo_precision':'unknown', 'kind':kind,
+                        'last_verified_at':None})
         if len(results) >= 30:break
     return results
 
@@ -397,17 +471,27 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_POST(self):
-        if urlparse(self.path).path != '/api/classify':
+        endpoint = urlparse(self.path).path
+        if endpoint not in ('/api/classify', '/api/import', '/api/route', '/api/public-geocode'):
             return self.respond(404,{'error':'not found'})
-        if not OPENAI_KEY:
+        if endpoint == '/api/classify' and not OPENAI_KEY:
             return self.respond(503,{'error':'Decisions APIは未設定です'})
         if self.headers.get('Content-Type','').split(';')[0].strip().lower() != 'application/json':
             return self.respond(415,{'error':'application/json が必要です'})
         try:
             size=int(self.headers.get('Content-Length','0'))
-            if size<2 or size>3_000:return self.respond(413,{'error':'入力が大きすぎます'})
+            limit = MAX_BYTES if endpoint == '/api/import' else 3_000
+            if size<2 or size>limit:return self.respond(413,{'error':'入力が大きすぎます'})
             payload=json.loads(self.rfile.read(size))
             if not isinstance(payload,dict):raise ValueError('JSON object required')
+            if endpoint == '/api/import':
+                if payload.get('permitted') is not True:
+                    raise ValueError('利用許可の確認が必要です')
+                return self.respond(200, normalize_feed(payload.get('records')))
+            if endpoint == '/api/route':
+                return self.respond(200, route_time(payload))
+            if endpoint == '/api/public-geocode':
+                return self.respond(200, public_housing.geocode(payload.get('source'), payload.get('id')))
             title=payload.get('title','')
             description=payload.get('description','')
             if not isinstance(title,str) or not isinstance(description,str) or not title.strip():
@@ -417,7 +501,7 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError,json.JSONDecodeError):
             return self.respond(400,{'error':'JSON入力が不正です'})
         except (HTTPError,URLError,OSError,TimeoutError) as exc:
-            return self.respond(502,{'error':'Decisions APIへの接続に失敗しました: '+type(exc).__name__})
+            return self.respond(502,{'error':'外部サービスへの接続に失敗しました: '+type(exc).__name__})
 
     def do_GET(self):
         u = urlparse(self.path)
@@ -428,7 +512,44 @@ class Handler(SimpleHTTPRequestHandler):
             return self.respond(200,{'listings_enabled':True,'providers':['bing'] + (['brave'] if SEARCH_KEY else []),
                     'provider':'Brave Search API + Bing RSS' if SEARCH_KEY else 'Bing RSS (APIキー不要、利用制限あり)',
                     'has_brave_key':bool(SEARCH_KEY), 'decisions_enabled':bool(OPENAI_KEY),
-                    'walking_enabled':True})
+                    'walking_enabled':True, 'feed_enabled':bool(FEED_PATH or FEED_URL), 'routing_enabled':True,
+                    'public_sources':['tokyo', 'tsubata'] + (['permitted'] if os.environ.get('PUBLIC_HOUSING_FEED_PATH') else []),
+                    'suumo_reuse_permitted': SUUMO_REUSE_PERMITTED,
+                    'listing_max_age_seconds':3600})
+        if u.path == '/api/suumo-search':
+            q = parse_qs(u.query, keep_blank_values=True)
+            if not {'lat', 'lon', 'radius_km'} <= set(q) or not set(q) <= {'lat', 'lon', 'radius_km', 'max_rent_man', 'layout'} or any(len(v) != 1 for v in q.values()):
+                return self.respond(400, {'error': 'lat, lon, radius_km を1つずつ指定してください'})
+            try:
+                lat, lon, radius = validate_search(float(q['lat'][0]), float(q['lon'][0]), float(q['radius_km'][0]))
+                max_rent, layout = validate_filters(float(q['max_rent_man'][0]) if 'max_rent_man' in q else None,
+                                                    q['layout'][0] if 'layout' in q else None)
+            except ValueError as exc:
+                return self.respond(400, {'error': str(exc)})
+            if not SUUMO_REUSE_PERMITTED:
+                return self.respond(403, {'error': 'SUUMOの取得・再利用許諾が未設定のため接続を停止しています'})
+            key = (lat, lon, radius, max_rent, layout)
+            with _cache_lock:
+                cached = _suumo_cache.get(key)
+                if cached and time.monotonic() - cached[0] < 120:
+                    return self.respond(200, {**cached[1], 'cached': True})
+            try:
+                result = search_suumo(lat, lon, radius, max_rent, layout)
+            except SuumoError as exc:
+                return self.respond(502, {'error': str(exc), 'code': exc.code})
+            with _cache_lock:
+                if len(_suumo_cache) >= 20: _suumo_cache.clear()
+                _suumo_cache[key] = (time.monotonic(), result)
+            return self.respond(200, {**result, 'cached': False})
+        if u.path == '/api/public-housing':
+            query = parse_qs(u.query)
+            try:
+                return self.respond(200, public_housing.search(query.get('source', ['tokyo'])[0],
+                                    query.get('area', [''])[0], int(query.get('offset', ['0'])[0])))
+            except ValueError as error:
+                return self.respond(400, {'error': str(error)})
+            except (HTTPError, URLError, OSError, TimeoutError, KeyError, TypeError, StopIteration) as error:
+                return self.respond(502, {'error': '公開データを取得できません: ' + type(error).__name__})
         if u.path == '/api/walking-area':
             q = parse_qs(u.query)
             try:
@@ -445,6 +566,8 @@ class Handler(SimpleHTTPRequestHandler):
                 # A user may select another range before a large response ends.
                 return
         if u.path != '/api/listings':
+            if u.path not in ('/index.html', '/i18n.js', '/property_core.js', '/public_housing.js', '/walking.js'):
+                return self.respond(404, {'error':'not found'})
             return super().do_GET()
         q = parse_qs(u.query)
         def v(k,n=100):return clean(q.get(k,[''])[0], n)
@@ -452,10 +575,17 @@ class Handler(SimpleHTTPRequestHandler):
         if len(place) < 2: return self.respond(400,{'error':'地域・会社・駅名を2文字以上入力してください'})
         kind = 'sale' if v('kind') == 'sale' else 'rent'
         provider = v('provider',10) or 'auto'
-        if provider not in ('auto', 'bing', 'brave'):
+        if provider not in ('auto', 'bing', 'brave', 'feed'):
             return self.respond(400,{'error':'不明な検索先です'})
         if provider == 'brave' and not SEARCH_KEY:
             return self.respond(400,{'error':'Brave APIキーがありません'})
+        if provider == 'feed' or (provider == 'auto' and (FEED_PATH or FEED_URL)):
+            try:
+                result = load_feed()
+                result['results'] = [record for record in result['results'] if record['kind'] == kind]
+                return self.respond(200, result)
+            except (ValueError, OSError, HTTPError, URLError) as exc:
+                return self.respond(502, {'error':'許可済み募集データを取得できません: '+type(exc).__name__})
         details = {'layout':v('layout',10), 'keywords':v('keywords',65)}
         key = json.dumps([place,kind,details,provider],ensure_ascii=False)
         with _cache_lock:
@@ -463,6 +593,10 @@ class Handler(SimpleHTTPRequestHandler):
             if cached and time.monotonic()-cached[0] < CACHE_TTL:
                 return self.respond(200,{**cached[1],'cached':True})
         out = fetch_listings(place,kind,details,provider)
+        discoveries = out.pop('results', [])
+        out['discovery_links'] = [{'url':record['url'], 'source':record['source']} for record in discoveries]
+        out['results'] = []
+        out['note'] = '検索索引だけでは確認日時と募集状況を検証できないため、物件情報は採用しません。掲載元リンクで最新情報を確認してください。'
         with _cache_lock:
             if len(_cache) >= 100:_cache.clear()
             _cache[key] = (time.monotonic(),out)

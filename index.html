@@ -10,6 +10,8 @@
 .marker.listing{background:#175cd3;border-radius:8px;font-size:11px;max-width:110px;overflow:hidden;text-overflow:ellipsis}.listing-price{font-size:15px;font-weight:850;color:#174bc9}.listing-details{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}.listing-details span{padding:3px 6px;background:#edf2fb;border-radius:5px;font-size:10px}.listing-ok{color:#08734d}.listing-uncertain{color:#98601d}.listing-out{color:#b3261e}.external-item.out-of-range{opacity:.6}.external-item p{overflow-wrap:anywhere}
 .header-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.language-toggle{display:flex;gap:2px;padding:3px;background:#eef3fa;border:1px solid var(--border);border-radius:9px}.language-toggle button{border:0;border-radius:6px;padding:5px 9px;background:transparent;color:#536279;font-size:11px;font-weight:750}.language-toggle button[aria-pressed="true"]{background:#fff;color:#1d4ed8;box-shadow:0 1px 4px #0001}html[lang="en"] .btn{white-space:normal}html[lang="en"] .sidebar .columns{grid-template-columns:repeat(2,minmax(0,1fr))}
 [hidden]{display:none!important}.walking-panel{margin-top:10px;padding:10px 12px;background:#edf5ff;border:1px solid #d9e8ff;border-radius:10px}.walking-panel[data-status="error"]{background:#fff4e8;border-color:#f3cfa7}.walking-panel p{margin:0 0 7px;font-size:11px;line-height:1.6}.walking-panel .sub{margin:7px 0 0}.map-top{max-width:calc(100% - 74px)}#walkingMapSummary{display:block;width:fit-content;line-height:1.6}.sliderrow strong{min-width:70px}.range-mode{margin:12px 0}
+.marker.public{background:#7c3d8c;max-width:150px;overflow:hidden;text-overflow:ellipsis}.marker.public.municipal{background:#9a4c0d}.marker.public.vacancy{background:#566171}.marker.public.recruitment{background:#17694c}.public-controls{display:grid;gap:8px}.public-controls fieldset{border:1px solid var(--border);border-radius:8px;padding:8px;min-width:0}.public-controls legend{font-size:11px}.public-controls .checkrow{font-size:11px;gap:8px}.public-results{max-height:480px;overflow:auto}.public-card .line-actions>*{min-width:0;overflow-wrap:anywhere}.public-card h4{overflow-wrap:anywhere}
+.public-card .line-actions>*{display:block;padding:8px;border:0;border-radius:7px;background:#edf3fa;color:#244b79;text-decoration:none;font-size:11px;font-weight:700}.public-card.selected{border-color:#7c3d8c;box-shadow:0 0 0 1px #7c3d8c}.public-card .listing-price{font-size:15px;color:#174bc9;font-weight:800}
 </style></head><body>
 <div class="wrap"><aside class="sidebar"><div class="header"><div class="header-top"><p class="kicker">PROPERTY DISTANCE FINDER</p><div class="language-toggle" role="group" aria-label="Language / 言語"><button type="button" data-language="en" lang="en" aria-pressed="false">EN</button><button type="button" data-language="ja" lang="ja" aria-pressed="true">JP</button></div></div><h1>住まいの地図</h1><p>住所・会社を検索 → 範囲内の実在する建物・掲載ページを表示 → 条件比較</p></div><div class="scroll">
 <section class="section"><h2>場所を横断検索 <span class="pill">住所・会社・駅名</span></h2>
@@ -29,11 +31,34 @@
 <div id="bRadiusWrap" style="display:none"><div class="sliderrow"><label class="label" for="radiusB">Bから</label><input type="range" min="0.5" max="25" step="0.5" id="radiusB" value="5"><strong id="radiusLabelB">5 km</strong></div></div>
 <div class="walking-panel" id="walkingPanel"><p id="walkingStatus" role="status" aria-live="polite">徒歩で到達できる範囲を取得中…</p><p id="walkingAreaReference" class="sub"></p><button class="btn ghost small" id="retryWalking" hidden>徒歩圏を再取得</button><p class="sub">徒歩速度4.8km/h（80m/分）で時間内に到達した道路・歩道を着色します。線の太さは見やすさのための表示です。信号待ち・通行規制・建物の入口により実際の所要時間は変わります。</p><p class="sub">徒歩圏：<a href="https://valhalla.openstreetmap.de/" target="_blank" rel="noopener noreferrer">Valhalla / OpenStreetMap</a></p></div>
 <p class="muted" id="rangeHint">色付きの線は時間内に到達した道路・歩道です。破線は徒歩圏の外周の目安です。</p></section>
-<section class="section"><h2>② 物件を条件で絞る</h2><div class="columns"><div class="control"><label class="label">最大家賃・価格</label><input id="maxPrice" class="input" type="number" min="0" step="0.5" placeholder="例：8"></div><div class="control"><label class="label">最小面積（㎡）</label><input id="minArea" class="input" type="number" min="0" placeholder="例：25"></div></div>
+<section class="section"><h2>② 物件を条件で絞る</h2><div class="columns"><div class="control"><label class="label">最大月額総額・売買価格（万円）</label><input id="maxPrice" class="input" type="number" min="0" step="0.5" placeholder="例：8"></div><div class="control"><label class="label">最小面積（㎡）</label><input id="minArea" class="input" type="number" min="0" placeholder="例：25"></div></div>
 <div class="columns"><div class="control"><label class="label">間取り</label><select class="input" id="layout"><option value="">すべて</option><option value="1R">1R</option><option value="1K">1K</option><option value="1DK">1DK</option><option value="1LDK">1LDK</option><option value="2K">2K</option><option value="2DK">2DK</option><option value="2LDK">2LDK</option><option value="3LDK">3LDK</option></select></div><div class="control"><label class="label">築年数（上限・年）</label><input class="input" type="number" id="maxAge" min="0" placeholder="指定なし"></div></div>
 <div class="control"><label class="label">用途・物件種別</label><select class="input" id="type"><option value="">すべて</option><option value="rent">賃貸</option><option value="sale">売買</option></select><p class="sub">賃貸価格は万円/月、売買価格は万円。金額条件は種別を指定して利用してください。</p></div>
 <div class="checkrow"><label><input id="pets" type="checkbox">ペット可</label><label><input id="parking" type="checkbox">駐車場あり</label><label><input id="insideOnly" type="checkbox" checked>範囲内のみ</label></div>
-<div class="stat"><span style="font-size:12px;font-weight:700">条件に合う候補物件</span><strong id="matchCount">0 / 0</strong></div>
+<label class="muted"><input id="includeUnknown" type="checkbox"> 条件が未確認の候補も表示（不一致・古い募集は除外）</label>
+<div class="live-search"><h3>通勤時間</h3>
+<div class="columns"><label class="control"><span class="label">移動手段</span><select class="input" id="commuteMode"><option value="foot">徒歩</option><option value="bike">自転車</option><option value="car">車</option></select></label><label class="control"><span class="label">通勤時間の上限（分）</span><input class="input" id="maxCommute" type="number" min="1" max="240" placeholder="指定なし"></label></div>
+<p class="muted">各候補の「通勤時間を取得」で勤務地Aへの経路を照会します。Bの絞り込みが有効ならBも判定します。未取得・位置未確認は条件一致にしません。</p>
+<p class="muted">無料の道路経路の推定です。渋滞・運休は反映しません。電車は各候補の外部リンクで確認してください。照会時に座標をFOSSGISへ送信します。</p>
+<p class="muted">経路 © <a href="https://routing.openstreetmap.de/about.html" target="_blank" rel="noopener noreferrer">FOSSGIS / OSRM</a>・<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>・<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener noreferrer">地図を修正</a></p><div id="commuteStatus" class="live-count" role="status"></div></div>
+<div class="stat"><span id="matchLabel" style="font-size:12px;font-weight:700">必須条件を確認した候補</span><strong id="matchCount">0 / 0</strong></div>
+</section>
+<section class="section" id="publicSection"><h2>公的住宅・自治体空き家データ</h2>
+<p class="notice">公開資料の参考レイヤーです。団地台帳・空き住戸・募集中は別情報です。取得日時は募集確認日時ではありません。</p>
+<div class="public-controls">
+<label class="control"><span class="label">取得するデータソース</span><select id="publicProvider" class="input"><option value="tokyo">東京都 都営住宅団地CSV</option><option value="tsubata">自治体空き家：津幡町CSV</option><option value="permitted">許諾済み公的住宅フィード（設定時のみ）</option></select></label>
+<label class="control"><span class="label">地域・団地名（台帳内を検索）</span><input id="publicArea" class="input" list="publicAreas" value="千代田区" placeholder="例：港区 / 四番町"><datalist id="publicAreas"></datalist></label>
+<button id="publicLoad" class="btn">公開データ取得・先頭5件を位置検索</button>
+<div class="field"><button id="publicNext" class="btn secondary" disabled>次の20件</button><button id="publicGeocode" class="btn ghost">未確認の位置を5件検索</button></div>
+<p class="muted">位置検索時に公開住所を国土地理院へ送信します。住所の概略座標を使うため、ピン・距離は参考です。全国の全物件を網羅していません。</p>
+<fieldset><legend>表示するソース</legend><div class="checkrow"><label><input id="publicSource_tokyo" type="checkbox" checked>東京都</label><label><input id="publicSource_tsubata" type="checkbox" checked>津幡町</label><label><input id="publicSource_permitted" type="checkbox" checked>許諾済みフィード</label></div></fieldset>
+<fieldset><legend>表示するレイヤー</legend><div class="checkrow"><label><input id="publicLayer_inventory" type="checkbox" checked>団地台帳</label><label><input id="publicLayer_vacancy" type="checkbox" checked>空き住戸数</label><label><input id="publicLayer_recruitment" type="checkbox" checked>確認済み募集</label><label><input id="publicLayer_municipal" type="checkbox" checked>自治体空き家</label></div></fieldset>
+<label class="muted"><input id="publicUseFilters" type="checkbox"> 上の共通条件で絞る（未確認項目は初期状態で除外）</label>
+<p class="muted">OFFでは条件不一致も参考資料として表示します。ONでは地点A/B・半径・価格・間取り等を判定します。台帳の家賃・現在の募集状況は未確認です。</p>
+</div><div id="publicStatus" class="live-count" role="status">未取得。ボタン操作時に公式オープンデータを取得します。</div><div id="publicCount" class="live-count"></div><div id="publicResults" class="public-results"></div>
+<details><summary>都営空き住戸・募集の公式情報</summary><p class="muted">空き住戸数PDFの自動転載許諾は未確認のため、自動収集しません。数字が必要な場合は利用許諾済みフィードを接続してください。公募用には修繕中・入居手続中を含み、事業用は建替移転等の確保分です。空き住戸は募集中とは限りません。</p><div class="portal-grid"><a class="portal" href="https://www.juutakuseisaku.metro.tokyo.lg.jp/toei_jutaku/kanri/264-01toeidanchi" target="_blank" rel="noopener noreferrer">都営 空き住戸数（公式PDF）</a><a class="portal" href="https://www.to-kousya.or.jp/kouei/toeibosyu/toeitop_gdn.html" target="_blank" rel="noopener noreferrer">都営 募集・申込（公式）</a></div></details>
+<div class="portal-grid"><a class="portal" href="https://www.ur-net.go.jp/chintai/" target="_blank" rel="noopener noreferrer">UR賃貸 公式検索</a><a class="portal" href="https://www.to-kousya.or.jp/chintai/" target="_blank" rel="noopener noreferrer">JKK東京 公式検索</a><a class="portal" href="https://www.homes.co.jp/akiyabank/" target="_blank" rel="noopener noreferrer">全国版空き家バンク（LIFULL）</a><a class="portal" href="https://www.mlit.go.jp/totikensangyo/const/sosei_const_tk3_000131.html" target="_blank" rel="noopener noreferrer">全国版空き家バンク（国交省案内）</a></div>
+<p class="muted">UR・JKK・全国版ポータルは公式検索へのリンクのみです。許諾済みAPIは未接続で、本文スクレイピングは行いません。出典・基準日・利用条件は各カードに表示します。</p>
 </section>
 <section class="section"><h2>③ 検索結果を地図に表示</h2>
 <div class="live-search">
@@ -44,22 +69,30 @@
 <div class="live-panel" id="buildingResults"></div>
 </div>
 <div class="live-search">
-<h3>募集物件の掲載ページを検索</h3>
-<p class="muted">SUUMO・HOME’S・at homeの検索エンジン掲載結果を読み込み、タイトル・家賃・間取り・面積（判読可能な項目のみ）と出典を表示します。空室・位置は要確認です。</p>
+<h3>SUUMO実データ接続（ローカル試作）</h3>
+<p class="muted">地点Aの中心・半径と、上の家賃上限・間取りをSUUMOの賃貸検索に送ります（最大5件）。家賃上限はSUUMO地図の選択値のみ対応します。取得後も各物件の家賃・間取りを確認し、不明・条件外は除外します。面積など他の条件、半径内かどうか、正確な位置、空室、その他費用は未確認です。地図ピンにはしません。</p>
+<div class="field"><button class="btn" id="suumoSearch" style="flex:1" disabled>SUUMOの賃貸データを取得</button></div>
+<div id="suumoStatus" class="live-count" role="status">利用許諾が未設定のため接続を停止しています。公式検索リンクをご利用ください。</div>
+<div id="suumoResults"></div>
+</div>
+<div class="live-search">
+<h3>最新の募集物件と掲載元を探す</h3>
+<p class="muted">募集候補には掲載元が1時間以内に募集を確認したデータだけを採用します。検索索引は最新性を保証できないため、掲載元リンクのみを表示します。取得時刻を募集の確認時刻として扱いません。</p>
 <div class="field"><input id="listingArea" class="input" placeholder="検索地域（空欄なら地点Aの名前）" aria-label="物件を検索する地域"></div>
 <div class="field"><input id="listingKeywords" class="input" placeholder="追加キーワード（例：南向き・駅徒歩10分）"></div>
-<div class="field"><select id="listingProvider" class="input" aria-label="検索エンジン"><option value="auto">検索：自動（Braveがあれば優先／なければBing）</option><option value="bing">Bing RSS（APIキー不要）</option><option value="brave">Brave Search API（キーがある場合）</option></select></div>
+<div class="field"><select id="listingProvider" class="input" aria-label="検索エンジン"><option value="auto">検索：自動（Braveがあれば優先／なければBing）</option><option value="feed">許可済み募集データ</option><option value="bing">Bing RSS（掲載先リンクのみ）</option><option value="brave">Brave Search API（キーがある場合）</option></select></div>
 <div class="field"><button id="searchListings" class="btn" style="flex:1">掲載ページを検索</button></div>
 <div id="listingsStatus" class="live-count" role="status">利用可能な検索連携を確認中…</div><div class="muted">OPENAI_API_KEYをサーバーに設定すると、取得した掲載ページをボタンからDecisions APIで分類できます（任意・費用発生）。</div>
 <div class="checkrow" style="margin:7px 0"><label><input type="checkbox" id="listingOnlyWithin" checked>位置判明分は範囲内のみ表示</label></div>
-<div id="externalResults"></div>
+<div class="line-actions"><button id="importFeed" class="btn secondary">許可済みJSON / CSVを取り込む</button></div><label class="muted"><input id="feedPermitted" type="checkbox"> このデータの取り込み・表示の許可を得ています</label><input id="feedFile" type="file" accept=".json,.csv" hidden><p class="muted">確認日時が不明・1時間より古い・募集終了のデータは除外します。接続元が未設定の場合、現在募集中の物件を自動取得できません。</p>
+<div id="externalResults"></div><div id="discoveryLinks" class="live-panel"></div>
 <div class="portal-grid" id="portals">
 <a class="portal" id="linkSuumo" target="_blank" rel="noopener noreferrer" href="https://suumo.jp/chintai/">SUUMOで検索<small>掲載元で空室・条件を確認</small></a>
 <a class="portal" id="linkHomes" target="_blank" rel="noopener noreferrer" href="https://www.homes.co.jp/chintai/">HOME'Sで検索<small>公式サイトを開く</small></a>
 <a class="portal" id="linkGoogle" target="_blank" rel="noopener noreferrer" href="https://www.google.com/search?q=賃貸%20東京駅">Webで物件検索<small>現在の検索条件を反映</small></a>
 <a class="portal" id="linkAtHome" target="_blank" rel="noopener noreferrer" href="https://www.athome.co.jp/chintai/">at homeで検索<small>公式サイトを開く</small></a>
 </div>
-<div class="notice">検索結果からの家賃・間取り・面積抽出は推定です。住所が判明したときだけ位置の概略ピンを表示します。現在の空室や正確な場所・条件は必ず掲載元で確認してください。</div>
+<div class="notice">募集の確認日時・掲載元・位置の精度を確認してください。1時間以内の確認でも現在の空室を保証しません。最新の募集・所在地・価格は掲載元で最終確認してください。</div>
 </div>
 <button class="btn" id="addBtn" style="width:100%;margin-top:5px">＋ 見つけた物件を候補登録</button>
 <div class="field"><button class="btn ghost" id="importBtn" style="flex:1">CSV読み込み</button><button class="btn ghost" id="templateBtn" style="flex:1">CSVひな型</button><button class="btn ghost" id="exportBtn" style="flex:1">CSV出力</button></div>
@@ -68,13 +101,18 @@
 <section class="section"><div class="tabline"><h2>④ 保存済みの候補物件</h2><select class="input" id="sort" style="width:116px;padding:6px"><option value="distance">Aに近い順</option><option value="price">安い順</option><option value="area">広い順</option></select></div><div id="results" class="resultlist"><div class="empty">まだ候補物件がありません。公式の地図検索で物件を探し、上の「＋」ボタンから住所や家賃を登録してください。</div></div></section>
 <p class="footer">地図 © OpenStreetMap contributors。場所検索：Nominatim／国土地理院。徒歩圏：Valhallaの道路網による概算（4.8km/h）。カードの距離は直線距離です。実際の経路・募集条件は掲載元で確認してください。</p>
 </div></aside><main class="mapcol"><div class="map" id="map"><div id="tiles" class="tiles"></div><svg class="overlays" id="overlay" aria-hidden="true"></svg><div id="pins" class="pins"></div></div><div class="map-top"><div class="map-chip" id="mapModeLabel">地図をドラッグして移動できます</div><div class="map-chip" id="walkingMapSummary" role="status" aria-live="polite"></div></div><div class="map-error" id="mapError">地図タイルを取得できません。通信環境を確認してください。地点・距離・候補情報の操作はできます。</div><div class="map-controls"><button id="zoomIn" title="拡大">＋</button><button id="zoomOut" title="縮小">−</button><button id="resetView" title="起点Aに戻る">⌖</button></div><div class="bottomhint" id="bottomHint">青：地点A　紫：地点B　黄：住所・会社　青緑：実在建物　緑：保存候補</div><div class="map-attrib">© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors</div><div id="toast" class="toast"></div></main></div>
-<div class="modalouter" id="modalOuter"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><h2 id="modalTitle">候補物件を登録</h2><p class="muted">地図をタップして座標を指定するか、住所から位置を検索できます。</p><div class="columns"><div class="control" style="grid-column:1/-1"><label class="label">物件名 *</label><input class="input" id="pName" placeholder="例：〇〇マンション 203号室"></div></div><div class="control"><label class="label">住所（位置検索にも使用）</label><div class="field"><input class="input" id="pAddress" placeholder="住所を入力"><button class="btn secondary small" id="geocodeProperty">位置検索</button></div></div><div class="columns"><div class="control"><label class="label">種別</label><select class="input" id="pType"><option value="rent">賃貸</option><option value="sale">売買</option></select></div><div class="control"><label class="label">家賃・価格（万円）</label><input class="input" id="pPrice" type="number" min="0" step="0.1"></div><div class="control"><label class="label">間取り</label><select class="input" id="pLayout"><option value="">未指定</option><option>1R</option><option>1K</option><option>1DK</option><option>1LDK</option><option>2K</option><option>2DK</option><option>2LDK</option><option>3LDK</option></select></div><div class="control"><label class="label">面積（㎡）</label><input class="input" id="pArea" type="number" min="0" step="0.1"></div><div class="control"><label class="label">築年数（年）</label><input class="input" id="pAge" type="number" min="0"></div><div class="control"><label class="label">設備</label><div class="checkrow"><label><input id="pPets" type="checkbox">ペット可</label><label><input id="pParking" type="checkbox">駐車場</label></div></div></div><div class="control"><label class="label">掲載元URL（任意）</label><input class="input" id="pUrl" type="url" placeholder="https://..."></div><div class="columns"><div class="control"><label class="label">緯度</label><input class="input" id="pLat" type="number" step="any" placeholder="住所検索で入力"></div><div class="control"><label class="label">経度</label><input class="input" id="pLon" type="number" step="any"></div></div><div class="buttons"><button id="modalCancel" class="btn ghost">キャンセル</button><button id="modalSave" class="btn">保存</button></div></div></div>
+<div class="modalouter" id="modalOuter"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><h2 id="modalTitle">候補物件を登録</h2><p class="muted">地図をタップして座標を指定するか、住所から位置を検索できます。</p><div class="columns"><div class="control" style="grid-column:1/-1"><label class="label">物件名 *</label><input class="input" id="pName" placeholder="例：〇〇マンション 203号室"></div></div><div class="control"><label class="label">住所（位置検索にも使用）</label><div class="field"><input class="input" id="pAddress" placeholder="住所を入力"><button class="btn secondary small" id="geocodeProperty">位置検索</button></div></div><div class="columns"><div class="control"><label class="label">種別</label><select class="input" id="pType"><option value="rent">賃貸</option><option value="sale">売買</option></select></div><div class="control"><label class="label">家賃・価格（万円）</label><input class="input" id="pPrice" type="number" min="0" step="0.1"></div><div class="control"><label class="label">間取り</label><select class="input" id="pLayout"><option value="">未指定</option><option>1R</option><option>1K</option><option>1DK</option><option>1LDK</option><option>2K</option><option>2DK</option><option>2LDK</option><option>3LDK</option></select></div><div class="control"><label class="label">面積（㎡）</label><input class="input" id="pArea" type="number" min="0" step="0.1"></div><div class="control"><label class="label">築年数（年）</label><input class="input" id="pAge" type="number" min="0"></div><div class="control"><label class="label">設備</label><div class="checkrow"><label><input id="pPets" type="checkbox">ペット可</label><label><input id="pParking" type="checkbox">駐車場</label></div></div></div><div class="columns"><label class="control"><span class="label">管理費（円 / 月、不明なら空欄）</span><input id="pFee" class="input" type="number" min="0"></label><label class="control"><span class="label">その他必須費用（円 / 月、不明なら空欄）</span><input id="pMandatoryFee" class="input" type="number" min="0"></label></div><label class="muted"><input id="pPositionConfirmed" type="checkbox"> 座標を掲載元の正確な所在地と照合済み</label><label class="muted"><input id="pVerifiedNow" type="checkbox"> 掲載元を今確認し、募集中と確認しました</label><div class="control"><label class="label">掲載元URL（募集確認に必要）</label><input class="input" id="pUrl" type="url" placeholder="https://..."></div><div class="columns"><div class="control"><label class="label">緯度</label><input class="input" id="pLat" type="number" step="any" placeholder="住所検索で入力"></div><div class="control"><label class="label">経度</label><input class="input" id="pLon" type="number" step="any"></div></div><div class="buttons"><button id="modalCancel" class="btn ghost">キャンセル</button><button id="modalSave" class="btn">保存</button></div></div></div>
 <script src="i18n.js"></script>
 <script src="walking.js"></script>
+<script src="property_core.js"></script>
+<script src="public_housing.js"></script>
 <script>
 (()=>{'use strict';
 const $=id=>document.getElementById(id), Earth=6371.0088, RAD=Math.PI/180;
 const {t, setText} = window.homeI18n;
+const propertyCore=window.propertyCore,commuteResults=new Map();
+let listingGeneration=0,buildingGeneration=0,editingRecord=null,routeBusy=false;
+let publicView=null;
 const defaults={a:{name:'東京駅',lat:35.681236,lon:139.767125},b:null,ra:3,rb:5,rangeMode:'walk',wa:15,wb:15,properties:[]};
 let state;try{state=Object.assign({},defaults,JSON.parse(localStorage.getItem('property_map_v2')||'{}'))}catch{state={...defaults}}
 if(!state.a||!Number.isFinite(Number(state.a.lat)))state.a={...defaults.a};if(!Array.isArray(state.properties))state.properties=[];
@@ -161,7 +199,7 @@ function handleMapWheel(event){
  center=unproject(((centerX%worldSize)+worldSize)%worldSize,clamp(centerY,1,worldSize-1));
  renderSoon();
 }
-function renderSoon(){if(!renderPending){renderPending=true;requestAnimationFrame(()=>{renderPending=false;renderMap();renderList()})}}
+function renderSoon(){if(!renderPending){renderPending=true;requestAnimationFrame(()=>{renderPending=false;renderMap();renderList();publicView?.renderList()})}}
 function circleSVG(p,radius,color){let {x,y}=screen(p);let circ=project(p.lat,p.lon);let d=(radius/Earth)/RAD*256*2**zoom/360/Math.cos(p.lat*RAD);return `<circle cx="${x}" cy="${y}" r="${d}" stroke="${color}" stroke-width="2" fill="${color}" fill-opacity=".10"/><circle cx="${x}" cy="${y}" r="3.5" fill="${color}" stroke="white" stroke-width="1.5"/>`}
 function rangeSVG(which,color){
  if(!walkingMode())return circleSVG(state[which],state['r'+which],color);
@@ -176,24 +214,84 @@ let xMin=Math.floor(left/tileSize),xMax=Math.floor((left+r.width)/tileSize),yMin
 const ov=$('overlay');ov.setAttribute('width',String(r.width));ov.setAttribute('height',String(r.height));ov.setAttribute('viewBox',`0 0 ${r.width} ${r.height}`);ov.innerHTML=rangeSVG('a','#2563eb')+(state.b&&(!walkingMode()||$('restrictB').checked)?rangeSVG('b','#a855f7'):'');
 const pins=$('pins');pins.replaceChildren();function marker(p,label,cls,title,click){const pos=screen(p);if(pos.x< -120||pos.x>r.width+120||pos.y< -50||pos.y>r.height+50)return;const b=document.createElement('button');b.className='marker '+cls;b.style.left=pos.x+'px';b.style.top=pos.y+'px';setText(b, () => label);b.title=title;b.onclick=e=>{e.stopPropagation();click()};pins.append(b)}marker(state.a,'','anchor a',state.a.name,()=>toast(t('地点A：')+state.a.name));if(state.b)marker(state.b,'','anchor b',state.b.name,()=>toast(t('地点B：')+state.b.name));
 for(const p of matched().slice(0,500)){const label=p.price!=null&&p.price!==''?t("{0}万{1}", [p.price, p.type==='rent'?t('/月'):'']):t('物件');marker(p,label,'',p.name,()=>openModal(p))} }
-function filtered(){const maxPrice=Number($('maxPrice').value),minArea=Number($('minArea').value),maxAge=Number($('maxAge').value),layout=$('layout').value,type=$('type').value,insideOnly=$('insideOnly').checked,restrictB=$('restrictB').checked;
-return state.properties.filter(p=>{if(insideOnly&&withinRange(p)!==true)return false;if(type&&p.type!==type)return false;if($('maxPrice').value&&(!Number.isFinite(+p.price)||p.price==null||+p.price>maxPrice))return false;if($('minArea').value&&(!Number.isFinite(+p.area)||p.area==null||+p.area<minArea))return false;if($('maxAge').value&&(!Number.isFinite(+p.age)||p.age==null||+p.age>maxAge))return false;if(layout&&p.layout!==layout)return false;if($('pets').checked&&!p.pets)return false;if($('parking').checked&&!p.parking)return false;return true})}
-function matched(){const arr=filtered(),s=$('sort').value;return arr.sort((p,q)=>s==='price'?(+(p.price??Infinity))-(+(q.price??Infinity)):s==='area'?(+(q.area??-Infinity))-(+(p.area??-Infinity)):dist(p,state.a)-dist(q,state.a))}
-function renderList(){setText($('matchCount'), () => matched().length+' / '+state.properties.length);const el=$('results');el.replaceChildren();let arr=matched();if(!arr.length){let d=document.createElement('div');d.className='empty';setText(d, () => state.properties.length?($('insideOnly').checked&&!rangesReady()?t('徒歩圏が未取得のため、範囲内の候補は判定できません。'):t('条件に合う候補はありません。距離・家賃などの条件を変更してください。')):t('候補物件は未登録です。上の「＋」から住所・家賃・掲載URLを登録すると比較できます。'));el.append(d);return}for(let p of arr.slice(0,150)){let d=document.createElement('article');d.className='result';let heading=document.createElement('div');heading.style.cssText='display:flex;justify-content:space-between;gap:8px';const h=document.createElement('h3');setText(h, () => p.name);heading.append(h);const price=document.createElement('div');price.className='price';setText(price, () => p.price!=null&&p.price!==''?p.price+t('万円')+(p.type==='rent'?t('/月'):''):t('価格未入力'));heading.append(price);d.append(heading);let txt=document.createElement('div');txt.className='description';setText(txt, () => t('直線距離：')+t("Aから{0}{1}｜{2}｜{3}㎡｜築{4}年", [formatKm(dist(state.a,p)), state.b?t('・Bから')+formatKm(dist(state.b,p)):'', p.layout||t('間取り不明'), p.area??'?', p.age??'?']));d.append(txt);if(p.address){let addr=document.createElement('div');addr.className='description';setText(addr, () => p.address);d.append(addr)}let actions=document.createElement('div');actions.className='actions';function action(name,fn){const b=document.createElement('button');setText(b, () => name);b.onclick=fn;actions.append(b)}action(t('地図'),()=>{center={lat:p.lat,lon:p.lon};zoom=Math.max(zoom,14);renderSoon()});action(t('道順'),()=>window.open(`https://www.google.com/maps/dir/?api=1&origin=${state.a.lat},${state.a.lon}&destination=${p.lat},${p.lon}${walkingMode()?'&travelmode=walking':''}`,'_blank','noopener'));action(t('編集'),()=>openModal(p));action(t('削除'),()=>{if(confirm(t('この候補を削除しますか？'))){state.properties=state.properties.filter(q=>q.id!==p.id);persist();renderSoon()}});if(p.url&&/^https?:\/\//.test(p.url)){const a=document.createElement('a');a.href=p.url;setText(a, () => t('掲載元'));a.target='_blank';a.rel='noopener noreferrer';actions.append(a)}d.append(actions);el.append(d)} }
+function currentFilters(){
+ return {maxPrice:$('maxPrice').value,minArea:$('minArea').value,maxAge:$('maxAge').value,layout:$('layout').value,type:$('type').value,pets:$('pets').checked,parking:$('parking').checked,insideOnly:$('insideOnly').checked,includeUnknown:$('includeUnknown').checked,maxCommute:$('maxCommute').value,spatialCheck:walkingMode()?withinRange:null};
+}
+function commuteOrigins(){
+ const origins=[{...state.a,radius:state.ra}];
+ if($('restrictB').checked&&state.b)origins.push({...state.b,radius:state.rb});
+ return origins;
+}
+function routeKey(property,destination){return JSON.stringify([property.lat,property.lon,destination.lat,destination.lon,$('commuteMode').value])}
+function candidateCheck(property,listing=false,withoutCommute=false){
+ const origins=commuteOrigins(),filters=currentFilters();
+ const commute=origins.map(destination=>{const route=commuteResults.get(routeKey(property,destination));return route&&Date.now()-Date.parse(route.checked_at)<=300000?route:null});
+ if(listing)filters.insideOnly=$('listingOnlyWithin').checked;
+ if(withoutCommute)filters.maxCommute='';
+ return propertyCore.evaluate({...property,commute},filters,origins,dist);
+}
+function listingCandidate(hit){return {...hit.extracted,name:hit.title,type:hit.kind,lat:hit.lat,lon:hit.lon,geo_precision:hit.geo_precision,availability_status:hit.availability_status,last_verified_at:hit.last_verified_at,url:hit.url,source:hit.source,source_record_id:hit.source_record_id,data_quality:hit.data_quality}}
+function filtered(){return state.properties.filter(property=>candidateCheck(property).match)}
+
+function matched(){const arr=filtered(),s=$('sort').value;return arr.sort((p,q)=>s==='price'?(propertyCore.monthlyPrice(p)??Infinity)-(propertyCore.monthlyPrice(q)??Infinity):s==='area'?(+(q.area??-Infinity))-(+(p.area??-Infinity)):dist(p,state.a)-dist(q,state.a))}
+function renderList(){
+ const matches=matched(),list=$('results');setText($('matchCount'),()=>matches.length+' / '+state.properties.length);setText($('matchLabel'),()=>t($('includeUnknown').checked?'表示候補（未確認を含む）':'必須条件を確認した候補'));list.replaceChildren();
+ if(!matches.length)list.append(makeEl('div','empty',t('一致する候補は0件です。募集確認日時・必須条件・通勤時間の未取得項目を確認してください。')));
+ for(const property of matches.slice(0,150)){
+  const card=makeEl('article','result'),check=candidateCheck(property),total=propertyCore.monthlyPrice(property);
+  card.append(makeEl('h3','',property.name),makeEl('div','price',total==null?t('月額総額不明'):total+t(property.type==='sale'?'万円':'万円/月')));
+  card.append(makeEl('p','muted',t('掲載元確認：')+property.last_verified_at));
+  if(check.unknown.length)card.append(makeEl('p','listing-uncertain',t('未確認：')+check.unknown.map(label=>t(label)).join(' / ')));
+  const actions=makeEl('div','actions');
+  actions.append(makeButton(t('地図'),()=>{center={lat:property.lat,lon:property.lon};renderSoon()}),makeButton(t('編集'),()=>openModal(property)),makeButton(t('通勤時間を取得'),()=>calculateCommute(property)));
+  if(property.url)actions.append(makeLink(t('掲載元を開く'),property.url));
+  actions.append(makeLink(t('電車の経路を確認'),transitUrl(property)));
+  actions.append(makeButton(t('削除'),()=>{if(confirm(t('この候補を削除しますか？'))){state.properties=state.properties.filter(item=>item.id!==property.id);persist();renderSoon()}}));
+  card.append(actions);appendCommute(card,property);list.append(card);
+ }
+ for(const property of state.properties.filter(item=>!candidateCheck(item).match&&candidateCheck(item,false,true).match)){
+  const pending=makeEl('div','empty',property.name+' / '+t('通勤時間は未判定です。'));pending.append(makeButton(t('通勤時間を取得'),()=>calculateCommute(property)));list.append(pending);
+ }
+ const expired=state.properties.filter(property=>!propertyCore.fresh(property));
+ if(expired.length){const details=makeEl('details');details.append(makeEl('summary','muted',t('募集の再確認が必要な保存候補：')+expired.length));for(const property of expired)details.append(makeButton(property.name+' / '+t('再確認・編集'),()=>openModal(property)));list.append(details)}
+}
+function transitUrl(property){return 'https://www.google.com/maps/dir/?'+new URLSearchParams({api:'1',origin:property.lat+','+property.lon,destination:state.a.lat+','+state.a.lon,travelmode:'transit'})}
+function appendCommute(card,property){
+ commuteOrigins().forEach((destination,index)=>{const result=commuteResults.get(routeKey(property,destination));if(result&&Date.now()-Date.parse(result.checked_at)<=300000)card.append(makeEl('p','muted',t('通勤先')+(index===0?' A':' B')+': '+Math.ceil(result.duration_seconds/60)+t('分（道路経路の推定）')+' / '+result.source))});
+}
+async function calculateCommute(property){
+ if(routeBusy){toast(t('経路の照会が終わるまでお待ちください。'));return}
+ if(property.geo_precision!=='exact'||!valid(property.lat,property.lon)){toast(t('先に所在地の正確な座標を確認してください。'));return}
+ const destinations=commuteOrigins(),mode=$('commuteMode').value,token=JSON.stringify([destinations,mode]),status=$('commuteStatus');
+ routeBusy=true;
+ for(const destination of destinations)commuteResults.delete(routeKey(property,destination));
+ setText(status,()=>t('道路経路を照会中…'));
+ try{
+  for(const destination of destinations){
+   const response=await fetch('/api/route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({origin:{lat:property.lat,lon:property.lon},destination:{lat:destination.lat,lon:destination.lon},mode}),signal:AbortSignal.timeout(20000)});
+   const route=await response.json();if(!response.ok||route.status!=='ok')throw Error(route.error||t('経路を取得できませんでした。'));
+   if(JSON.stringify([commuteOrigins(),$('commuteMode').value])!==token){setText(status,()=>t('条件が変わりました。経路を再取得してください。'));return}
+   commuteResults.set(routeKey(property,destination),route);
+  }
+  setText(status,()=>t('経路時間を取得しました。リアルタイム交通は反映しません。'));
+ }catch(error){setText(status,()=>t('経路取得失敗：')+error.message)}finally{routeBusy=false}
+ renderExternalPages();renderSoon();
+}
+
 function setAnchor(which,obj){const normalized={name:obj.name||'地図上の地点',lat:+obj.lat,lon:+obj.lon};if(!valid(normalized.lat,normalized.lon))return toast(t('座標を設定できません'));state[which]=normalized;center={lat:normalized.lat,lon:normalized.lon};setText($('name'+which.toUpperCase()), () => normalized.name);mode='view';setText($('mapModeLabel'), () => t('地図をドラッグして移動できます'));persist();renderSoon()}
 async function nominatim(q){if(q.trim().length<2)throw Error(t('地名・会社名・住所は2文字以上入力してください'));let wait=Math.max(0,1100-(Date.now()-geoTime));if(wait)await new Promise(resolve=>setTimeout(resolve,wait));geoTime=Date.now();const url='https://nominatim.openstreetmap.org/search?'+new URLSearchParams({q,format:'jsonv2',limit:5,'accept-language':'ja'});const r=await fetch(url,{headers:{Accept:'application/json'}});if(!r.ok)throw Error(t('位置情報の検索に失敗しました（')+r.status+'）');return r.json()}
 async function searchAnchor(which){const upper=which.toUpperCase(),q=$('query'+upper).value.trim(),b=$('search'+upper),el=$('choices'+upper);b.disabled=true;setText(b, () => t('検索中'));el.replaceChildren();el.style.display='none';try{let items=await searchLocationWithAddressFallback(q);if(!items.length)throw Error(t('場所が見つかりません。会社名ではなく所在地で試してください'));locationHits=items.map(p=>({label:p.display_name.split(',')[0],description:p.display_name,lat:+p.lat,lon:+p.lon}));$('globalQuery').value=q;$('linkGoogleMapsSearch').href='https://www.google.com/maps/search/?api=1&'+new URLSearchParams({query:q});globalResultUI();center={lat:+items[0].lat,lon:+items[0].lon};zoom=Math.max(zoom,14);renderSoon();for(let p of items){let button=document.createElement('button');setText(button, () => p.display_name);button.onclick=()=>{setAnchor(which,{name:q,lat:+p.lat,lon:+p.lon});el.style.display='none'};el.append(button)}el.style.display='block'}catch(e){toast(e.message)}finally{b.disabled=false;setText(b, () => t('検索'))}}
 function setMode(m){mode=m;setText($('mapModeLabel'), () => mode==='a'?t('地図をクリックして地点Aを指定'):mode==='b'?t('地図をクリックして地点Bを指定'):mode==='property'?t('地図をクリックして物件の位置を指定'):t('地図をドラッグして移動できます'));toast(mode==='view'?t('地図操作モード'):$('mapModeLabel').textContent)}
 function emptyModal(){return {name:'',address:'',type:'rent',price:null,layout:'',area:null,age:null,pets:false,parking:false,url:'',lat:'',lon:''}}
-function openModal(p,lat,lon){editId=p?.id??null;let v=p||emptyModal();if(!p&&valid(+lat,+lon)){const match=buildingHits.find(b=>Math.abs(b.lat-lat)<0.000001&&Math.abs(b.lon-lon)<0.000001);if(match){v={...v,name:match.label==='集合住宅（名称未登録）'?'':match.label,address:match.description==='住所データなし'?'':match.description,url:match.url}}}setText($('modalTitle'), () => p?t('候補物件を編集'):t('候補物件を登録'));$('pName').value=v.name||'';$('pAddress').value=v.address||'';$('pType').value=v.type||'rent';$('pPrice').value=v.price??'';$('pLayout').value=v.layout||'';$('pArea').value=v.area??'';$('pAge').value=v.age??'';$('pPets').checked=!!v.pets;$('pParking').checked=!!v.parking;$('pUrl').value=v.url||'';$('pLat').value=lat??v.lat??'';$('pLon').value=lon??v.lon??'';$('modalOuter').style.display='flex';$('pName').focus()}
+function openModal(p,lat,lon){editingRecord=p||null;editId=p?.id??null;let v=p||emptyModal();if(!p&&valid(+lat,+lon)){const match=buildingHits.find(b=>Math.abs(b.lat-lat)<0.000001&&Math.abs(b.lon-lon)<0.000001);if(match){v={...v,name:match.label==='集合住宅（名称未登録）'?'':match.label,address:match.description==='住所データなし'?'':match.description,url:match.url}}}setText($('modalTitle'), () => p?t('候補物件を編集'):t('候補物件を登録'));$('pName').value=v.name||'';$('pAddress').value=v.address||'';$('pType').value=v.type||'rent';$('pPrice').value=v.price??'';$('pLayout').value=v.layout||'';$('pArea').value=v.area??'';$('pAge').value=v.age??'';$('pFee').value=v.management_fee_yen??'';$('pMandatoryFee').value=v.mandatory_fee_yen??'';$('pPositionConfirmed').checked=v.geo_precision==='exact';$('pVerifiedNow').checked=false;$('pPets').checked=!!v.pets;$('pParking').checked=!!v.parking;$('pUrl').value=v.url||'';$('pLat').value=lat??v.lat??'';$('pLon').value=lon??v.lon??'';$('modalOuter').style.display='flex';$('pName').focus()}
 function closeModal(){$('modalOuter').style.display='none';editId=null}
-function saveModal(){const lat=Number($('pLat').value),lon=Number($('pLon').value),name=$('pName').value.trim(),url=$('pUrl').value.trim();if(!name){toast(t('物件名を入力してください'));return}if(!$('pLat').value||!$('pLon').value||!valid(lat,lon)){toast(t('緯度・経度が必要です。住所の「位置検索」か地図上のクリックで設定してください'));return}if(url&&!/^https?:\/\//i.test(url)){toast(t('URLは https:// または http:// で入力してください'));return}const readNum=id=>$(id).value===''?null:+$(id).value;let p={id:editId||'p'+Date.now()+Math.random().toString(36).slice(2),name,address:$('pAddress').value.trim(),type:$('pType').value,price:readNum('pPrice'),layout:$('pLayout').value,area:readNum('pArea'),age:readNum('pAge'),pets:$('pPets').checked,parking:$('pParking').checked,url,lat,lon};if(editId)state.properties=state.properties.map(x=>x.id===editId?p:x);else state.properties.push(p);closeModal();setMode('view');persist();renderSoon();toast(t('物件を登録しました'))}
+function saveModal(){const lat=Number($('pLat').value),lon=Number($('pLon').value),name=$('pName').value.trim(),url=$('pUrl').value.trim();if(!name){toast(t('物件名を入力してください'));return}if(!$('pLat').value||!$('pLon').value||!valid(lat,lon)){toast(t('緯度・経度が必要です。住所の「位置検索」か地図上のクリックで設定してください'));return}if(url&&!/^https?:\/\//i.test(url)){toast(t('URLは https:// または http:// で入力してください'));return}if($('pVerifiedNow').checked&&!/^https:\/\//i.test(url)){toast(t('募集確認にはHTTPSの掲載元URLが必要です。'));return}const readNum=id=>propertyCore.number($(id).value);let p={...editingRecord,id:editId||'p'+Date.now()+Math.random().toString(36).slice(2),name,address:$('pAddress').value.trim(),type:$('pType').value,price:readNum('pPrice'),layout:$('pLayout').value,area:readNum('pArea'),age:readNum('pAge'),pets:$('pPets').checked,parking:$('pParking').checked,url,lat,lon,management_fee_yen:readNum('pFee'),mandatory_fee_yen:readNum('pMandatoryFee'),geo_precision:$('pPositionConfirmed').checked?'exact':'approximate',availability_status:$('pVerifiedNow').checked?'confirmed':editingRecord?.availability_status||'unknown',last_verified_at:$('pVerifiedNow').checked?new Date().toISOString():editingRecord?.last_verified_at||null};if(editId)state.properties=state.properties.map(x=>x.id===editId?p:x);else state.properties.push(p);closeModal();setMode('view');persist();renderSoon();toast(t('物件を登録しました'))}
 async function geocodeProperty(){const q=$('pAddress').value.trim(),b=$('geocodeProperty');if(!q)return toast(t('住所を入力してください'));b.disabled=true;setText(b, () => t('検索中'));try{let items=await searchLocationWithAddressFallback(q);if(!items.length)throw Error(t('住所が見つかりません'));$('pLat').value=items[0].lat;$('pLon').value=items[0].lon;toast(t('座標を取得しました。地図で正しい位置か確認してください'))}catch(e){toast(e.message)}finally{b.disabled=false;setText(b, () => t('位置検索'))}}
 function csvParse(s){let rows=[],row=[],cell='',quote=false;for(let i=0;i<s.length;i++){const c=s[i];if(quote){if(c==='"'&&s[i+1]==='"'){cell+='"';i++}else if(c==='"')quote=false;else cell+=c}else if(c==='"')quote=true;else if(c===','){row.push(cell);cell=''}else if(c==='\r'||c==='\n'){if(c==='\r'&&s[i+1]==='\n')i++;row.push(cell);if(row.some(x=>x.trim()))rows.push(row);row=[];cell=''}else cell+=c}row.push(cell);if(row.some(x=>x.trim()))rows.push(row);return rows}
 function csvExport(rows,name){const data='\uFEFF'+rows.map(row=>row.map(s=>'"'+String(s??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');const a=document.createElement('a'),blob=new Blob([data],{type:'text/csv;charset=utf-8'});a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1500)}
-const headers=['name','address','lat','lon','type','price','layout','area','age','pets','parking','url'];const pRow=p=>headers.map(h=>p[h]??'');
+const headers=['name','address','lat','lon','type','price','layout','area','age','pets','parking','url','management_fee_yen','mandatory_fee_yen','geo_precision','availability_status','last_verified_at','source'];const pRow=p=>headers.map(h=>p[h]??'');
 function templateCSV(){csvExport([headers,['物件名','東京都千代田区丸の内1-9-1','35.681236','139.767125','rent','','1K','25','','false','false','https://example.com/']], 'property-template.csv');toast(t('CSVひな型には形式確認用の架空の例が含まれます。実際の募集物件ではありません'))}
-async function importCSV(file){if(!file)return;try{const rows=csvParse((await file.text()).replace(/^\uFEFF/,'')),columns=rows.shift().map(x=>x.trim().toLowerCase());for(let h of ['name','lat','lon'])if(!columns.includes(h))throw Error(t('CSVに ')+h+t(' 列が必要です。ひな型を確認してください'));let get=(r,k)=>r[columns.indexOf(k)]||'';let count=0;for(let r of rows){let lat=+get(r,'lat'),lon=+get(r,'lon');if(!get(r,'name')||!get(r,'lat')||!get(r,'lon')||!valid(lat,lon))continue;const n=k=>get(r,k)===''?null:+get(r,k);state.properties.push({id:'csv'+Date.now()+Math.random(),name:get(r,'name'),address:get(r,'address'),lat,lon,type:get(r,'type')||'rent',price:n('price'),layout:get(r,'layout'),area:n('area'),age:n('age'),pets:/^(true|1|yes|可)$/i.test(get(r,'pets')),parking:/^(true|1|yes|可)$/i.test(get(r,'parking')),url:get(r,'url')});count++;if(count>=1000)break}persist();renderSoon();toast(count+t('件の物件を取り込みました'))}catch(e){toast(t('CSVエラー：')+e.message)}finally{$('csvFile').value=''}}
+async function importCSV(file){if(!file)return;try{const rows=csvParse((await file.text()).replace(/^\uFEFF/,'')),columns=rows.shift().map(x=>x.trim().toLowerCase());for(let h of ['name','lat','lon'])if(!columns.includes(h))throw Error(t('CSVに ')+h+t(' 列が必要です。ひな型を確認してください'));let get=(r,k)=>r[columns.indexOf(k)]||'';let count=0;for(let r of rows){let lat=+get(r,'lat'),lon=+get(r,'lon');if(!get(r,'name')||!get(r,'lat')||!get(r,'lon')||!valid(lat,lon))continue;const n=k=>propertyCore.number(get(r,k));state.properties.push({id:'csv'+Date.now()+Math.random(),name:get(r,'name'),address:get(r,'address'),lat,lon,type:get(r,'type')||'rent',price:n('price'),layout:get(r,'layout'),area:n('area'),age:n('age'),pets:/^(true|1|yes|可)$/i.test(get(r,'pets')),parking:/^(true|1|yes|可)$/i.test(get(r,'parking')),url:get(r,'url'),management_fee_yen:n('management_fee_yen'),mandatory_fee_yen:n('mandatory_fee_yen'),geo_precision:get(r,'geo_precision')||'unknown',availability_status:get(r,'availability_status')||'unknown',last_verified_at:get(r,'last_verified_at')||null,source:get(r,'source')});count++;if(count>=1000)break}persist();renderSoon();toast(count+t('件の物件を取り込みました'))}catch(e){toast(t('CSVエラー：')+e.message)}finally{$('csvFile').value=''}}
 function sync(){
  setText($('nameA'),()=>state.a.name);setText($('nameB'),()=>state.b?.name||t('未指定'));
  $('rangeMode').value=state.rangeMode;
@@ -206,21 +304,22 @@ function sync(){
  document.querySelectorAll('[data-radius]').forEach((button,index)=>{button.dataset.radius=presets[index];setText(button,()=>walk?t('{0}分',[presets[index]]):presets[index]+'km');button.classList.toggle('active',presets[index]===state[(walk?'w':'r')+'a'])});
  $('bRadiusWrap').style.display=state.b&&$('restrictB').checked?'block':'none';
  $('walkingPanel').hidden=!walk;$('walkingMapSummary').hidden=!walk;
- setText($('rangeHint'),()=>walk?t('色付きの線は時間内に到達した道路・歩道です。破線は徒歩圏の外周の目安です。'):t('円は直線距離です。地図上を押して地点を指定できます。会社名で見つからない場合は住所検索、またはGoogle マップ検索をお試しください。'));
+ setText($('rangeHint'),()=>walk?t('色付きの線は時間内に到達した道路・歩道です。破線は徒歩圏の外周の目安です。'):t('円は直線距離です。地点A・Bの「地図で指定」を押してから地図をクリックしてください。会社名で見つからない場合は住所検索、またはGoogle マップ検索をお試しください。'));
 }
 function changeRadius(which,v){state[(walkingMode()?'w':'r')+which]=+v;persist();sync();refreshWalkingAreas();refreshRangeResults()}
-function mapClick(e){const p=geoFromScreen(e.clientX,e.clientY);if(mode==='a'||mode==='b')setAnchor(mode,{name:'地図上で指定',lat:p.lat,lon:p.lon});else if(mode==='property'){setMode('view');openModal(null,p.lat,p.lon)}else{setAnchor('a',{name:'地図上で指定',lat:p.lat,lon:p.lon})}}
+function mapClick(e){const p=geoFromScreen(e.clientX,e.clientY);if(mode==='a'||mode==='b')setAnchor(mode,{name:'地図上で指定',lat:p.lat,lon:p.lon});else if(mode==='property'){setMode('view');openModal(null,p.lat,p.lon)}}
+
 function bind(){for(const w of ['a','b']){let W=w.toUpperCase();$('set'+W).onclick=()=>setMode(w);$('search'+W).onclick=()=>searchAnchor(w);$('query'+W).onkeydown=e=>{if(e.key==='Enter')searchAnchor(w)}}$('restrictB').onchange=()=>{sync();refreshWalkingAreas();refreshRangeResults()};$('rangeMode').onchange=()=>{state.rangeMode=$('rangeMode').value;persist();sync();refreshWalkingAreas();refreshRangeResults()};$('retryWalking').onclick=()=>refreshWalkingAreas(true,true);$('radiusA').oninput=e=>changeRadius('a',e.target.value);$('radiusB').oninput=e=>changeRadius('b',e.target.value);document.querySelectorAll('[data-radius]').forEach(b=>b.onclick=()=>changeRadius('a',b.dataset.radius));for(const id of ['maxPrice','minArea','layout','maxAge','type','pets','parking','insideOnly','sort'])$(id).addEventListener('input',renderSoon);$('addBtn').onclick=()=>{setMode('property');toast(t('地図をタップして登録、または再度＋から座標を入力してください'));openModal(null)};$('modalCancel').onclick=closeModal;$('modalSave').onclick=saveModal;$('geocodeProperty').onclick=geocodeProperty;$('modalOuter').onclick=e=>{if(e.target===$('modalOuter'))closeModal()};$('importBtn').onclick=()=>$('csvFile').click();$('csvFile').onchange=e=>importCSV(e.target.files[0]);$('templateBtn').onclick=templateCSV;$('exportBtn').onclick=()=>csvExport([headers,...state.properties.map(pRow)],'property-candidates.csv');$('zoomIn').onclick=()=>{zoom=clamp(zoom+1,3,18);renderSoon()};$('zoomOut').onclick=()=>{zoom=clamp(zoom-1,3,18);renderSoon()};$('resetView').onclick=()=>{center={lat:state.a.lat,lon:state.a.lon};zoom=12;if(walkingMode())fitWalkingAreas(true);renderSoon()};
 const map=$('map');map.addEventListener('pointerdown',e=>{if(e.target.closest('.marker'))return;if(e.button!==0&&e.pointerType==='mouse')return;activePointer={id:e.pointerId,x:e.clientX,y:e.clientY,c:{...center}};pointMoved=false;map.setPointerCapture(e.pointerId);map.classList.add('drag')});map.addEventListener('pointermove',e=>{if(!activePointer||e.pointerId!==activePointer.id)return;let dx=e.clientX-activePointer.x,dy=e.clientY-activePointer.y;if(Math.abs(dx)+Math.abs(dy)>8)pointMoved=true;if(pointMoved){let cp=project(activePointer.c.lat,activePointer.c.lon),s=256*2**zoom;center=unproject(((cp.x-dx)%s+s)%s,clamp(cp.y-dy,1,s-1));renderSoon()}});map.addEventListener('pointerup',e=>{if(!activePointer||e.pointerId!==activePointer.id)return;map.classList.remove('drag');activePointer=null;if(!pointMoved)mapClick(e)});map.addEventListener('pointercancel',()=>{activePointer=null;map.classList.remove('drag')});map.addEventListener('wheel',handleMapWheel,{passive:false});window.addEventListener('resize',renderSoon);document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();setMode('view')}})}
 
 // === LIVE LOOKUP EXTENSION ===
-let locationHits=[],buildingHits=[],buildingSearchRadius=0,buildingSequence=0,propertyPageHits=[],searchSequence=0, listingsReady=false,listingHealthChecked=false,decisionsReady=false;
+let locationHits=[],buildingHits=[],buildingSearchRadius=0,propertyPageHits=[],searchSequence=0, listingsReady=false,listingHealthChecked=false,decisionsReady=false;
 const externalFilter=()=>{const parts=[];const type=$('type').value;parts.push(type==='sale'?'売買':'賃貸');if($('maxPrice').value)parts.push($('maxPrice').value+'万円以下');if($('layout').value)parts.push($('layout').value);if($('minArea').value)parts.push($('minArea').value+'㎡以上');if($('pets').checked)parts.push('ペット可');if($('parking').checked)parts.push('駐車場');if($('maxAge').value)parts.push('築'+$('maxAge').value+'年以内');if($('listingKeywords').value.trim())parts.push($('listingKeywords').value.trim());return parts.join(' ')};
 function searchTerms(){return `${state.a.name} 周辺 ${externalFilter()}`.trim()}
 function refreshPortals(){const q=searchTerms(),path=$('type').value==='sale'?'':'chintai/';$('linkGoogle').href='https://www.google.com/search?'+new URLSearchParams({q:`(site:suumo.jp OR site:homes.co.jp OR site:athome.co.jp) ${q}`});$('linkSuumo').href='https://www.google.com/search?'+new URLSearchParams({q:`site:suumo.jp/${path} ${q}`});$('linkHomes').href='https://www.google.com/search?'+new URLSearchParams({q:`site:homes.co.jp/${path} ${q}`});$('linkAtHome').href='https://www.google.com/search?'+new URLSearchParams({q:`site:athome.co.jp/${path} ${q}`})}
 function makeEl(tag,className,content){const el=document.createElement(tag);if(className)el.className=className;if(content!==undefined)setText(el, () => content);return el}
 function makeButton(text,action){const b=makeEl('button','',text);b.type='button';b.onclick=action;return b}
-function makeLink(text,url){const a=makeEl('a','',text);a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a}
+function makeLink(text,url){if(!propertyCore.safeUrl(url))return makeEl('span','muted',text);const anchor=makeEl('a','',text);anchor.href=url;anchor.target='_blank';anchor.rel='noopener noreferrer';return anchor}
 function placeToAnchor(hit,key){setAnchor(key,{name:hit.label,lat:hit.lat,lon:hit.lon});refreshPortals();toast(t("{0}を「{1}」に設定しました", [key.toUpperCase(), hit.label]))}
 function showHitOnMap(hit){center={lat:hit.lat,lon:hit.lon};zoom=Math.max(zoom,15);renderSoon()}
 function globalResultUI(){const el=$('globalResults');el.replaceChildren();const total=locationHits.length;
@@ -245,28 +344,17 @@ async function searchLocationWithAddressFallback(query){
 // Overpass returns actual OSM building features, NOT advertised vacancies or rooms.
 const overpassEndpoints=['https://overpass.kumi.systems/api/interpreter','https://overpass-api.de/api/interpreter'];
 async function loadBuildings(){if(!rangesReady())return toast(t('徒歩圏を取得してから検索してください。'));const button=$('searchBuildings'),output=$('buildingResults'),r=Math.min(5,Math.max(0.5,rangeSearchRadius()));button.dataset.busy='true';button.disabled=true;setText(button, () => t('検索中'));output.replaceChildren();setText($('buildingStatus'), () => t('OpenStreetMapから集合住宅を照会中…'));
- const seq=++buildingSequence;
+ const seq=++buildingGeneration,origin={...state.a};
  const query=`[out:json][timeout:24];(nwr["building"="apartments"](around:${Math.round(r*1000)},${state.a.lat.toFixed(6)},${state.a.lon.toFixed(6)});nwr["building"="residential"]["name"](around:${Math.round(r*1000)},${state.a.lat.toFixed(6)},${state.a.lon.toFixed(6)}););out center 220;`;
  try{let result=null,lastError=null;for(const endpoint of overpassEndpoints){try{const abort=new AbortController();const timer=setTimeout(()=>abort.abort(),27000);try{const resp=await fetch(endpoint,{method:'POST',body:new URLSearchParams({data:query}),signal:abort.signal});if(!resp.ok)throw Error('HTTP '+resp.status);result=await resp.json();break}finally{clearTimeout(timer)}}catch(e){lastError=e}}
- if(seq!==buildingSequence)return;if(!result)throw lastError||Error(t('サーバーが応答しません'));
+ if(seq!==buildingGeneration||origin.lat!==state.a.lat||origin.lon!==state.a.lon)return;if(!result)throw lastError||Error(t('サーバーが応答しません'));
  let ids=new Set();buildingHits=(result.elements||[]).map(x=>{const lat=x.lat??x.center?.lat,lon=x.lon??x.center?.lon;const addr=x.tags?.['addr:full']||[x.tags?.['addr:city'],x.tags?.['addr:suburb'],x.tags?.['addr:street'],x.tags?.['addr:housenumber']].filter(Boolean).join(' ');return {id:`${x.type}/${x.id}`,lat:+lat,lon:+lon,label:x.tags?.name||x.tags?.['addr:housename']||'集合住宅（名称未登録）',description:addr||'住所データなし',type:'building',url:`https://www.openstreetmap.org/${x.type}/${x.id}`}}).filter(x=>valid(x.lat,x.lon)&&!ids.has(x.id)&&ids.add(x.id));buildingSearchRadius=r;showBuildings();renderSoon();
- }catch(e){if(seq!==buildingSequence)return;setText($('buildingStatus'), () => t('建物情報を取得できません：')+e.message+t('。時間をおいて再検索するか、物件サイトをご利用ください。'))}finally{delete button.dataset.busy;button.disabled=!rangesReady();setText(button, () => t('範囲内の集合住宅を探す'))}}
+ }catch(e){if(seq!==buildingGeneration)return;setText($('buildingStatus'), () => t('建物情報を取得できません：')+e.message+t('。時間をおいて再検索するか、物件サイトをご利用ください。'))}finally{delete button.dataset.busy;button.disabled=!rangesReady();setText(button, () => t('範囲内の集合住宅を探す'))}}
 function filteredBuildings(){return buildingHits.filter(b=>withinRange(b)===true).sort((a,b)=>dist(a,state.a)-dist(b,state.a))}
 function showBuildings(){const list=$('buildingResults');list.replaceChildren();if(!buildingHits.length){setText($('buildingStatus'), () => t('建物データがありません。地点A・範囲を変えてお試しください。'));return}const hits=filteredBuildings();setText($('buildingStatus'), () => t("地図データ {0}件取得・現在の範囲内 {1}件（周辺{2}kmまで照会）。これは空室・募集物件の件数ではありません。{3}", [buildingHits.length, hits.length, buildingSearchRadius.toFixed(2), !rangesReady()?t('徒歩圏は未取得のため判定できません。'):rangeSearchRadius()>buildingSearchRadius+0.01?t('検索範囲の一部が未取得です。建物の照会は最大5km・220件です。範囲を広げた場合は再検索してください。'):'']));for(const b of hits.slice(0,60)){const d=makeEl('div','live-item');d.append(makeEl('h4','',b.label),makeEl('div','muted',t("Aから直線{0}｜{1}", [formatKm(dist(b,state.a)), b.description])));const row=makeEl('div','line-actions');row.append(makeButton(t('地図で確認'),()=>showHitOnMap(b)),makeButton(t('候補に登録'),()=>openModal(null,b.lat,b.lon)));row.append(makeLink(t('地図データ'),b.url));if(b.label!=='集合住宅（名称未登録）')row.append(makeLink(t('掲載情報を探す'),'https://www.google.com/search?'+new URLSearchParams({q:`${b.label} ${state.a.name} (site:suumo.jp OR site:homes.co.jp) 賃貸`}))); d.append(row);list.append(d)}if(hits.length>60)list.append(makeEl('div','muted',t('一覧は近い60件を表示。地図は最大220件を表示します。')))}
 // Search-engine snippets are not a live inventory. Estimated map positions never count as exact addresses.
-function resultFlags(hit){
- const x=hit.extracted||{},flags=[],unknown=[];
- const price=$('maxPrice').value,area=$('minArea').value,age=$('maxAge').value,layout=$('layout').value;
- if(price){if(x.price==null)unknown.push(t('家賃'));else if(x.price>+price)flags.push(t('価格条件外'))}
- if(area){if(x.area==null)unknown.push(t('面積'));else if(x.area<+area)flags.push(t('面積条件外'))}
- if(age){if(x.age==null)unknown.push(t('築年数'));else if(x.age>+age)flags.push(t('築年数条件外'))}
- if(layout){if(!x.layout)unknown.push(t('間取り'));else if(x.layout!==layout)flags.push(t('間取り条件外'))}
- if(hit.lat!=null){const within=withinRange(hit);if(within===false)flags.push(t('指定範囲外'));else if(within===null)unknown.push(t('徒歩圏の判定（取得待ち・取得失敗）'))}
- else unknown.push(t('位置'));
- if($('pets').checked)unknown.push(t('ペット可'));
- if($('parking').checked)unknown.push(t('駐車場'));
- return {flags,unknown,within:hit.lat!=null&&withinRange(hit)===true}
-}
+function resultFlags(hit){const check=candidateCheck(listingCandidate(hit),true);return {flags:check.failures.map(label=>t(label)),unknown:check.unknown.map(label=>t(label)),within:hit.lat!=null&&(walkingMode()?withinRange(hit)===true:!check.failures.includes('指定半径外')),match:check.match}}
+
 function locateImportedListing(hit,quiet=false){
  if(hit.lat!=null)return Promise.resolve(true);
  const address=hit.extracted?.address;
@@ -280,37 +368,30 @@ function locateImportedListing(hit,quiet=false){
  hit.lat=lat;hit.lon=lon;hit.label=hit.title;hit.positionAccuracy=t('住所の概略位置（国土地理院）');renderExternalPages();renderSoon();return true
  }).catch(e=>{if(!quiet)toast(t('住所を地図に変換できません：')+e.message);return false})
 }
-function importListing(hit){
- openModal(null,hit.lat,hit.lon);
- const x=hit.extracted||{};
- $('pName').value=hit.title;$('pAddress').value=x.address||'';
- $('pType').value=$('type').value==='sale'?'sale':'rent';
- $('pPrice').value=x.price??'';$('pLayout').value=x.layout||'';$('pArea').value=x.area??'';$('pAge').value=x.age??'';$('pUrl').value=hit.url;
- if(hit.lat!=null){$('pLat').value=hit.lat;$('pLon').value=hit.lon;toast(t('位置は概略です。保存前に所在地と金額を確認してください。'))}
- else toast(t('掲載サイトの住所を確認し、位置検索で確定してください。'));
-}
+function importListing(hit){openModal({...listingCandidate(hit),id:null},hit.lat,hit.lon)}
 function renderExternalPages(){
  const el=$('externalResults');el.replaceChildren();
- let withinCount=0,estimated=0,outside=0,unlocated=0,pending=0;
- const onlyWithin=$('listingOnlyWithin').checked;
+ let shown=0;
  for(const hit of propertyPageHits){
   const f=resultFlags(hit),x=hit.extracted||{};
-  if(f.within)withinCount++;else if(hit.lat==null)unlocated++;else if(!rangesReady())pending++;else outside++;
-  if(hit.lat!=null)estimated++;
-  if(onlyWithin&&f.flags.includes(t('指定範囲外')))continue;
+  if(!f.match){
+   if(candidateCheck(listingCandidate(hit),true,true).match){const pending=makeEl('div','empty',hit.title+' / '+t('通勤時間は未判定です。'));pending.append(makeButton(t('通勤時間を取得'),()=>calculateCommute(listingCandidate(hit))));el.append(pending)}
+   continue;
+  }
+  shown++;
   const card=makeEl('article','external-item'+(f.flags.length?' out-of-range':''));
   const title=makeEl('h4');title.append(makeLink(hit.title,hit.url));card.append(title);
-  const price=makeEl('div','listing-price',x.price!=null?`${x.price} ${x.price_unit||t('万円/月')}`:t('価格不明'));card.append(price);
-  const details=makeEl('div','listing-details');for(const t of [x.layout,x.area!=null?t("{0}㎡", [x.area]):null,x.age!=null?t("築{0}年", [x.age]):null])if(t)details.append(makeEl('span','',t));
+  const price=makeEl('div','listing-price',x.price!=null?`${x.price} ${t(x.price_unit||'万円/月')}`:t('価格不明'));card.append(price);
+  const details=makeEl('div','listing-details');for(const detail of [x.layout,x.area!=null?t("{0}㎡", [x.area]):null,x.age!=null?t("築{0}年", [x.age]):null])if(detail)details.append(makeEl('span','',detail));
   if(details.childNodes.length)card.append(details);
-  if(x.address)card.append(makeEl('p','',t("住所（索引抜粋）：{0}", [x.address])));
-  if(hit.lat!=null)card.append(makeEl('p','listing-uncertain',t('直線距離：')+t("地点Aから約{0}／{1}・建物所在地と異なる場合があります", [formatKm(dist(state.a,hit)), hit.positionAccuracy||t('推定位置')])));
+  if(x.address)card.append(makeEl('p','',t("所在地（掲載元提供）：{0}", [x.address])));
+  if(hit.lat!=null)card.append(makeEl('p','listing-uncertain',t('直線距離：')+t('地点Aから約')+formatKm(dist(state.a,hit))+' / '+t(hit.geo_precision==='exact'?'掲載元の正確な所在地':'位置は概略・距離条件は未確認')));
   else card.append(makeEl('p','listing-uncertain',t('住所の座標が未確認のため、距離条件との一致は未判定')));
   if(f.flags.length)card.append(makeEl('p','listing-out',t('検索条件と不一致の可能性：')+f.flags.join(t('・'))));
   if(f.unknown.length)card.append(makeEl('p','listing-uncertain',t('未確認：')+f.unknown.join(t('・'))));
   card.append(makeEl('p','',hit.description||t('紹介文なし')));
   const actions=makeEl('div','line-actions');
-  actions.append(makeLink(t('掲載元を開く'),hit.url));
+  actions.append(makeLink(t('掲載元を開く'),hit.url),makeButton(t('通勤時間を取得'),()=>calculateCommute(listingCandidate(hit))),makeLink(t('電車の経路を確認'),transitUrl(hit)));
   actions.append(makeButton(hit.lat!=null?t('地図で確認'):t('住所を地図で探す'),()=>{if(hit.lat!=null)showHitOnMap(hit);else locateImportedListing(hit).then(ok=>{if(ok)showHitOnMap(hit)})}));
   actions.append(makeButton(t('候補に取り込む'),()=>importListing(hit)));
   if(decisionsReady)actions.append(makeButton(t('AIで広告を分類'),async()=>{
@@ -321,32 +402,38 @@ function renderExternalPages(){
     setText(status, () => t('AI分類（参考・空室未確認）：')+(labels[json.choice]||t('判定不能'))+(Number.isFinite(json.confidence)?t(" / 信頼度 {0}%", [Math.round(json.confidence*100)]):''));
    }catch(err){setText(status, () => t('AI分類を利用できません：')+err.message);}
   }));
-  card.append(actions);
-  card.append(makeEl('small','',t("{0}｜{1}｜検索の抜粋・掲載日/空室未確認", [hit.source, hit.retrieved_at||t('取得日時不明')])));el.append(card);
+  card.append(actions);appendCommute(card,listingCandidate(hit));
+  const total=propertyCore.monthlyPrice(listingCandidate(hit));card.append(makeEl('p','muted',t('月額総額：')+(total==null?t('不明'):total+t(hit.kind==='sale'?'万円':'万円/月'))));
+  card.append(makeEl('small','',hit.source+' / '+t('掲載元確認：')+hit.last_verified_at));el.append(card);
  }
  if(propertyPageHits.length){
-  const line=makeEl('div','live-count',t("検索で発見 {0}件／位置を概略推定 {1}件／範囲内の可能性 {2}件／範囲外 {3}件／位置不明 {4}件／範囲未判定 {5}件", [propertyPageHits.length, estimated, withinCount, outside, unlocated, pending]));
-  el.prepend(line);
+  const line=makeEl('div','live-count',t('取り込んだ募集：')+propertyPageHits.length+t('件。古い募集や不一致は表示しません。'));
+  el.prepend(line,makeEl('div','live-count',t($('includeUnknown').checked?'表示候補（未確認を含む）：':'必須条件に一致して表示：')+shown));if(!shown)el.append(makeEl('div','empty',t('一致する募集は0件です。未確認項目や経路の未取得を確認してください。')));
  }
 }
 async function getListingHealth(){
  if(location.protocol==='file:'){listingsReady=false;listingHealthChecked=true;setText($('listingsStatus'), () => t('検索結果を読み込むにはZIP内のサーバーを起動してください：python3 property-server.py。HTML単体で外部ページの内容を取得することはできません。'));return}
- try{const response=await fetch('/api/health',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('backend');const j=await response.json();listingsReady=!!j.listings_enabled;decisionsReady=!!j.decisions_enabled;listingHealthChecked=true;setText($('listingsStatus'), () => listingsReady?t("外部検索が有効：{0}。検索ボタンで掲載ページを取得します。", [t(j.provider)]):t('検索サーバーは起動していますが、検索エンジンが利用できません。'));if(!j.has_brave_key)$('listingProvider').querySelector('option[value="brave"]').disabled=true;
+ try{const response=await fetch('/api/health',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('backend');const j=await response.json();$('listingProvider').querySelector('option[value="feed"]').disabled=!j.feed_enabled;listingsReady=!!j.listings_enabled;decisionsReady=!!j.decisions_enabled;listingHealthChecked=true;setText($('listingsStatus'), () => listingsReady?t("外部検索が有効：{0}。検索ボタンで掲載ページを取得します。", [t(j.provider)]):t('検索サーバーは起動していますが、検索エンジンが利用できません。'));if(!j.has_brave_key)$('listingProvider').querySelector('option[value="brave"]').disabled=true;
+ $('suumoSearch').disabled=j.suumo_reuse_permitted!==true;
+ if(j.suumo_reuse_permitted===true)setText($('suumoStatus'),()=>t('未検索。半径は0.1〜2km、地点Aは東京都内にしてください。'));
  }catch{listingsReady=false;listingHealthChecked=true;setText($('listingsStatus'), () => t('検索結果の取得にはローカルサーバーが必要です（README参照）。この画面だけを開いた場合は外部検索リンクをご利用ください。'))}
 }
 async function searchListingPages(){
- refreshPortals();propertyPageHits=[];renderExternalPages();renderSoon();
+ const generation=++listingGeneration;
+ refreshPortals();propertyPageHits=[];$('discoveryLinks').replaceChildren();renderExternalPages();renderSoon();
  const button=$('searchListings');if(!listingHealthChecked||!listingsReady)await getListingHealth();
  if(!listingsReady){setText($('listingsStatus'), () => t('先に同梱サーバーを起動してください。設定不要のBing RSS検索を試せます。'));return}
  button.disabled=true;setText(button, () => t('検索中'));setText($('listingsStatus'), () => t('実際の不動産サイトへのリンクを検索しています…'));
  try{
  const url='/api/listings?'+new URLSearchParams({place:$('listingArea').value.trim()||state.a.name,kind:$('type').value==='sale'?'sale':'rent',layout:$('layout').value,keywords:$('listingKeywords').value,provider:$('listingProvider').value});
  const response=await fetch(url,{signal:AbortSignal.timeout(60000)}),data=await response.json();if(!response.ok)throw Error(data.error||response.status);
+ if(generation!==listingGeneration)return;
  propertyPageHits=(data.results||[]).filter(x=>x.url&&/^https:\/\//.test(x.url));
+ for(const link of data.discovery_links||[])if(/^https:\/\//.test(link.url))$('discoveryLinks').append(makeLink(t('最新情報は掲載元で確認：')+link.source,link.url));
  renderExternalPages();renderSoon();
- setText($('listingsStatus'), () => propertyPageHits.length?t("{0}の検索結果から{1}件取得。元サイトの募集・空室・価格の最新性は未確認です。", [data.provider==='bing'?'Bing RSS':'Brave Search API', propertyPageHits.length]):t("掲載ページが見つかりませんでした。{0}", [(data.errors||[]).join(' / ')||t('検索地域・条件を変えて再検索してください。')]));
+ setText($('listingsStatus'),()=>data.provider==='feed'?t('1時間以内に提供元が確認した募集：')+propertyPageHits.length+t('件 / 古い・未確認・終了データを除外：')+(data.rejected||0):t('最新性を確認できる募集は0件です。掲載元リンクをご利用ください。'));
  // To avoid overloading the public geocoder, at most 4 explicit-address results are auto located.
- for(const hit of propertyPageHits.filter(x=>x.extracted?.address).slice(0,4)){
+ for(const hit of propertyPageHits.filter(x=>x.lat==null&&x.extracted?.address).slice(0,4)){
   await locateImportedListing(hit,true);await new Promise(resolve=>setTimeout(resolve,950));
  }
  }catch(e){setText($('listingsStatus'), () => t('検索結果を取得できません：')+e.message+t('。掲載元サイトへの外部リンクも使えます。'))}finally{button.disabled=false;setText(button, () => t('掲載ページを検索'))}
@@ -356,16 +443,80 @@ const baseRenderMap=renderMap;
 renderMap=function(){baseRenderMap();const r=$('map').getBoundingClientRect(),pins=$('pins');function addPin(hit,kind,label){const pos=screen(hit);if(pos.x< -130||pos.x>r.width+130||pos.y< -60||pos.y>r.height+60)return;const b=makeEl('button',`marker ${kind}`,label);b.style.left=pos.x+'px';b.style.top=pos.y+'px';b.title=hit.label||'';b.onclick=e=>{e.stopPropagation();showHitOnMap(hit);toast((hit.label||t('地点'))+t(' / 地点Aから（直線）')+formatKm(dist(state.a,hit)))};pins.append(b)}
  for(const hit of filteredBuildings().slice(0,220))addPin(hit,'building',hit.label.length>8?hit.label.slice(0,8)+'…':hit.label);
  for(let i=0;i<locationHits.length;i++)addPin(locationHits[i],'find',String(i+1));
- for(const hit of propertyPageHits.filter(h=>h.lat!=null&&!($('listingOnlyWithin').checked&&resultFlags(h).flags.includes(t('指定範囲外')))).slice(0,30))addPin(hit,'listing',hit.extracted?.price!=null?hit.extracted.price+t('万'):t('掲載情報'))};
+ for(const hit of propertyPageHits.filter(h=>h.lat!=null&&resultFlags(h).match).slice(0,30))addPin(hit,'listing',hit.extracted?.price!=null?hit.extracted.price+t('万'):t('掲載情報'));
+ publicView?.renderPins((record,kind,label,action)=>{
+  const pos=screen(record);if(pos.x< -150||pos.x>r.width+150||pos.y< -60||pos.y>r.height+60)return;
+  const pin=makeEl('button','marker '+kind,label);pin.style.left=pos.x+'px';pin.style.top=pos.y+'px';
+  pin.title=record.name+' / '+t('資料基準日：')+(record.data_as_of||t('未確認'));
+  pin.onclick=event=>{event.stopPropagation();action()};pins.append(pin);
+ });
+};
 const originalSetAnchor=setAnchor;
-setAnchor=function(which,p){originalSetAnchor(which,p);if(which==='a')buildingSequence++;refreshPortals();if(which==='a'&&propertyPageHits.length){propertyPageHits=[];renderExternalPages();setText($('listingsStatus'), () => t('地点Aが変わりました。新しい地域で掲載物件を再検索してください。'));}if(which==='a'&&buildingHits.length){buildingHits=[];buildingSearchRadius=0;$('buildingResults').replaceChildren();setText($('buildingStatus'), () => t('地点Aを変更しました。「範囲内の集合住宅を探す」で新しい地点から再検索してください。'));renderSoon()}sync();refreshWalkingAreas();refreshRangeResults()};
+setAnchor=function(which,p){listingGeneration++;buildingGeneration++;commuteResults.clear();originalSetAnchor(which,p);if(which==='a')clearSuumoPrototype();refreshPortals();if(which==='a'&&propertyPageHits.length){propertyPageHits=[];renderExternalPages();setText($('listingsStatus'), () => t('地点Aが変わりました。新しい地域で掲載物件を再検索してください。'));}if(which==='a'&&buildingHits.length){buildingHits=[];buildingSearchRadius=0;$('buildingResults').replaceChildren();setText($('buildingStatus'), () => t('地点Aを変更しました。「範囲内の集合住宅を探す」で新しい地点から再検索してください。'));renderSoon()}sync();refreshWalkingAreas();refreshRangeResults()};
+const originalChangeRadius=changeRadius;
+changeRadius=function(which,v){originalChangeRadius(which,v);if(buildingHits.length)showBuildings();renderExternalPages();if(which==='a')clearSuumoPrototype()};
 $('globalSearch').onclick=globalLocationSearch;$('globalQuery').onkeydown=e=>{if(e.key==='Enter')globalLocationSearch()};
-$('searchBuildings').onclick=loadBuildings;$('clearBuildings').onclick=()=>{buildingSequence++;buildingHits=[];buildingSearchRadius=0;$('buildingResults').replaceChildren();setText($('buildingStatus'), () => t('建物の検索結果をクリアしました。'));renderSoon()};
+$('searchBuildings').onclick=loadBuildings;$('clearBuildings').onclick=()=>{buildingGeneration++;buildingHits=[];buildingSearchRadius=0;$('buildingResults').replaceChildren();setText($('buildingStatus'), () => t('建物の検索結果をクリアしました。'));renderSoon()};
+let suumoRevision=0;
+function clearSuumoPrototype(){suumoRevision++;$('suumoResults').replaceChildren();$('suumoStatus').textContent='条件が変わりました。SUUMOの賃貸データを再取得してください。'}
+for(const id of ['maxPrice','layout'])$(id).addEventListener('input',clearSuumoPrototype);
+async function searchSuumoPrototype(){
+ const button=$('suumoSearch'),status=$('suumoStatus'),list=$('suumoResults');
+ const revision=++suumoRevision;
+ button.disabled=true;status.textContent='SUUMOの公開地図ページから検索中…';list.replaceChildren();
+ try{
+  const params=new URLSearchParams({lat:String(state.a.lat),lon:String(state.a.lon),radius_km:String(state.ra)});
+  if($('maxPrice').value)params.set('max_rent_man',$('maxPrice').value);
+  if($('layout').value)params.set('layout',$('layout').value);
+  const response=await fetch('/api/suumo-search?'+params,{signal:AbortSignal.timeout(35000)});
+  const data=await response.json();if(revision!==suumoRevision)return;if(!response.ok)throw Error(data.error||`HTTP ${response.status}`);
+  const rows=Array.isArray(data.results)?data.results:[];
+  const applied=[data.filters?.max_rent_man!=null?`家賃上限${data.filters.max_rent_man}万円`:'',data.filters?.layout||''].filter(Boolean).join('・')||'家賃・間取り指定なし';
+  status.textContent=`SUUMOから${data.cached?'キャッシュ済みの':'今回の'}地図応答を取得（${new Date(data.fetched_at).toLocaleString('ja-JP')}）。${applied}：先頭${data.inspected_count}件を検査、条件一致の東京都住所${rows.length}件。都外${data.excluded_out_of_region}件、条件外・不明${data.excluded_filter_mismatch_or_unknown}件を除外。半径内かは未確認です。`;
+  for(const row of rows){
+   const card=makeEl('article','external-item');const title=makeEl('h4');title.append(makeLink(`SUUMO物件 ${row.source_id}`,row.source_url));card.append(title);
+   card.append(makeEl('div','listing-price',row.rent_jpy==null?'賃料不明':`賃料 ${row.rent_jpy.toLocaleString('ja-JP')}円/月`));
+   const fee=row.management_fee_jpy==null?'管理費不明':`管理費 ${row.management_fee_jpy.toLocaleString('ja-JP')}円/月`;
+   const known=row.known_monthly_subtotal_jpy==null?'既知の月額小計は計算不可':`既知の月額小計 ${row.known_monthly_subtotal_jpy.toLocaleString('ja-JP')}円（全費用ではありません）`;
+   card.append(makeEl('p','',`${fee}｜${known}`));
+   card.append(makeEl('p','',`${row.layout||'間取り不明'}｜${row.area_sqm==null?'面積不明':row.area_sqm+'㎡'}｜${row.address||'住所不明'}`));
+   card.append(makeEl('p','listing-uncertain','空室・掲載元の更新日・半径内か・正確な地図位置は未確認。掲載元で確認してください。'));
+   list.append(card);
+  }
+  if(!rows.length)list.append(makeEl('p','muted',data.upstream_totalhits===0?'SUUMOの応答は該当0件です。':'この応答の先頭5件には表示条件を確認できる東京都住所の物件がありませんでした。'));
+ }catch(error){if(revision===suumoRevision)status.textContent='SUUMO実データを取得できません：'+error.message;}
+ finally{button.disabled=false;}
+}
+$('suumoSearch').onclick=searchSuumoPrototype;
 $('searchListings').onclick=searchListingPages;
 $('listingOnlyWithin').onchange=()=>{renderExternalPages();renderSoon()};
 for(const id of ['maxPrice','minArea','layout','maxAge','type','pets','parking','insideOnly'])$(id).addEventListener('input',()=>{if(propertyPageHits.length){renderExternalPages();renderSoon()}});
 for(const id of ['maxPrice','minArea','layout','maxAge','type','pets','parking','listingKeywords'])$(id).addEventListener('input',refreshPortals);
 $('restrictB').addEventListener('change',()=>{if(buildingHits.length)showBuildings()});
+$('importFeed').onclick=()=>{if(!$('feedPermitted').checked){toast(t('取り込み・表示の許可を確認してください。'));return}$('feedFile').click()};
+$('feedFile').onchange=async event=>{
+ const file=event.target.files[0];if(!file)return;const generation=++listingGeneration;
+ try{
+  if(file.size>1000000)throw Error(t('ファイルは1MB以下にしてください。'));
+  const raw=(await file.text()).replace(/^\uFEFF/,'');let records;
+  if(file.name.toLowerCase().endsWith('.csv')){
+   const rows=csvParse(raw),columns=rows.shift();if(!columns)throw Error(t('CSVに見出しが必要です。'));
+   records=rows.map(row=>Object.fromEntries(columns.map((column,index)=>{
+    const name=column.trim(),value=row[index]??'';
+    if(['lat','lon'].includes(name))return [name,value.trim()===''?null:Number(value)];
+    if(['pets','parking'].includes(name))return [name,value==='true'?true:value==='false'?false:null];
+    return [name,value];
+   })));
+  }else{const parsed=JSON.parse(raw);records=Array.isArray(parsed)?parsed:parsed.records}
+  const response=await fetch('/api/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({records,permitted:$('feedPermitted').checked}),signal:AbortSignal.timeout(10000)});
+  const data=await response.json();if(!response.ok)throw Error(data.error||response.status);if(generation!==listingGeneration)return;
+  propertyPageHits=data.results||[];$('discoveryLinks').replaceChildren();renderExternalPages();renderSoon();
+  setText($('listingsStatus'),()=>t('1時間以内に提供元が確認した募集：')+propertyPageHits.length+t('件 / 古い・未確認・終了データを除外：')+(data.rejected||0));
+ }catch(error){setText($('listingsStatus'),()=>t('取り込み失敗：')+error.message)}finally{event.target.value=''}
+};
+for(const id of ['includeUnknown','maxCommute','commuteMode'])$(id).addEventListener('input',()=>{renderExternalPages();renderSoon()});
+$('restrictB').addEventListener('change',()=>{renderExternalPages();renderSoon()});
+setInterval(()=>{renderExternalPages();renderSoon()},30000);
 refreshPortals();getListingHealth();
 
 window.addEventListener('home-language-change', () => {
@@ -373,5 +524,10 @@ window.addEventListener('home-language-change', () => {
   if(buildingHits.length)showBuildings();
   sync();updateWalkingStatus();renderExternalPages();renderSoon();
 });
+if(window.publicHousing)publicView=window.publicHousing.mount({$,t,setText,core:propertyCore,filters:currentFilters,origins:commuteOrigins,distance:dist,makeEl,makeButton,makeLink,refresh:renderSoon,focus:record=>{
+ center={lat:record.lat,lon:record.lon};zoom=Math.max(zoom,14);renderSoon();
+ toast(record.name+' / '+t('資料基準日：')+(record.data_as_of||t('未確認')));
+ requestAnimationFrame(()=>$('publicResults').querySelector(`[data-public-id="${record.id}"]`)?.scrollIntoView({block:'nearest'}));
+}});
 sync();bind();refreshWalkingAreas(true);renderSoon();})();
 </script></body></html>

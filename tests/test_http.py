@@ -1,0 +1,131 @@
+import json
+import tempfile
+import threading
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+from unittest.mock import patch
+
+import server
+
+
+class QuietHandler(server.Handler):
+    def log_message(self, *args):
+        pass
+
+
+class HttpTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.http = server.ThreadingHTTPServer(('127.0.0.1', 0), QuietHandler)
+        cls.thread = threading.Thread(target=cls.http.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.base = 'http://127.0.0.1:' + str(cls.http.server_port)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.http.shutdown()
+        cls.http.server_close()
+        cls.thread.join()
+
+    def request(self, path, payload=None):
+        data = json.dumps(payload).encode() if payload is not None else None
+        request = Request(self.base + path, data=data, headers={'Content-Type': 'application/json'})
+        try:
+            response = urlopen(request, timeout=3)
+        except HTTPError as error:
+            response = error
+        with response:
+            return response.status, json.loads(response.read())
+
+    def record(self):
+        return {'title': 'TEST ONLY', 'source_name': 'Test source', 'source_url': 'https://example.com/test-only',
+                'kind': 'rent', 'rent_yen': 70000, 'availability_status': 'confirmed',
+                'last_verified_at': datetime.now(timezone.utc).isoformat()}
+
+    def test_import_requires_permission_and_preserves_source_time(self):
+        record = self.record()
+        status, _ = self.request('/api/import', {'records': [record], 'permitted': False})
+        self.assertEqual(status, 400)
+        status, body = self.request('/api/import', {'records': [record], 'permitted': True})
+        self.assertEqual(status, 200)
+        self.assertEqual(body['results'][0]['last_verified_at'], record['last_verified_at'])
+
+    def test_refresh_reads_feed_again_without_reusing_outdated_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            filename = Path(directory) / 'feed.json'
+            filename.write_text(json.dumps([self.record()]))
+            with patch.object(server, 'FEED_PATH', str(filename)), patch.object(server, 'FEED_URL', ''):
+                status, body = self.request('/api/listings?place=Tokyo&provider=feed')
+                self.assertEqual(status, 200)
+                self.assertEqual(len(body['results']), 1)
+                old = {**self.record(), 'last_verified_at': (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()}
+                filename.write_text(json.dumps([old]))
+                _, body = self.request('/api/listings?place=Tokyo&provider=feed')
+                self.assertEqual(body['results'], [])
+                self.assertEqual(body['rejected'], 1)
+
+    def test_search_returns_links_without_snippet_prices_or_availability(self):
+        with patch.object(server, 'fetch_listings', return_value={'results': [{'url': 'https://suumo.jp/test-only', 'source': 'suumo.jp', 'title': 'OLD TEST', 'extracted': {'price': 1}}], 'provider': 'bing'}):
+            status, body = self.request('/api/listings?place=TEST-UNIQUE&provider=bing')
+        self.assertEqual(status, 200)
+        self.assertEqual(body['results'], [])
+        self.assertEqual(body['discovery_links'], [{'url': 'https://suumo.jp/test-only', 'source': 'suumo.jp'}])
+        self.assertNotIn('OLD TEST', json.dumps(body))
+
+    def test_route_endpoint_and_failure_are_not_reported_as_matches(self):
+        payload = {'origin': {'lat': 35, 'lon': 139}, 'destination': {'lat': 35.001, 'lon': 139}, 'mode': 'foot'}
+        with patch.object(server, 'route_time', return_value={'status': 'unavailable', 'duration_seconds': None}):
+            status, body = self.request('/api/route', payload)
+        self.assertEqual(status, 200)
+        self.assertIsNone(body['duration_seconds'])
+        with patch.object(server, 'route_time', side_effect=OSError('test-only')):
+            status, body = self.request('/api/route', payload)
+        self.assertEqual(status, 502)
+        self.assertNotIn('duration_seconds', body)
+
+    def test_private_files_are_not_served(self):
+        for path in ['/.git/config', '/server.py', '/listing_feed.py', '/public_housing.py', '/.env']:
+            self.assertEqual(self.request(path)[0], 404)
+
+    def test_invalid_imports_and_routes_are_rejected(self):
+        self.assertEqual(self.request('/api/import', {'permitted': True, 'records': {}})[0], 400)
+        self.assertEqual(self.request('/api/route', {'mode': 'transit'})[0], 400)
+
+    def test_health_never_exposes_keys_or_private_feed_path(self):
+        with patch.object(server, 'FEED_PATH', '/private/test-only.json'):
+            status, body = self.request('/api/health')
+        self.assertEqual(status, 200)
+        self.assertTrue(body['feed_enabled'])
+        self.assertNotIn('/private/', json.dumps(body))
+
+    def test_public_endpoint_is_allowlisted_and_retains_reference_dates(self):
+        with patch.object(server.public_housing, 'read_url') as fetch:
+            self.assertEqual(self.request('/api/public-housing?source=https://example.com/')[0], 400)
+            fetch.assert_not_called()
+        fixture = {'records': [{'id': 'TEST ONLY', 'data_as_of': '2025-03-31', 'fetched_at': '2026-10-18T00:00:00+00:00'}], 'total': 1}
+        with patch.object(server.public_housing, 'search', return_value=fixture) as search:
+            status, body = self.request('/api/public-housing?source=tokyo&area=TEST&offset=20')
+            search.assert_called_once_with('tokyo', 'TEST', 20)
+        self.assertEqual(status, 200)
+        self.assertEqual(body, fixture)
+        self.assertEqual(self.request('/api/public-housing?offset=invalid')[0], 400)
+
+    def test_public_geocode_rejects_unknown_records_and_handles_upstream_failure(self):
+        self.assertEqual(self.request('/api/public-geocode', {'source': 'not-approved', 'id': 'TEST ONLY'})[0], 400)
+        with patch.object(server.public_housing, 'geocode', side_effect=OSError('TEST ONLY')):
+            self.assertEqual(self.request('/api/public-geocode', {'source': 'tokyo', 'id': 'TEST ONLY'})[0], 502)
+        with patch.object(server.public_housing, 'search', side_effect=OSError('TEST ONLY')):
+            self.assertEqual(self.request('/api/public-housing?source=tokyo')[0], 502)
+
+    def test_public_ui_module_is_served_as_javascript(self):
+        with urlopen(self.base + '/public_housing.js', timeout=3) as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn(b'root.publicHousing', response.read())
+
+    def test_walking_ui_module_is_served_with_the_restricted_static_allowlist(self):
+        with urlopen(self.base + '/walking.js', timeout=3) as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn(b'root.homeWalking', response.read())

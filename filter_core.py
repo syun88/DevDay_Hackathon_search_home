@@ -1,5 +1,5 @@
 """Pure-Python reference core. No listings are fabricated or downloaded."""
-from math import asin, cos, radians, sin, sqrt
+from math import asin, cos, isfinite, radians, sin, sqrt
 
 
 def haversine_km(a_lat: float, a_lon: float, b_lat: float, b_lon: float) -> float:
@@ -13,17 +13,22 @@ def haversine_km(a_lat: float, a_lon: float, b_lat: float, b_lon: float) -> floa
 def filter_listings(listings, origins, rent_cap_yen, combine="all"):
     """origins=[(lat,lon,max_km), ...]; returns provably matching listings.
 
-    listings contain lat/lon/rent_yen/management_fee_yen; unknown values are excluded.
+    listings contain lat/lon/rent_yen/management_fee_yen/mandatory_fee_yen.
+    Unknown costs are excluded, rather than treated as zero.
     This is only a verified, straight-line hard filter; route times require an API.
     """
     if combine not in {"all", "any"}:
         raise ValueError("combine must be 'all' or 'any'")
     output = []
     for item in listings:
-        needed = ("lat", "lon", "rent_yen", "management_fee_yen")
+        needed = ("lat", "lon", "rent_yen", "management_fee_yen", "mandatory_fee_yen")
         if any(item.get(key) is None for key in needed):
             continue
-        cost = item["rent_yen"] + item["management_fee_yen"]
+        if any(isinstance(item[key], bool) or not isinstance(item[key], (int, float)) or not isfinite(item[key]) for key in needed):
+            continue
+        if abs(item['lat']) > 85 or abs(item['lon']) > 180 or any(item[key] < 0 for key in ('rent_yen', 'management_fee_yen', 'mandatory_fee_yen')):
+            continue
+        cost = item["rent_yen"] + item["management_fee_yen"] + item["mandatory_fee_yen"]
         if cost > rent_cap_yen:
             continue
         checks = [haversine_km(lat, lon, item["lat"], item["lon"]) <= km
@@ -38,7 +43,7 @@ if __name__ == "__main__":
     # Example tests only; not actual rental ads.
     assert haversine_km(35.681236, 139.767125, 35.681236, 139.767125) == 0.0
     sample = [{"lat": 35.681236, "lon": 139.767125,
-               "rent_yen": 70000, "management_fee_yen": 5000, "source_url": "example-only"}]
+               "rent_yen": 70000, "management_fee_yen": 5000, "mandatory_fee_yen": 0, "source_url": "example-only"}]
     assert len(filter_listings(sample, [(35.681236, 139.767125, 3)], 80000)) == 1
     assert filter_listings(sample, [(35.681236, 139.767125, 3)], 74000) == []
     assert filter_listings([{**sample[0], "management_fee_yen": None}],

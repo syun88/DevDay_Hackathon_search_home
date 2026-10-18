@@ -4,6 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const {test} = require('node:test');
 const walking = require('../walking.js');
+const propertyCore = require('../property_core.js');
 
 const square = (west = 0, south = 0, size = 1) => [
   [west, south], [west + size, south], [west + size, south + size],
@@ -156,14 +157,14 @@ test('disabling B or switching to distance cancels and removes unused walking ar
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 function mapContext() {
-  const controls = Object.fromEntries(['maxPrice', 'minArea', 'maxAge', 'layout', 'type', 'pets', 'parking', 'sort']
+  const controls = Object.fromEntries(['maxPrice', 'minArea', 'maxAge', 'layout', 'type', 'pets', 'parking', 'sort', 'includeUnknown', 'maxCommute', 'commuteMode']
     .map(id => [id, {value: '', checked: false}]));
-  controls.insideOnly = {checked: true}; controls.restrictB = {checked: false};
+  controls.insideOnly = {checked: true}; controls.listingOnlyWithin = {checked: true}; controls.restrictB = {checked: false};
   const entries = {a: {status: 'ready', geometry: concave, network}, b: {status: 'ready', geometry: area, network}};
   const state = {a: {lat: 0, lon: 0}, b: {lat: 0, lon: 0}, ra: 10, rb: 10, properties: []};
   let walk = true;
   const context = vm.createContext({
-    state, entries, controls, walkingMode: () => walk, walkingAreas: {get: which => entries[which]},
+    state, entries, controls, propertyCore, commuteResults: new Map(), walkingMode: () => walk, walkingAreas: {get: which => entries[which]},
     requiredWalkingAnchors: () => controls.restrictB.checked ? ['a', 'b'] : ['a'],
     $: id => id === 'map' ? {getBoundingClientRect: () => ({width: 800, height: 600})} : controls[id], window: {homeWalking: walking},
     dist: (a, b) => Math.hypot(a.lon - b.lon, a.lat - b.lat), t: key => key,
@@ -172,6 +173,7 @@ function mapContext() {
   });
   const sections = [
     ['function rangesReady(', 'function rangeSearchRadius('],
+    ['function currentFilters(', 'function filtered(){'],
     ['function filtered(){', 'function matched(){'],
     ['function resultFlags(', 'function locateImportedListing('],
     ['function rangeSVG(', 'function renderMap('],
@@ -182,8 +184,9 @@ function mapContext() {
 
 test('saved candidates and listing flags use the drawn walking polygon', () => {
   const {context, state, controls} = mapContext();
-  const inside = {name: 'inside', lat: 2, lon: 0.5};
-  const outside = {name: 'outside', lat: 2, lon: 2};
+  const verified = {url: 'https://example.com/test-only', availability_status: 'confirmed', last_verified_at: new Date().toISOString(), geo_precision: 'exact'};
+  const inside = {...verified, name: 'inside', lat: 2, lon: 0.5};
+  const outside = {...verified, name: 'outside', lat: 2, lon: 2};
   state.properties = [inside, outside];
   assert.equal(context.filtered().length, 1);
   assert.equal(context.filtered()[0].name, 'inside');
@@ -195,7 +198,8 @@ test('saved candidates and listing flags use the drawn walking polygon', () => {
 
 test('B applies an intersection and unavailable areas cannot produce false matches', () => {
   const {context, state, controls, entries} = mapContext();
-  const aOnly = {lat: 2, lon: 0.5}, both = {lat: 0.5, lon: 0.5};
+  const verified = {url: 'https://example.com/test-only', availability_status: 'confirmed', last_verified_at: new Date().toISOString(), geo_precision: 'exact'};
+  const aOnly = {...verified, lat: 2, lon: 0.5}, both = {...verified, lat: 0.5, lon: 0.5};
   state.properties = [aOnly, both]; controls.restrictB.checked = true;
   assert.equal(context.filtered().length, 1);
   assert.equal(context.withinRange(aOnly), false);
@@ -205,7 +209,7 @@ test('B applies an intersection and unavailable areas cannot produce false match
   const flags = context.resultFlags(both);
   assert.equal(flags.within, false);
   assert.equal(flags.flags.length, 0);
-  assert.ok(flags.unknown.includes('徒歩圏の判定（取得待ち・取得失敗）'));
+  assert.ok(flags.unknown.includes('範囲未判定'));
 });
 
 test('walking rendering never fills the contour or falls back to circles; distance mode still draws circles', () => {
