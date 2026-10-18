@@ -31,7 +31,7 @@ const english = {
 
   "徒歩（所要徒歩距離）": "Walking distance",
   "徒歩{0}": "{0} walk",
-  "{0}：徒歩{1}以内・道路の合計 約{2}km": "{0}: within a {1} walk · approx. {2} km of reachable roads",
+  "{0}から徒歩{1}以内の道（目安）": "{0}: within a {1} walk (estimate)",
   "{0}：徒歩{1}以内の範囲を取得中…": "{0}: loading the area within a {1} walk…",
   "色付きの線は指定距離以内に道路・歩道を歩いて到達した区間です。破線は外周の目安です。": "Colored lines show roads and footpaths reached within the selected walking distance. Dashed lines show an approximate boundary.",
   "道路・歩道に沿って歩く累積距離で計算します。線の太さは見やすさのための表示です。建物入口までの個別の徒歩距離は未確認です。": "Calculated using cumulative distance along roads and footpaths. Line width is for visibility. Walking distances to individual building entrances are unverified.",
@@ -313,7 +313,7 @@ const english = {
   "地図 © OpenStreetMap contributors。場所検索：Nominatim／国土地理院。徒歩圏：Valhallaの道路網による概算（4.8km/h）。カードの距離は直線距離です。実際の経路・募集条件は掲載元で確認してください。": "Map © OpenStreetMap contributors. Place search: Nominatim / GSI. Walking areas: estimated from Valhalla's road network at 4.8 km/h. Card distances are straight-line distances. Verify actual routes and listing details at the source.",
   "色付きの線は時間内に到達した道路・歩道です。破線は徒歩圏の外周の目安です。": "Colored lines show roads and footpaths reached within the time limit. Dashed lines show an approximate outer boundary.",
   "徒歩速度4.8km/h（80m/分）で時間内に到達した道路・歩道を着色します。線の太さは見やすさのための表示です。信号待ち・通行規制・建物の入口により実際の所要時間は変わります。": "Highlights roads and footpaths reached within the time limit at 4.8 km/h (80 m/min). Line width is for visibility. Traffic lights, access restrictions and building entrances can change actual times.",
-  "{0}：徒歩{1}分・道路の合計 約{2}km": "{0}: {1} min walk · approx. {2} km of reachable roads",
+  "{0}から徒歩{1}分で行ける道（目安）": "{0}: within a {1} min walk (estimate)",
   "{0}：外周の参考面積 約{1}km²（歩ける地面の面積ではありません）": "{0}: approx. {1} km² inside the reference boundary (not the area of walkable ground)"
 };
 Object.assign(english, {

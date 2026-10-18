@@ -188,7 +188,7 @@ function mapContext() {
     $: id => id === 'map' ? {getBoundingClientRect: () => ({width: 800, height: 600})} : controls[id], window: {homeWalking: walking},
     dist: (a, b) => Math.hypot(a.lon - b.lon, a.lat - b.lat), t: key => key,
     circleSVG: () => '<circle/>', screen: ({lat, lon}) => ({x: lon, y: lat}),
-    center: {lat: 0, lon: 0}, project: (lat, lon) => ({x: lon, y: lat}),
+    zoom: 12, center: {lat: 0, lon: 0}, project: (lat, lon) => ({x: lon, y: lat}),
   });
   const sections = [
     ['function rangesReady(', 'function rangeSearchRadius('],
@@ -246,4 +246,55 @@ test('walking rendering never fills the contour or falls back to circles; distan
   setWalk(false);
   assert.equal(context.rangeSVG('a', '#2563eb'), '<circle/>');
   assert.equal(context.withinRange({lat: 2, lon: 2}), true);
+});
+
+
+test('walking overview keeps the same roads and boundary with thinner strokes; detail grows smoothly', () => {
+  const {context} = mapContext();
+  const road = svg => svg.match(/<path data-walking-network="a"[^>]+>/)[0];
+  const attribute = (svg, name) => road(svg).match(new RegExp(name + '=\"([^\"]+)\"'))[1];
+  context.zoom = 12; const overview = context.rangeSVG('a', '#2563eb');
+  context.zoom = 14; const middle = context.rangeSVG('a', '#2563eb');
+  context.zoom = 16; const detail = context.rangeSVG('a', '#2563eb');
+  assert.equal(attribute(overview, 'd'), attribute(detail, 'd'));
+  assert.ok(overview.includes('data-walking-outline="a"'));
+  assert.ok(Number(attribute(overview, 'stroke-width')) < Number(attribute(middle, 'stroke-width')));
+  assert.ok(Number(attribute(middle, 'stroke-width')) < Number(attribute(detail, 'stroke-width')));
+  assert.ok(Number(attribute(detail, 'stroke-width')) <= 1.6);
+  assert.ok(Number(attribute(overview, 'stroke-opacity')) < Number(attribute(detail, 'stroke-opacity')));
+});
+
+function walkingStatusContext() {
+  const entries = {a: {status: 'ready', geometry: area, network}};
+  const elements = new Map();
+  const get = id => {
+    if(!elements.has(id)) elements.set(id, {dataset: {}, textContent: '', hidden: false});
+    return elements.get(id);
+  };
+  let distanceMode = false;
+  const context = vm.createContext({
+    state: {wa: 15, wda: 1}, walkingMode: () => true, walkingDistanceMode: () => distanceMode,
+    requiredWalkingAnchors: () => ['a'], walkingAreas: {get: key => entries[key]},
+    rangesReady: () => entries.a.status === 'ready', $: get,
+    t: (text, args = []) => text.replace(/\{(\d+)\}/g, (_, n) => args[n]),
+    formatWalkingDistance: n => n + 'km', setText: (element, render) => {element.textContent = render();},
+    location: {protocol: 'http:'}, window: {homeWalking: walking},
+  });
+  vm.runInContext(html.slice(html.indexOf('function updateWalkingStatus(){'), html.indexOf('function refreshWalkingAreas(')), context);
+  return {context, entries, get, setDistance: value => {distanceMode = value;}};
+}
+
+test('walking summary describes the selected reach instead of total road-network length', () => {
+  const {context, entries, get, setDistance} = walkingStatusContext();
+  context.updateWalkingStatus();
+  assert.equal(get('walkingMapSummary').textContent, 'Aから徒歩15分で行ける道（目安）');
+  assert.equal(get('walkingStatus').textContent, get('walkingMapSummary').textContent);
+  assert.ok(!get('walkingMapSummary').textContent.includes('道路の合計'));
+  setDistance(true);context.updateWalkingStatus();
+  assert.equal(get('walkingMapSummary').textContent, 'Aから徒歩1km以内の道（目安）');
+  entries.a.status = 'loading';context.updateWalkingStatus();
+  assert.ok(get('walkingMapSummary').textContent.includes('取得中'));
+  entries.a.status = 'error';context.updateWalkingStatus();
+  assert.ok(get('walkingMapSummary').textContent.includes('取得できません'));
+  assert.equal(get('retryWalking').hidden, false);
 });
