@@ -134,7 +134,7 @@ class SessionStore:
         for key, value in {
             'conversation': [], 'memory': {'facts': {}, 'places': {}}, 'result_sets': [],
             'saved_candidates': [], 'history': [], 'chat': {'status': 'idle'},
-            '_agent': {}, '_tool_results': {}, 'map_view': __import__('map_agent').initial_view(), 'map_command': None, 'public_records': [],
+            '_agent': {}, '_tool_results': {}, 'map_view': __import__('map_agent').initial_view(), 'map_command': None, 'public_records': [], 'public_version': 0,
         }.items():
             session.setdefault(key, deepcopy(value))
         return session

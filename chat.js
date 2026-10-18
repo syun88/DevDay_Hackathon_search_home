@@ -21,6 +21,7 @@ window.mountHomeChat = ({session, adapter}) => {
     resume_required:'前の処理が未完了です。再試行で再開するか、停止してから新しいメッセージを送ってください。',
     revision_conflict:'条件が変更されました。保存済みの状態を確認して、もう一度送信してください。',
     network:'送信を確認できませんでした。下書きを保持しています。再試行して確認できます。',
+    cancel_failed:'停止を確認できませんでした。再試行すると停止をやり直します（処理は再開しません）。',
   };
   const progress={stopping:'処理を停止しています…',clearing:'会話と記憶を削除しています…',
     get_map_state:'地図を確認しています…',control_map:'地図を操作しています…',get_listing_details:'物件の詳細を確認しています…',search_public_housing:'公開データを地図に読み込んでいます…',thinking:'考えています…',writing:'回答を書いています…',resolve_place:'場所を確認しています…',set_origin:'起点を設定しています…',
@@ -264,7 +265,7 @@ window.mountHomeChat = ({session, adapter}) => {
     $('chatStop').hidden=(s.chat?.status!=='running'&&!recovery)||s.chat?.operation==='reset';
     for(const id of ['chatClear','chatNew','chatUndo'])$(id).disabled=busy||!enabled;
     $('chatUndo').hidden=!s.history?.length;
-    if(s.chat?.status==='error')error(s.chat.error);
+    if(s.chat?.status==='error')error(s.chat.operation==='cancel'?'cancel_failed':s.chat.error);
     if(s.chat?.status==='cancelled')error('cancelled');
     if(running)$('chatError').hidden=true;
     $('chatRetry').hidden=!(pending||s.chat?.status==='error'&&s.chat.recoverable);
@@ -341,6 +342,8 @@ window.mountHomeChat = ({session, adapter}) => {
   $('chatUndo').onclick=()=>send(document.documentElement.lang==='ja'?'直前の検索条件の変更を元に戻してください。':'Undo the last search criteria change.');
   $('chatRetry').onclick=async()=>{
     if(pending)return send(pending.message,true);
+    // A failed Stop is retried as a Stop; it never resumes the turn the user cancelled.
+    if(session.snapshot.chat.operation==='cancel'){try{session.accept(await api('/api/chat/cancel',{request_id:session.snapshot.chat.request_id}));pollSoon(100);}catch(e){error(e.message);}return;}
     if(session.snapshot.chat.operation==='reset'){try{session.accept(await api('/api/chat/reset',{expected_revision:session.snapshot.revision,reset_search:!!session.snapshot.chat.reset_search}));pollSoon(100);}catch(e){error(e.message);}return;}
     try{session.accept(await api('/api/chat/resume',{request_id:session.snapshot.chat.request_id}));connectStream();pollSoon(100);}catch(e){error(e.message);}
   };

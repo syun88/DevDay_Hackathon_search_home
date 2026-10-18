@@ -544,7 +544,7 @@ class HomeAgent:
             session['draft_message'] = ''; session['revision'] += 1
             session['chat'] = {'status': 'running', 'request_id': request_id, 'message': payload['message'].strip(),
                                'language': payload['language'], 'progress': 'thinking', 'submitted': False,
-                               'expected_revision': session['revision'], 'expected_map_revision':session['map_view']['revision'], 'started_at': time.time(),
+                               'expected_revision': session['revision'], 'expected_map_revision':session['map_view'].get('user_revision',0), 'started_at': time.time(),
                                'visible_results': {'result_set_id':payload.get('result_set_id'), 'display_order':payload.get('visible_listing_ids',[])}}
         session, _ = self.mutate(session_id, begin)
         self.resume(session_id)
@@ -1042,10 +1042,11 @@ class HomeAgent:
     def apply_tool(self, s, name, args, external, original_criteria):
         if name == 'search_public_housing':
             s['public_records'] = external['records']
+            s['public_version'] = s.get('public_version', 0) + 1  # Older browser lists cannot replace this set.
             action = map_agent.queue(s,'show_results','public',expected_revision=s['chat'].get('expected_map_revision'))
             return {**external,'map_action':action,'note':'Official reference layer only. Unknown rents, vacancy and unit details remain unknown. Uses the existing public map interface.'}
         if name == 'get_map_state':
-            s['chat']['expected_map_revision'] = s['map_view']['revision']
+            s['chat']['expected_map_revision'] = s['map_view'].get('user_revision',0)
             return {'map_view':s['map_view'],'map_command':s.get('map_command'),
                     'selected_home':next((item for item in s.get('public_records',[]) + [i for r in s['result_sets'] for i in r['items']] if item['id']==s['map_view'].get('selected_listing_id')),None)}
         if name == 'control_map':
@@ -1180,7 +1181,8 @@ class HomeAgent:
 
     def recover(self, session_id, request_id):
         def restore(s):
-            if s['chat'].get('request_id') != request_id or not s['chat'].get('recoverable', s['chat'].get('error') != 'turn_failed'):
+            if (s['chat'].get('request_id') != request_id or s['chat'].get('operation') in ('cancel', 'reset')
+                    or not s['chat'].get('recoverable', s['chat'].get('error') != 'turn_failed')):
                 raise AgentError('cannot_resume')
             s['chat'].update(status='running', error=None)
             if s['chat'].get('tool_count', 0) >= 24:
@@ -1222,7 +1224,7 @@ class HomeAgent:
                     self.api.request('DELETE', '/' + ident)
                 def clear(s):
                     reset_search = s['chat'].get('reset_search', False)
-                    s.update(map_view={**map_agent.initial_view(),'revision':s['map_view']['revision']+1},map_command=None,public_records=[],conversation=[], memory={'facts': {}, 'places': {}}, result_sets=[], history=[],
+                    s.update(map_view={**map_agent.initial_view(),'revision':s['map_view']['revision']+1,'user_revision':s['map_view'].get('user_revision',0)+1},map_command=None,public_records=[],public_version=s.get('public_version',0)+1,conversation=[], memory={'facts': {}, 'places': {}}, result_sets=[], history=[],
                              chat={'status': 'idle'}, draft_message='', _agent={}, _tool_results={})
                     if reset_search:
                         s['criteria'] = deepcopy(DEFAULT_CRITERIA)
@@ -1248,6 +1250,8 @@ class HomeAgent:
                 self.mutate(session_id, cancelled)
         except Exception as error:
             code = str(error) if isinstance(error, AgentError) else 'agent_error'
-            self.mutate(session_id, lambda s: s['chat'].update(status='error', error=code, recoverable=True, progress=''))
+            # A failed cancel stays a cancel: Retry must stop the turn again, never resume it.
+            self.mutate(session_id, lambda s: s['chat'].update(status='error', error=code, recoverable=True, progress='',
+                                                               **({'operation': 'cancel'} if operation == 'cancelling' else {})))
         finally:
             self.worker_done(session_id)

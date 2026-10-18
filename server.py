@@ -492,10 +492,29 @@ class Handler(SimpleHTTPRequestHandler):
                     item=next((r for r in public_housing.load(ref['source'])['records'] if r['id']==ref['id']),None)
                     if not item: raise ValueError('Unknown official record')
                     records.append({**item, **public_housing.cached_position(item['address'])})
+                if 'public_version' in payload and type(payload['public_version']) is not int: raise ValueError('Invalid public version')
                 def update_map(s):
-                    outcome = map_agent.report({**s,'public_records':records},payload)
+                    stored = s.get('public_records', [])
+                    key = lambda r: (r.get('source'), r['id'])
+                    owned = {key(r): r for r in stored}
+                    def keep_position(record):
+                        # Coordinates validated earlier are owned session data; the
+                        # in-memory geocode cache may have expired or restarted.
+                        old = owned.get(key(record))
+                        if old and old.get('lat') is not None and record.get('lat') is None:
+                            return {**record, **{k: old[k] for k in ('lat', 'lon', 'geo_precision', 'geocode_label') if k in old}}
+                        return record
+                    incoming = [keep_position(r) for r in records]
+                    version = s.get('public_version', 0)
+                    if [key(r) for r in incoming] != [key(r) for r in stored] and payload.get('public_version', version) != version:
+                        # A list built on an older version (before an agent load or a reset)
+                        # must not replace the newer set; the browser adopts the stored one.
+                        incoming = stored
+                    outcome = map_agent.report({**s,'public_records':incoming},payload)
                     if not outcome.get('error'):
-                        s['public_records']=records
+                        if [key(r) for r in incoming] != [key(r) for r in stored]:
+                            s['public_version'] = version + 1
+                        s['public_records']=incoming
                         # report mutates the nested owned map state and command.
                     return outcome
                 result, outcome = SESSION_STORE.mutate(session_id, update_map)

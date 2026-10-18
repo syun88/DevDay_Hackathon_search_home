@@ -513,6 +513,9 @@ Object.assign(english, {
  '地図で概略位置を確認':'Show approximate area on map',
  'ウェブ検索で見つかったページ（{0}・{1}）の要約です。掲載元で最新の内容を確認してください。':'Summary of a page found by web search ({0} · {1}). Check the source for current details.',
 });
+Object.assign(english, {'停止を確認できませんでした。再試行すると停止をやり直します（処理は再開しません）。':'Stopping could not be confirmed. Retry repeats the stop (it does not resume the reply).',
+ '地図の状態を同期できませんでした。地図を操作すると再試行します。':'Could not sync the map state. Moving the map will try again.',
+ '会話で更新された公開データを表示しています。必要なら再度読み込んでください。':'Showing public records updated by the conversation. Load your records again if needed.'});
 const storageKey = 'property_map_language';
 let language = 'ja';
 try { if (localStorage.getItem(storageKey) === 'en') language = 'en'; } catch {}

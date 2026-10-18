@@ -19,7 +19,11 @@ class MapStateTest(unittest.TestCase):
         result=map_agent.report(self.s,self.view())
         self.assertEqual(result['map_view']['revision'],1)
         self.assertEqual(result['map_view']['selected_listing_id'],'home_1')
-        with self.assertRaises(ValueError): map_agent.report(self.s,self.view(visible_listing_ids=['someone_elses_home']))
+        # Stale or unowned references (for example after a reset) are dropped, never stored.
+        result=map_agent.report(self.s,self.view(visible_listing_ids=['someone_elses_home'],selected_listing_id='gone'))
+        self.assertEqual(result['map_view']['visible_listing_ids'],[])
+        self.assertIsNone(result['map_view']['selected_listing_id'])
+        self.assertEqual(result['dropped_references'],1)
 
     def test_public_map_uses_original_record_identity(self):
         map_agent.report(self.s,self.view(result_set_id='public',visible_listing_ids=['tokyo:one'],selected_listing_id='tokyo:one'))
@@ -47,8 +51,13 @@ class MapStateTest(unittest.TestCase):
 
     def test_invalid_coordinates_zoom_and_unknown_ack_are_rejected(self):
         for change in [{'zoom':float('nan')},{'zoom':22},{'center':{'lat':91,'lon':0}},
-                       {'ack':{'id':'not_owned','status':'applied'}}]:
+                       {'ack':{'id':'x','status':'done'}},{'cause':'agent'}]:
             with self.subTest(change=change),self.assertRaises(ValueError):map_agent.report(self.s,self.view(**change))
+        # An ack for a command that no longer exists is ignored instead of wedging map sync.
+        command=map_agent.queue(self.s,'zoom',zoom=15)['map_command']
+        map_agent.report(self.s,self.view(ack={'id':'not_owned','status':'applied'}))
+        self.assertEqual(self.s['map_command']['status'],'pending')
+        self.assertEqual(self.s['map_command']['id'],command['id'])
 
     def test_no_coordinate_is_never_fabricated_for_a_map_command(self):
         self.item['lat']=None

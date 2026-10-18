@@ -3,7 +3,10 @@
 'use strict';
 window.mountMapAgent=({session,adapter})=>{
  const {t}=window.homeI18n;const $=id=>document.getElementById(id);
- let activeChat=null,selected=null,resultId=null,applying=false,dirty=false,loading=false,reportTimer=null,seen='',publicToken='',commandId=null,lastReport='',ack=null;
+ let activeChat=null,selected=null,resultId=null,applying=false,dirty=false,loading=false,reportTimer=null,seen='',publicToken='',commandId=null,lastReport='',ack=null,userSeq=0,reportedUserSeq=0,rejected=0,retryDelay=250;
+ // Only real gestures count as manual map changes; agent commands and app recenters do not.
+ const gesture=()=>{if(!applying)userSeq++;};
+ for(const type of ['pointerdown','wheel','keydown'])adapter.mapElement().parentElement.addEventListener(type,event=>{if(event.target?.closest?.('#map, .map-controls'))gesture();},{capture:true,passive:true});
  const panel=document.createElement('section');panel.className='map-home-details';panel.hidden=true;panel.setAttribute('aria-label',t('物件の詳細'));panel.setAttribute('aria-live','polite');adapter.mapElement().parentElement.append(panel);
  const status=document.createElement('div');status.className='map-agent-status';status.setAttribute('role','status');adapter.mapElement().parentElement.append(status);
  const el=(tag,text)=>{const node=document.createElement(tag);if(text!=null)node.textContent=text;return node;};
@@ -15,28 +18,46 @@ window.mountMapAgent=({session,adapter})=>{
   if(!resultId&&(adapter.publicState()?.records.length))resultId='public';
   const features=[...(adapter.publicState()?.visible||[]).filter(inside).map(i=>({result_set_id:'public',listing_id:i.id})),...(latest()?.items||[]).filter(inside).map(i=>({result_set_id:latest().id,listing_id:i.id}))].slice(0,100);
   return {visible_features:features,reference_features:adapter.referenceFeatures?.()||[],...adapter.view(),selected_listing_id:selected,result_set_id:resultId,visible_listing_ids:records().filter(inside).slice(0,30).map(i=>i.id)};}
- function schedule(){clearTimeout(reportTimer);reportTimer=setTimeout(report,250);}
+ function schedule(delay=250){clearTimeout(reportTimer);reportTimer=setTimeout(report,delay);}
  function onRender(){if(!session.snapshot)return;const publicIds=JSON.stringify((adapter.publicState()?.records||[]).map(r=>[r.id,r.lat,r.lon]));if(publicIds!==onRender.publicIds){onRender.publicIds=publicIds;lastReport='';schedule();}const fingerprint=JSON.stringify(view());if(fingerprint!==seen){seen=fingerprint;if(!applying)dirty=true;schedule();}}
  async function report(){
   if(loading||!session.snapshot)return;
   const chat=activeChat,v=view(),fingerprint=JSON.stringify(v);if(fingerprint===lastReport&&!ack){dirty=false;return;}
   loading=true;
-  const sentAck=ack;
+  const sentAck=ack,sentSeq=userSeq,cause=userSeq!==reportedUserSeq?'user':'app';
   try{
-   const response=await fetch('/api/map',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:chat,expected_revision:session.snapshot.map_view?.revision||0,...v,public_records:(adapter.publicState()?.records||[]).map(r=>({id:r.id,source:r.source})),...(sentAck?{ack:sentAck}:{})}),signal:AbortSignal.timeout(15000)});
+   const response=await fetch('/api/map',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:chat,expected_revision:session.snapshot.map_view?.revision||0,cause,public_version:session.snapshot.public_version||0,...v,public_records:(adapter.publicState()?.records||[]).map(r=>({id:r.id,source:r.source})),...(sentAck?{ack:sentAck}:{})}),signal:AbortSignal.timeout(15000)});
    const data=await response.json();if(chat!==activeChat)return;
-   if(response.ok){lastReport=fingerprint;if(ack===sentAck)ack=null;dirty=JSON.stringify(view())!==fingerprint;
+   if(response.ok){lastReport=fingerprint;if(ack===sentAck)ack=null;reportedUserSeq=sentSeq;rejected=0;retryDelay=250;dirty=JSON.stringify(view())!==fingerprint;
     // Map writes have their own revision; never replace newer criteria or a draft.
-    if(data.chat_id===chat){session.snapshot.map_view=data.map_view;session.snapshot.map_command=data.map_command;}
-    status.textContent='';
-   }else if(response.status===409){if(data.map_view)session.snapshot.map_view=data.map_view;dirty=true;schedule();}
+    if(data.chat_id===chat){
+     const sent=JSON.stringify((adapter.publicState()?.records||[]).map(r=>r.id)),kept=JSON.stringify((data.public_records||[]).map(r=>r.id));
+     Object.assign(session.snapshot,{map_view:data.map_view,map_command:data.map_command,public_records:data.public_records||[],public_version:data.public_version||0});
+     status.textContent=sent!==kept?t('会話で更新された公開データを表示しています。必要なら再度読み込んでください。'):'';
+     reconcile();
+    }
+   }else if(response.status===409){if(data.map_view)session.snapshot.map_view=data.map_view;dirty=true;retryDelay=Math.min(4000,retryDelay*2);schedule(retryDelay);}
+   else if(response.status>=400&&response.status<500){
+    // Not retryable as-is: drop references the session no longer has, try once more, then stop.
+    rejected++;prune();
+    if(rejected>=2){lastReport=JSON.stringify(view());dirty=false;ack=null;status.textContent=t('地図の状態を同期できませんでした。地図を操作すると再試行します。');}
+    else schedule();
+   }
    else throw Error('report');
-  }catch{status.textContent=t('地図の状態を同期できません。再試行します。');schedule();}
-  finally{loading=false;if(dirty||ack)schedule();}
+  }catch{status.textContent=t('地図の状態を同期できません。再試行します。');retryDelay=Math.min(4000,retryDelay*2);schedule(retryDelay);}
+  finally{loading=false;if((dirty||ack)&&rejected<2)schedule(retryDelay);}
+ }
+ // Selections, result sets and acknowledgements that the saved session no longer contains
+ // (after a reset, new search or trimmed history) are dropped instead of being re-sent forever.
+ function prune(){
+  const s=session.snapshot;if(!s)return;
+  if(resultId&&resultId!=='public'&&!(s.result_sets||[]).some(r=>r.id===resultId))resultId=null;
+  if(selected&&!current())selected=null;
+  if(ack&&(!s.map_command||s.map_command.id!==ack.id))ack=null;
  }
  function details(){
   const item=current();panel.replaceChildren();panel.hidden=!item;if(!item)return;
-  const close=el('button','×');close.className='close-home';close.setAttribute('aria-label',t('閉じる'));close.onclick=()=>{selected=null;details();adapter.refresh();onRender();};
+  const close=el('button','×');close.className='close-home';close.setAttribute('aria-label',t('閉じる'));close.onclick=()=>{gesture();selected=null;details();adapter.refresh();onRender();};
   panel.append(close,el('h3',item.name||item.title));
   const approximate=item.geo_precision!=='exact';panel.append(el('p',t(approximate?'住所の概略位置です。建物の正確な位置ではありません。':'提供元の座標。所在地は掲載元で確認してください。')));
   panel.append(el('p',t(item.layer?'公開資料です。現在の募集を保証しません。':'空室・全費用は未確認です。')));
@@ -61,8 +82,8 @@ window.mountMapAgent=({session,adapter})=>{
   const url=item.official_url||item.url;if(url&&/^https:\/\//.test(url)){const a=el('a',t('掲載元・公式資料を開く'));a.href=url;a.target='_blank';a.rel='noopener noreferrer';panel.append(a);}
   const ask=el('button',t('この物件について聞く'));ask.onclick=async()=>{await report();window.homeChat?.send(document.documentElement.lang==='en'?'Read the details of the home currently selected on the map and explain its known features and unknowns.':'地図で選択中の物件の詳細を確認して、分かっている条件と不明点を教えてください。');};panel.append(ask);
  }
- function selectPublic(record){resultId='public';selected=record.id;details();onRender();}
- function selectListing(set,id){resultId=set;selected=id;const item=current();if(!item)return false;if(Number.isFinite(item.lat)&&Number.isFinite(item.lon))adapter.move(item,Math.max(adapter.view().zoom,15));else status.textContent=t('位置未確認です。会話で地図への表示を依頼してください。');details();adapter.refresh();onRender();return true;}
+ function selectPublic(record){gesture();resultId='public';selected=record.id;details();onRender();}
+ function selectListing(set,id){gesture();resultId=set;selected=id;const item=current();if(!item)return false;if(Number.isFinite(item.lat)&&Number.isFinite(item.lon))adapter.move(item,Math.max(adapter.view().zoom,15));else status.textContent=t('位置未確認です。会話で地図への表示を依頼してください。');details();adapter.refresh();onRender();return true;}
  function renderPins(){
   if(!session.snapshot)return;
   for(const node of adapter.pins().querySelectorAll('[data-public-ids]'))node.classList.toggle('agent-selected',JSON.parse(node.dataset.publicIds).includes(selected));
@@ -78,10 +99,12 @@ window.mountMapAgent=({session,adapter})=>{
   const s=session.snapshot;if(!s)return;
   if(activeChat!==s.chat_id){activeChat=s.chat_id;commandId=null;publicToken='';selected=s.map_view?.selected_listing_id||null;resultId=s.map_view?.result_set_id||latest()?.id||null;dirty=false;lastReport='';seen='';adapter.replacePublic(s.public_records||[]);if(s.map_view?.revision)adapter.move(s.map_view.center,s.map_view.zoom);}
   const token=JSON.stringify(s.public_records||[]);if(token!==publicToken){publicToken=token;adapter.replacePublic(s.public_records||[]);}
+  prune();
   const c=s.map_command;
   if(c?.status==='pending'&&c.id!==commandId){
    commandId=c.id;
-   if(dirty||c.expected_revision!==(s.map_view?.revision||0)){ack={id:c.id,status:'stale_view'};schedule();return;}
+   const userMoved=dirty&&userSeq!==reportedUserSeq,expected=c.expected_user_revision!==undefined?c.expected_user_revision!==(s.map_view?.user_revision||0):c.expected_revision!==(s.map_view?.revision||0);
+   if(userMoved||expected){ack={id:c.id,status:'stale_view'};schedule();return;}
    applying=true;let ok=true;
    try{
     if(c.action==='show_results'){resultId=c.result_set_id;selected=null;ok=adapter.fit(records().filter(i=>Number.isFinite(i.lat)&&Number.isFinite(i.lon)));}
@@ -94,7 +117,8 @@ window.mountMapAgent=({session,adapter})=>{
   details();adapter.refresh();
  }
  session.addEventListener('change',reconcile);window.addEventListener('home-language-change',details);
- async function flush(){const until=Date.now()+12000;while(loading&&Date.now()<until)await new Promise(r=>setTimeout(r,50));await report();if(dirty)throw Error('map_sync_failed');}
- window.homeMapAgent={onRender,renderPins,selectPublic,selectListing,view,flush};
+ // Best effort before a chat message: a map sync problem must never block ordinary chat.
+ async function flush(){const until=Date.now()+12000;while(loading&&Date.now()<until)await new Promise(r=>setTimeout(r,50));try{await report();}catch{}return !dirty;}
+ window.homeMapAgent={onRender,renderPins,selectPublic,selectListing,view,flush,_state:()=>({selected,resultId,ack,dirty,rejected,userSeq,reportedUserSeq})};
 };
 })();
