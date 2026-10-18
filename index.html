@@ -10,6 +10,9 @@
 .marker.listing{background:#175cd3;border-radius:8px;font-size:11px;max-width:110px;overflow:hidden;text-overflow:ellipsis}.listing-price{font-size:15px;font-weight:850;color:#174bc9}.listing-details{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}.listing-details span{padding:3px 6px;background:#edf2fb;border-radius:5px;font-size:10px}.listing-ok{color:#08734d}.listing-uncertain{color:#98601d}.listing-out{color:#b3261e}.external-item.out-of-range{opacity:.6}.external-item p{overflow-wrap:anywhere}
 .header-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.language-toggle{display:flex;gap:2px;padding:3px;background:#eef3fa;border:1px solid var(--border);border-radius:9px}.language-toggle button{border:0;border-radius:6px;padding:5px 9px;background:transparent;color:#536279;font-size:11px;font-weight:750}.language-toggle button[aria-pressed="true"]{background:#fff;color:#1d4ed8;box-shadow:0 1px 4px #0001}html[lang="en"] .btn{white-space:normal}html[lang="en"] .sidebar .columns{grid-template-columns:repeat(2,minmax(0,1fr))}
 </style><link rel="stylesheet" href="workspace.css"><link rel="stylesheet" href="shell.css"></head><body>
+.marker.public{background:#7c3d8c;max-width:150px;overflow:hidden;text-overflow:ellipsis}.marker.public.municipal{background:#9a4c0d}.marker.public.vacancy{background:#566171}.marker.public.recruitment{background:#17694c}.public-controls{display:grid;gap:8px}.public-controls fieldset{border:1px solid var(--border);border-radius:8px;padding:8px;min-width:0}.public-controls legend{font-size:11px}.public-controls .checkrow{font-size:11px;gap:8px}.public-results{max-height:480px;overflow:auto}.public-card .line-actions>*{min-width:0;overflow-wrap:anywhere}.public-card h4{overflow-wrap:anywhere}
+.public-card .line-actions>*{display:block;padding:8px;border:0;border-radius:7px;background:#edf3fa;color:#244b79;text-decoration:none;font-size:11px;font-weight:700}.public-card.selected{border-color:#7c3d8c;box-shadow:0 0 0 1px #7c3d8c}.public-card .listing-price{font-size:15px;color:#174bc9;font-weight:800}
+</style><link rel="stylesheet" href="map_agent.css"></head><body>
 <div class="wrap"><aside class="sidebar"><div class="header"><div class="header-top"><p class="kicker">PROPERTY DISTANCE FINDER</p><div class="language-toggle" role="group" aria-label="Language / 言語"><button type="button" data-language="en" lang="en" aria-pressed="false">EN</button><button type="button" data-language="ja" lang="ja" aria-pressed="true">JP</button></div></div><h1>住まいの地図</h1><p>住所・会社を検索 → 半径内の実在する建物・掲載ページを表示 → 条件比較</p></div><div class="scroll">
 <section class="conversation-intro" aria-labelledby="chatHeading">
 <h2 id="chatHeading">どんな暮らしを、見つけたいですか？</h2>
@@ -55,6 +58,23 @@
 <p class="muted">経路 © <a href="https://routing.openstreetmap.de/about.html" target="_blank" rel="noopener noreferrer">FOSSGIS / OSRM</a>・<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>・<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener noreferrer">地図を修正</a></p><div id="commuteStatus" class="live-count" role="status"></div></div>
 <div class="stat"><span id="matchLabel" style="font-size:12px;font-weight:700">必須条件を確認した候補</span><strong id="matchCount">0 / 0</strong></div>
 </section>
+<section class="section" id="publicSection"><h2>公的住宅・自治体空き家データ</h2>
+<p class="notice">公開資料の参考レイヤーです。団地台帳・空き住戸・募集中は別情報です。取得日時は募集確認日時ではありません。</p>
+<div class="public-controls">
+<label class="control"><span class="label">取得するデータソース</span><select id="publicProvider" class="input"><option value="tokyo">東京都 都営住宅団地CSV</option><option value="tsubata">自治体空き家：津幡町CSV</option><option value="permitted">許諾済み公的住宅フィード（設定時のみ）</option></select></label>
+<label class="control"><span class="label">地域・団地名（台帳内を検索）</span><input id="publicArea" class="input" list="publicAreas" value="千代田区" placeholder="例：港区 / 四番町"><datalist id="publicAreas"></datalist></label>
+<button id="publicLoad" class="btn">公開データ取得・先頭5件を位置検索</button>
+<div class="field"><button id="publicNext" class="btn secondary" disabled>次の20件</button><button id="publicGeocode" class="btn ghost">未確認の位置を5件検索</button></div>
+<p class="muted">位置検索時に公開住所を国土地理院へ送信します。住所の概略座標を使うため、ピン・距離は参考です。全国の全物件を網羅していません。</p>
+<fieldset><legend>表示するソース</legend><div class="checkrow"><label><input id="publicSource_tokyo" type="checkbox" checked>東京都</label><label><input id="publicSource_tsubata" type="checkbox" checked>津幡町</label><label><input id="publicSource_permitted" type="checkbox" checked>許諾済みフィード</label></div></fieldset>
+<fieldset><legend>表示するレイヤー</legend><div class="checkrow"><label><input id="publicLayer_inventory" type="checkbox" checked>団地台帳</label><label><input id="publicLayer_vacancy" type="checkbox" checked>空き住戸数</label><label><input id="publicLayer_recruitment" type="checkbox" checked>確認済み募集</label><label><input id="publicLayer_municipal" type="checkbox" checked>自治体空き家</label></div></fieldset>
+<label class="muted"><input id="publicUseFilters" type="checkbox"> 上の共通条件で絞る（未確認項目は初期状態で除外）</label>
+<p class="muted">OFFでは条件不一致も参考資料として表示します。ONでは地点A/B・半径・価格・間取り等を判定します。台帳の家賃・現在の募集状況は未確認です。</p>
+</div><div id="publicStatus" class="live-count" role="status">未取得。ボタン操作時に公式オープンデータを取得します。</div><div id="publicCount" class="live-count"></div><div id="publicResults" class="public-results"></div>
+<details><summary>都営空き住戸・募集の公式情報</summary><p class="muted">空き住戸数PDFの自動転載許諾は未確認のため、自動収集しません。数字が必要な場合は利用許諾済みフィードを接続してください。公募用には修繕中・入居手続中を含み、事業用は建替移転等の確保分です。空き住戸は募集中とは限りません。</p><div class="portal-grid"><a class="portal" href="https://www.juutakuseisaku.metro.tokyo.lg.jp/toei_jutaku/kanri/264-01toeidanchi" target="_blank" rel="noopener noreferrer">都営 空き住戸数（公式PDF）</a><a class="portal" href="https://www.to-kousya.or.jp/kouei/toeibosyu/toeitop_gdn.html" target="_blank" rel="noopener noreferrer">都営 募集・申込（公式）</a></div></details>
+<div class="portal-grid"><a class="portal" href="https://www.ur-net.go.jp/chintai/" target="_blank" rel="noopener noreferrer">UR賃貸 公式検索</a><a class="portal" href="https://www.to-kousya.or.jp/chintai/" target="_blank" rel="noopener noreferrer">JKK東京 公式検索</a><a class="portal" href="https://www.homes.co.jp/akiyabank/" target="_blank" rel="noopener noreferrer">全国版空き家バンク（LIFULL）</a><a class="portal" href="https://www.mlit.go.jp/totikensangyo/const/sosei_const_tk3_000131.html" target="_blank" rel="noopener noreferrer">全国版空き家バンク（国交省案内）</a></div>
+<p class="muted">UR・JKK・全国版ポータルは公式検索へのリンクのみです。許諾済みAPIは未接続で、本文スクレイピングは行いません。出典・基準日・利用条件は各カードに表示します。</p>
+</section>
 <section class="section"><h2>③ 検索結果を地図に表示</h2>
 <div class="live-search">
 <h3>近くの集合住宅（OpenStreetMap）</h3>
@@ -66,8 +86,8 @@
 <div class="live-search">
 <h3>SUUMO実データ接続（ローカル試作）</h3>
 <p class="muted">地点Aの中心・半径と、上の家賃上限・間取りをSUUMOの賃貸検索に送ります（最大5件）。家賃上限はSUUMO地図の選択値のみ対応します。取得後も各物件の家賃・間取りを確認し、不明・条件外は除外します。面積など他の条件、半径内かどうか、正確な位置、空室、その他費用は未確認です。地図ピンにはしません。</p>
-<div class="field"><button class="btn" id="suumoSearch" style="flex:1">SUUMOの賃貸データを取得</button></div>
-<div id="suumoStatus" class="live-count" role="status">未検索。半径は0.1〜2km、地点Aは東京都内にしてください。</div>
+<div class="field"><button class="btn" id="suumoSearch" style="flex:1" disabled>SUUMOの賃貸データを取得</button></div>
+<div id="suumoStatus" class="live-count" role="status">利用許諾が未設定のため接続を停止しています。公式検索リンクをご利用ください。</div>
 <div id="suumoResults"></div>
 </div>
 <div class="live-search">
@@ -105,13 +125,16 @@
 <script src="session.js"></script>
 <script src="chat.js"></script>
 <script src="shell.js"></script>
+<script src="map_agent.js"></script>
 <script src="workspace.js"></script>
+<script src="public_housing.js"></script>
 <script>
 (()=>{'use strict';
 const $=id=>document.getElementById(id), Earth=6371.0088, RAD=Math.PI/180;
 const {t, setText} = window.homeI18n;
 const propertyCore=window.propertyCore,commuteResults=new Map();
 let listingGeneration=0,buildingGeneration=0,editingRecord=null,routeBusy=false;
+let publicView=null;
 const defaults={a:{name:'東京駅',lat:35.681236,lon:139.767125},b:null,ra:3,rb:5,properties:[]};
 let state;try{state=Object.assign({},defaults,JSON.parse(localStorage.getItem('property_map_v2')||'{}'))}catch{state={...defaults}}
 if(!state.a||!Number.isFinite(Number(state.a.lat)))state.a={...defaults.a};if(!Array.isArray(state.properties))state.properties=[];
@@ -141,7 +164,7 @@ function handleMapWheel(event){
  center=unproject(((centerX%worldSize)+worldSize)%worldSize,clamp(centerY,1,worldSize-1));
  renderSoon();
 }
-function renderSoon(){if(!renderPending){renderPending=true;requestAnimationFrame(()=>{renderPending=false;renderMap();renderList()})}}
+function renderSoon(){if(!renderPending){renderPending=true;requestAnimationFrame(()=>{renderPending=false;renderMap();renderList();publicView?.renderList();window.homeMapAgent?.onRender()})}}
 function circleSVG(p,radius,color){let {x,y}=screen(p);let circ=project(p.lat,p.lon);let d=(radius/Earth)/RAD*256*2**zoom/360/Math.cos(p.lat*RAD);return `<circle cx="${x}" cy="${y}" r="${d}" stroke="${color}" stroke-width="2" fill="${color}" fill-opacity=".10"/><circle cx="${x}" cy="${y}" r="3.5" fill="${color}" stroke="white" stroke-width="1.5"/>`}
 function renderMap(){const r=$('map').getBoundingClientRect();if(r.width<50||r.height<50)return;const c=project(center.lat,center.lon),left=c.x-r.width/2,top=c.y-r.height/2,tileZoom=Math.floor(zoom),tileSize=256*2**(zoom-tileZoom),sz=2**tileZoom,frag=document.createDocumentFragment();tilesLoaded=0;tilesErrors=0;
 let xMin=Math.floor(left/tileSize),xMax=Math.floor((left+r.width)/tileSize),yMin=Math.max(0,Math.floor(top/tileSize)),yMax=Math.min(sz-1,Math.floor((top+r.height)/tileSize)),nextCache=new Map();for(let x=xMin;x<=xMax;x++)for(let y=yMin;y<=yMax;y++){const key=`${tileZoom}/${(x%sz+sz)%sz}/${y}`;let img=tileCache.get(key);if(!img){img=document.createElement('img');img.loading='eager';img.decoding='async';img.alt='';img.src=`https://tile.openstreetmap.org/${key}.png`;img.onload=()=>{tilesLoaded++;$('mapError').style.display='none'};img.onerror=()=>{tilesErrors++;if(tilesErrors>2&&tilesLoaded===0)$('mapError').style.display='block'}}img.style.width=tileSize+'px';img.style.height=tileSize+'px';img.style.left=(x*tileSize-left)+'px';img.style.top=(y*tileSize-top)+'px';nextCache.set(key,img);frag.append(img)}tileCache=nextCache;$('tiles').replaceChildren(frag);
@@ -314,7 +337,7 @@ function renderExternalPages(){
   card.append(makeEl('p','',hit.description||t('紹介文なし')));
   const actions=makeEl('div','line-actions');
   actions.append(makeLink(t('掲載元を開く'),hit.url),makeButton(t('通勤時間を取得'),()=>calculateCommute(listingCandidate(hit))),makeLink(t('電車の経路を確認'),transitUrl(hit)));
-  actions.append(makeButton(hit.lat!=null?t('地図で確認'):t('住所を地図で探す'),()=>{if(hit.lat!=null)showHitOnMap(hit);else locateImportedListing(hit).then(ok=>{if(ok)showHitOnMap(hit)})}));
+  actions.append(makeButton(hit.lat!=null?t('地図で確認'):t('住所を地図で探す'),()=>{if(hit.lat!=null){const rs=window.searchWorkspace?.session.snapshot?.result_sets?.find(r=>r.items.some(i=>i.id===hit.id));if(rs)window.homeMapAgent?.selectListing(rs.id,hit.id);else showHitOnMap(hit);}else locateImportedListing(hit).then(ok=>{if(ok)showHitOnMap(hit)})}));
   actions.append(makeButton(t('候補に取り込む'),()=>importListing(hit)));
   if(decisionsReady)actions.append(makeButton(t('AIで広告を分類'),async()=>{
    const status=makeEl('p','listing-uncertain',t('Decisions APIで分類中…'));card.append(status);
@@ -335,7 +358,9 @@ function renderExternalPages(){
 }
 async function getListingHealth(){
  if(location.protocol==='file:'){listingsReady=false;listingHealthChecked=true;setText($('listingsStatus'), () => t('検索結果を読み込むにはZIP内のサーバーを起動してください：python3 property-server.py。HTML単体で外部ページの内容を取得することはできません。'));return}
- try{const response=await fetch('/api/health',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('backend');const j=await response.json();$('listingProvider').querySelector('option[value="feed"]').disabled=!j.feed_enabled;listingsReady=!!j.listings_enabled;decisionsReady=!!j.decisions_enabled;listingHealthChecked=true;setText($('listingsStatus'), () => listingsReady?t('掲載ページを検索できます。'):t('検索サーバーは起動していますが、検索エンジンが利用できません。'));if(!j.has_brave_key)$('listingProvider').querySelector('option[value="brave"]').disabled=true;
+ try{const response=await fetch('/api/health',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('backend');const j=await response.json();$('listingProvider').querySelector('option[value="feed"]').disabled=!j.feed_enabled;listingsReady=!!j.listings_enabled;decisionsReady=!!j.decisions_enabled;listingHealthChecked=true;setText($('listingsStatus'), () => listingsReady?t("外部検索が有効：{0}。検索ボタンで掲載ページを取得します。", [t(j.provider)]):t('検索サーバーは起動していますが、検索エンジンが利用できません。'));if(!j.has_brave_key)$('listingProvider').querySelector('option[value="brave"]').disabled=true;
+ $('suumoSearch').disabled=j.suumo_reuse_permitted!==true;
+ if(j.suumo_reuse_permitted===true)setText($('suumoStatus'),()=>t('未検索。半径は0.1〜2km、地点Aは東京都内にしてください。'));
  }catch{listingsReady=false;listingHealthChecked=true;setText($('listingsStatus'), () => t('検索結果の取得にはローカルサーバーが必要です（README参照）。この画面だけを開いた場合は外部検索リンクをご利用ください。'))}
 }
 async function searchListingPages(){
@@ -360,10 +385,18 @@ async function searchListingPages(){
 }
 // Include live map search pins in the existing custom tile renderer.
 const baseRenderMap=renderMap;
-renderMap=function(){baseRenderMap();const r=$('map').getBoundingClientRect(),pins=$('pins');function addPin(hit,kind,label){const pos=screen(hit);if(pos.x< -130||pos.x>r.width+130||pos.y< -60||pos.y>r.height+60)return;const b=makeEl('button',`marker ${kind}`,label);b.style.left=pos.x+'px';b.style.top=pos.y+'px';b.title=hit.label||'';b.onclick=e=>{e.stopPropagation();showHitOnMap(hit);toast((hit.label||t('地点'))+t(' / 地点Aから')+formatKm(dist(state.a,hit)))};pins.append(b)}
+renderMap=function(){baseRenderMap();const r=$('map').getBoundingClientRect(),pins=$('pins');function addPin(hit,kind,label){const pos=screen(hit);if(pos.x< -130||pos.x>r.width+130||pos.y< -60||pos.y>r.height+60)return;const b=makeEl('button',`marker ${kind}`,label);b.style.left=pos.x+'px';b.style.top=pos.y+'px';b.title=hit.label||'';b.onclick=e=>{e.stopPropagation();const rs=window.searchWorkspace?.session.snapshot?.result_sets?.find(r=>r.items.some(i=>i.id===hit.id));if(rs)window.homeMapAgent?.selectListing(rs.id,hit.id);else showHitOnMap(hit);toast((hit.label||t('地点'))+t(' / 地点Aから')+formatKm(dist(state.a,hit)))};pins.append(b)}
  for(const hit of filteredBuildings().slice(0,220))addPin(hit,'building',hit.label.length>8?hit.label.slice(0,8)+'…':hit.label);
  for(let i=0;i<locationHits.length;i++)addPin(locationHits[i],'find',String(i+1));
- for(const hit of propertyPageHits.filter(h=>h.lat!=null&&resultFlags(h).match).slice(0,30))addPin(hit,'listing',hit.extracted?.price!=null?hit.extracted.price+t('万'):t('掲載情報'))};
+ for(const hit of propertyPageHits.filter(h=>h.lat!=null&&resultFlags(h).match).slice(0,30))addPin(hit,'listing',hit.extracted?.price!=null?hit.extracted.price+t('万'):t('掲載情報'));
+ publicView?.renderPins((record,kind,label,action)=>{
+  const pos=screen(record);if(pos.x< -150||pos.x>r.width+150||pos.y< -60||pos.y>r.height+60)return;
+  const pin=makeEl('button','marker '+kind,label);pin.style.left=pos.x+'px';pin.style.top=pos.y+'px';
+  pin.title=record.name+' / '+t('資料基準日：')+(record.data_as_of||t('未確認'));
+  pin.dataset.publicId=record.id;pin.dataset.publicIds=JSON.stringify(record.group_ids||[record.id]);pin.onclick=event=>{event.stopPropagation();action()};pins.append(pin);
+ });
+ window.homeMapAgent?.renderPins();
+};
 const originalSetAnchor=setAnchor;
 setAnchor=function(which,p){listingGeneration++;buildingGeneration++;commuteResults.clear();originalSetAnchor(which,p);if(which==='a')clearSuumoPrototype();refreshPortals();if(which==='a'&&propertyPageHits.length){propertyPageHits=[];renderExternalPages();setText($('listingsStatus'), () => t('地点Aが変わりました。新しい地域で掲載物件を再検索してください。'));}if(which==='a'&&buildingHits.length){buildingHits=[];buildingSearchRadius=0;$('buildingResults').replaceChildren();setText($('buildingStatus'), () => t('地点Aを変更しました。「半径内の集合住宅を探す」で新しい地点から再検索してください。'));renderSoon()}else if(buildingHits.length)showBuildings()};
 const originalChangeRadius=changeRadius;
@@ -437,8 +470,29 @@ window.addEventListener('home-language-change', () => {
   if(buildingHits.length)showBuildings();
   renderExternalPages();renderSoon();
 });
+if(window.publicHousing)publicView=window.publicHousing.mount({$,t,setText,core:propertyCore,filters:currentFilters,origins:commuteOrigins,distance:dist,makeEl,makeButton,makeLink,refresh:renderSoon,focus:record=>{
+ window.homeMapAgent?.selectPublic(record);
+ center={lat:record.lat,lon:record.lon};zoom=Math.max(zoom,14);renderSoon();
+ toast(record.name+' / '+t('資料基準日：')+(record.data_as_of||t('未確認')));
+ requestAnimationFrame(()=>$('publicResults').querySelector(`[data-public-id="${record.id}"]`)?.scrollIntoView({block:'nearest'}));
+}});
 sync();bind();renderSoon();
 window.mountSearchWorkspace({
+  mapInterface: {
+    view:()=>({center:{...center},zoom}),
+    move:(point,z)=>{center={lat:point.lat,lon:point.lon};if(z!=null)zoom=clamp(z,3,18);renderSoon();},
+    fit:records=>{
+      if(!records.length)return false;
+      const rect=$('map').getBoundingClientRect();const points=records.map(p=>project(p.lat,p.lon,0));
+      const minX=Math.min(...points.map(p=>p.x)),maxX=Math.max(...points.map(p=>p.x)),minY=Math.min(...points.map(p=>p.y)),maxY=Math.max(...points.map(p=>p.y));
+      center=unproject((minX+maxX)/2,(minY+maxY)/2,0);
+      zoom=records.length===1?15:clamp(Math.min(Math.log2(Math.max(80,rect.width-120)/Math.max(.0001,maxX-minX)),Math.log2(Math.max(80,rect.height-120)/Math.max(.0001,maxY-minY))),3,16);
+      renderSoon();return true;
+    },
+    referenceFeatures:()=>[...filteredBuildings().map(p=>({...p,kind:'building'})),...locationHits.map(p=>({...p,kind:'place'})),...matched().map(p=>({...p,kind:'saved'}))].filter(p=>{const s=screen(p),r=$('map').getBoundingClientRect();return valid(p.lat,p.lon)&&s.x>=0&&s.y>=0&&s.x<=r.width&&s.y<=r.height}).slice(0,30).map(p=>({kind:p.kind,label:(p.label||p.name||'').slice(0,180),lat:p.lat,lon:p.lon})),
+    screen,refresh:renderSoon,mapElement:()=>$('map'),pins:()=>$('pins'),
+    publicState:()=>publicView?.getState(),importPublic:items=>publicView?.importRecords(items),replacePublic:items=>publicView?.replaceRecords(items),selectPublic:id=>publicView?.select(id),
+  },
   onLayoutChange: () => renderSoon(),
   visibleResults: () => {
     const resultSet=window.searchWorkspace?.session.snapshot?.result_sets?.at(-1);
@@ -458,7 +512,7 @@ window.mountSearchWorkspace({
       if(x.management_fee_yen!=null)card.append(makeEl('p','muted',t('管理費：¥{0}/月',[x.management_fee_yen.toLocaleString()])));
       card.append(makeEl('p','', [x.layout, x.area==null?'':x.area+'㎡',x.address].filter(Boolean).join(' · ')));
       card.append(makeEl('p','listing-uncertain',t('空室・その他費用・物件種別・正確な位置は未確認です。掲載元で確認してください。')));
-      $('discoveryLinks').append(card);
+      card.dataset.listingId=item.id;const mapButton=makeButton(t('地図で確認'),()=>window.homeMapAgent?.selectListing(resultSet.id,item.id));card.append(mapButton);$('discoveryLinks').append(card);
     }
     for(const link of resultSet?.source_search_links||[])$('discoveryLinks').append(makeLink(t('{0}で検索',[link.source]),link.url));
     for(const link of resultSet?.discovery_links||[])if(/^https:\/\//.test(link.url))$('discoveryLinks').append(makeLink(t('最新情報は掲載元で確認：')+link.source,link.url));

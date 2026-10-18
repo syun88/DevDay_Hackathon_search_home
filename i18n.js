@@ -2,6 +2,26 @@
 (() => {
 'use strict';
 const english = {
+ '地図を確認しています…':'Reading the current map…','地図を操作しています…':'Updating the map…','物件の詳細を確認しています…':'Reading source details…','公開データを地図に読み込んでいます…':'Loading public records onto the map…',
+  '物件の詳細':'Home details',
+  '住所の概略位置です。建物の正確な位置ではありません。':'Approximate address area. This is not the exact building location.',
+  '提供元の座標。所在地は掲載元で確認してください。':'Source-provided coordinates. Confirm the address with the source.',
+  '公開資料です。現在の募集を保証しません。':'Public reference data. This does not confirm current availability.',
+  '空室・全費用は未確認です。':'Availability and complete costs are unverified.',
+  '住所の概略位置':'Approximate address area',
+  '概略':'Approx.',
+  'この物件について聞く':'Ask about this home',
+  '掲載元・公式資料を開く':'Open listing / official source',
+  '位置未確認です。会話で地図への表示を依頼してください。':'Location unknown. Ask the agent to locate this home on the map.',
+  '地図の状態を同期できません。再試行します。':'Map sync failed. Retrying.',
+  '物件種別':'Property type','間取りの範囲':'Layout range','面積の範囲（㎡）':'Area range (m²)',
+  '管理戸数':'Managed units','最寄駅':'Nearest station','建設年度':'Construction year',
+  '公募用空き住戸':'Public vacancy count','事業用空き住戸':'Reserved vacancy count',
+  '位置検索の一致住所':'Geocoded address','公開ファイル更新日':'Source file updated','募集状態':'Availability',
+  '家賃（万円/月）':'Rent (¥10,000/month)','管理費（円/月）':'Management fee (yen/month)',
+  '必須月額費用（円/月）':'Mandatory fees (yen/month)','価格（円）':'Price (yen)',
+  '面積（㎡）':'Area (m²)','階':'Floor','築年':'Building age','交通':'Transport','敷金':'Deposit','礼金':'Key money',
+
   '未確認の候補・条件一致ではありません': 'Unverified lead · requirements not confirmed',
   '家賃：¥{0}/月': 'Rent: ¥{0}/month',
   '管理費：¥{0}/月': 'Management fee: ¥{0}/month',
@@ -415,6 +435,56 @@ Object.assign(english, {
 Object.assign(english, {'必須条件を確認した候補':'Candidates with confirmed required criteria','表示候補（未確認を含む）':'Visible candidates (including unverified criteria)','表示候補（未確認を含む）：':'Visible candidates (including unverified criteria): '});
 Object.assign(english, {'円は直線距離です。地点A・Bの「地図で指定」を押してから地図をクリックしてください。会社名で見つからない場合は住所検索、またはGoogle マップ検索をお試しください。':'Circles show straight-line distance. Choose Pick on map for A or B before clicking the map. If a company name is not found, try its address or Google Maps.'});
 Object.assign(english, {'条件が変わりました。経路を再取得してください。':'Conditions changed. Request the route again.'});
+Object.assign(english, {
+ '公的住宅・自治体空き家データ':'Public housing & municipal vacant homes',
+ '公開資料の参考レイヤーです。団地台帳・空き住戸・募集中は別情報です。取得日時は募集確認日時ではありません。':'Reference layers from published data. Inventories, vacancy counts and active offers are different. Retrieval is not an availability check.',
+ '取得するデータソース':'Data source to fetch',
+ '東京都 都営住宅団地CSV':'Tokyo public housing inventory CSV',
+ '自治体空き家：津幡町CSV':'Municipal vacant homes: Tsubata CSV',
+ '許諾済み公的住宅フィード（設定時のみ）':'Permitted public housing feed (when configured)',
+ '地域・団地名（台帳内を検索）':'Area or complex name (search within inventory)',
+ '例：港区 / 四番町':'Example: 港区 / 四番町',
+ '公開データ取得・先頭5件を位置検索':'Fetch data & locate first 5 addresses',
+ '次の20件':'Next 20 records',
+ '未確認の位置を5件検索':'Locate 5 unverified addresses',
+ '位置検索時に公開住所を国土地理院へ送信します。住所の概略座標を使うため、ピン・距離は参考です。全国の全物件を網羅していません。':'Address lookup sends public addresses to GSI. Pins and distances use approximate coordinates. Coverage is not nationwide or comprehensive.',
+ '表示するソース':'Visible sources', '東京都':'Tokyo', '津幡町':'Tsubata', '許諾済みフィード':'Permitted feed',
+ '表示するレイヤー':'Visible layers', '団地台帳':'Housing inventory', '空き住戸数':'Vacancy counts', '確認済み募集':'Verified offers', '自治体空き家':'Municipal vacant homes',
+ '上の共通条件で絞る（未確認項目は初期状態で除外）':'Apply shared filters above (unknown criteria excluded by default)',
+ 'OFFでは条件不一致も参考資料として表示します。ONでは地点A/B・半径・価格・間取り等を判定します。台帳の家賃・現在の募集状況は未確認です。':'OFF includes nonmatching records as reference. ON applies A/B, radius, price, layout and other criteria. Inventory rent and current availability are unverified.',
+ '未取得。ボタン操作時に公式オープンデータを取得します。':'Not loaded. Fetch official open data using the button.',
+ '都営空き住戸・募集の公式情報':'Official Tokyo vacancy & application information',
+ '空き住戸数PDFの自動転載許諾は未確認のため、自動収集しません。数字が必要な場合は利用許諾済みフィードを接続してください。公募用には修繕中・入居手続中を含み、事業用は建替移転等の確保分です。空き住戸は募集中とは限りません。':'Automatic reuse permission for vacancy PDFs is unverified; they are not collected. Connect a permitted feed for counts. Public-offer vacancies include repairs and pending occupancy; reserved units include relocation stock. Vacant does not mean accepting applications.',
+ '都営 空き住戸数（公式PDF）':'Tokyo vacancy counts (official PDFs)',
+ '都営 募集・申込（公式）':'Tokyo applications (official)',
+ 'UR賃貸 公式検索':'UR rental search (official)', 'JKK東京 公式検索':'JKK Tokyo search (official)',
+ '全国版空き家バンク（LIFULL）':'National vacant home bank (LIFULL)',
+ '全国版空き家バンク（国交省案内）':'National vacant home banks (MLIT guide)',
+ 'UR・JKK・全国版ポータルは公式検索へのリンクのみです。許諾済みAPIは未接続で、本文スクレイピングは行いません。出典・基準日・利用条件は各カードに表示します。':'UR, JKK and national portals are external links only. No permitted API is connected and pages are not scraped. Each card shows its source, reference date and reuse terms.',
+ '公開資料の表示：':'Visible public records: ', '件（取得済み）':' loaded',
+ '表示は0件です。ソース・レイヤー・条件の未確認項目を確認してください。':'No visible records. Check source/layer switches and unknown criteria.',
+ '価格未確認':'Price unverified', '万円/月（家賃のみ）':' × ¥10,000/month (base rent only)', '万円（売買）':' × ¥10,000 (sale)',
+ '間取り・面積：':'Layout / floor area: ', '未確認':'Unverified',
+ '提供元が1時間以内に募集確認':'Availability verified by provider within one hour',
+ '公開時点で受付中・現在は未確認':'Accepting applications at publication; current status unverified',
+ '現在の募集状況は未確認':'Current availability unverified', '現在の募集状況':'Current availability',
+ '公募用空き住戸：':'Public-offer vacancies: ', '事業用：':'Reserved for projects: ',
+ '空き住戸は募集中とは限りません。':'Vacant does not mean accepting applications.',
+ '資料基準日：':'Reference date: ', '取得：':'Retrieved: ', '募集確認日時：':'Availability checked: ',
+ '位置精度：':'Location precision: ', '提供元の正確な座標':'Exact source coordinates',
+ '住所の概略位置・距離は参考':'Approximate address location; distance is indicative',
+ '条件外：':'Outside criteria: ', '指定半径外（概略位置）':'Outside radius (approximate location)',
+ '公式掲載・公開資料を開く':'Open official listing / dataset', '住所を位置検索':'Locate address', '利用条件':'Reuse terms',
+ '一覧は先頭100件です。地域で絞って再取得してください。':'Showing the first 100 cards. Narrow the area and fetch again.',
+ '住所の位置を照会中：':'Locating address: ',
+ '位置検索完了。概略座標は厳密な条件一致を保証しません。':'Address lookup complete. Approximate coordinates do not prove a strict match.',
+ '位置を取得できません：':'Could not locate address: ', '公式の公開データを取得中…':'Fetching official open data…',
+ '地域内の公開資料：':'Public records in area: ', '件 / 成約・終了を除外：':' / ended records excluded: ',
+ '件。最新の空室確認ではありません。':' records. This is not a live vacancy check.', '取得できません：':'Could not fetch: ',
+ '万/月':' × ¥10,000/mo', '公開ファイル更新日：':'Published file updated: ', '管理戸数：':'Managed units: ', '最寄駅：':'Nearest station: ', '取得元CSV・資料':'Source CSV / document'
+});
+Object.assign(english, {'利用許諾が未設定のため接続を停止しています。公式検索リンクをご利用ください。':'Connection disabled: reuse permission is not configured. Use official search links.','未検索。半径は0.1〜2km、地点Aは東京都内にしてください。':'Not searched. Set a 0.1–2 km radius and an origin in Tokyo.'});
+Object.assign(english, {'件の公開資料':' public records'});
 const storageKey = 'property_map_language';
 let language = 'ja';
 try { if (localStorage.getItem(storageKey) === 'en') language = 'en'; } catch {}

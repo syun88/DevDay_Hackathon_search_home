@@ -17,6 +17,9 @@ from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from pathlib import Path
+from copy import deepcopy
+from hashlib import sha256
+from uuid import uuid4
 from html import unescape
 from datetime import datetime, timezone
 import xml.etree.ElementTree as ET
@@ -26,6 +29,7 @@ from session_store import SessionStore, RevisionConflict, CRITERIA_SCHEMA, UPDAT
 from home_agent import HomeAgent, AgentError
 from listing_details import read_details
 from suumo_bridge import SuumoError, search as search_suumo, validate_search, validate_filters, RENT_STEPS
+import public_housing
 
 BASE = Path(__file__).resolve().parent
 
@@ -61,6 +65,7 @@ OPENAI_KEY = os.environ.get('OPENAI_API_KEY', '').strip()
 SEARCH_KEY = os.environ.get('BRAVE_SEARCH_API_KEY', '').strip()
 FEED_PATH = os.environ.get('LISTINGS_FEED_PATH', '').strip()
 FEED_URL = os.environ.get('LISTINGS_FEED_URL', '').strip()
+SUUMO_REUSE_PERMITTED = os.environ.get('SUUMO_REUSE_PERMITTED', '') == '1'
 PORT = int(os.environ.get('PORT', '8765'))
 ALLOWED_DOMAINS = ('suumo.jp', 'homes.co.jp', 'athome.co.jp')
 USER_AGENT = 'PropertyFinderLocal/2.0 (+browser-side user initiated search)'
@@ -343,7 +348,7 @@ def agent_listings(place, kind, details, provider='auto'):
     result = {'results': [], 'leads': [], 'discovery_links': [], 'errors': [],
               'provider': 'discovery', 'inventory_status': 'no_verified_feed_configured'}
     origin = details.get('origin', {})
-    if provider == 'auto' and kind == 'rent' and origin:
+    if provider == 'auto' and kind == 'rent' and origin and SUUMO_REUSE_PERMITTED:
         try:
             radius = min(details.get('radius_km', 2), 2)
             lat, lon, radius = validate_search(origin['lat'], origin['lon'], radius)
@@ -379,6 +384,8 @@ def agent_listings(place, kind, details, provider='auto'):
             result['errors'].append('SUUMO prototype supports Tokyo origins only and selected layouts; no citywide inventory is available.')
         except SuumoError as exc:
             result['errors'].append('SUUMO discovery unavailable: ' + exc.code)
+    if not SUUMO_REUSE_PERMITTED:
+        result['errors'].append('SUUMO reuse is not configured; use licensed public layers or source search links.')
     if not result['leads']:
         discovered = fetch_listings(place, kind, details, provider)
         result['discovery_links'] = [{'url': r['url'], 'source': r['source']} for r in discovered.get('results', [])]
@@ -390,7 +397,12 @@ def agent_listings(place, kind, details, provider='auto'):
     return result
 
 
-HOME_AGENT = HomeAgent(SESSION_STORE, OPENAI_KEY, agent_listings, router=route_time, detail_reader=read_details)
+def permitted_details(url):
+    if not SUUMO_REUSE_PERMITTED: raise ValueError('Source reuse is not configured; use known fields and official source link')
+    return read_details(url)
+
+
+HOME_AGENT = HomeAgent(SESSION_STORE, OPENAI_KEY, agent_listings, router=route_time, detail_reader=permitted_details, public_search=public_housing.search, public_geocode=public_housing.geocode)
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -399,7 +411,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def send_head(self):
         # Serve only frontend assets, never .env, Git metadata, or source files.
-        if urlparse(self.path).path not in ('/', '/index.html', '/i18n.js', '/session.js', '/workspace.js', '/workspace.css', '/chat.js', '/shell.js', '/shell.css', '/property_core.js', '/map_agent.js', '/map_agent.css'):
+        if urlparse(self.path).path not in ('/', '/index.html', '/i18n.js', '/session.js', '/workspace.js', '/workspace.css', '/chat.js', '/shell.js', '/shell.css', '/property_core.js', '/public_housing.js', '/map_agent.js', '/map_agent.css'):
             self.send_error(404, 'Not found')
             return None
         return super().send_head()
@@ -426,6 +438,22 @@ class Handler(SimpleHTTPRequestHandler):
             pass
         return None
 
+    def remember_native_results(self, result):
+        # Import/feed UI and chat share the same normalized records and stable IDs.
+        owner = self.session_id()
+        if not owner or not SESSION_STORE.get(owner): return result
+        for item in result.get('results',[]):
+            item['id']='listing_'+sha256((item['url']+'\0'+item.get('source_record_id','')).encode()).hexdigest()[:16]
+        def save(s):
+            snapshot={'id':'results_'+uuid4().hex[:16],'criteria':deepcopy(s['criteria']),
+                      'items':deepcopy(result.get('results',[])[:30]),'provider':result.get('provider','feed'),
+                      'created_at':datetime.now(timezone.utc).isoformat(),'note':'Imported via the original UI; source verification and unknown costs remain explicit.'}
+            for item in snapshot['items']: item['match']=__import__('home_agent').evidence(item,s['criteria'])
+            snapshot['counts']={'retrieved':len(snapshot['items']),'leads':0,'confirmed':sum(i['match']['status']=='confirmed' for i in snapshot['items'])}
+            s['result_sets']=(s['result_sets']+[snapshot])[-5:]
+        SESSION_STORE.mutate(owner,save)
+        return result
+
     def update_session(self, action='session'):
         host = self.headers.get('Host', '')
         allowed_hosts = {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
@@ -448,7 +476,21 @@ class Handler(SimpleHTTPRequestHandler):
                 result = SESSION_STORE.update(session_id, payload)
             elif action == 'map':
                 import map_agent
-                result, outcome = SESSION_STORE.mutate(session_id, lambda s: map_agent.report(s,payload))
+                refs = payload.get('public_records',[])
+                if not isinstance(refs,list) or len(refs)>500: raise ValueError('Invalid public references')
+                records=[]
+                for ref in refs:
+                    if not isinstance(ref,dict) or set(ref)!={'id','source'}: raise ValueError('Invalid reference')
+                    item=next((r for r in public_housing.load(ref['source'])['records'] if r['id']==ref['id']),None)
+                    if not item: raise ValueError('Unknown official record')
+                    records.append({**item, **public_housing.cached_position(item['address'])})
+                def update_map(s):
+                    outcome = map_agent.report({**s,'public_records':records},payload)
+                    if not outcome.get('error'):
+                        s['public_records']=records
+                        # report mutates the nested owned map state and command.
+                    return outcome
+                result, outcome = SESSION_STORE.mutate(session_id, update_map)
                 if outcome.get('error'): return self.respond(409,outcome)
             elif action == 'chat':
                 result = HOME_AGENT.start(session_id, payload)
@@ -483,7 +525,7 @@ class Handler(SimpleHTTPRequestHandler):
         if urlparse(self.path).path == '/api/session':
             return self.update_session()
         endpoint = urlparse(self.path).path
-        if endpoint not in ('/api/classify', '/api/import', '/api/route'):
+        if endpoint not in ('/api/classify', '/api/import', '/api/route', '/api/public-geocode'):
             return self.respond(404,{'error':'not found'})
         if endpoint == '/api/classify' and not OPENAI_KEY:
             return self.respond(503,{'error':'Decisions APIは未設定です'})
@@ -498,9 +540,11 @@ class Handler(SimpleHTTPRequestHandler):
             if endpoint == '/api/import':
                 if payload.get('permitted') is not True:
                     raise ValueError('利用許可の確認が必要です')
-                return self.respond(200, normalize_feed(payload.get('records')))
+                return self.respond(200, self.remember_native_results(normalize_feed(payload.get('records'))))
             if endpoint == '/api/route':
                 return self.respond(200, route_time(payload))
+            if endpoint == '/api/public-geocode':
+                return self.respond(200, public_housing.geocode(payload.get('source'), payload.get('id')))
             title=payload.get('title','')
             description=payload.get('description','')
             if not isinstance(title,str) or not isinstance(description,str) or not title.strip():
@@ -538,6 +582,8 @@ class Handler(SimpleHTTPRequestHandler):
                     'provider':'Brave Search API + Bing RSS' if SEARCH_KEY else 'Bing RSS (APIキー不要、利用制限あり)',
                     'has_brave_key':bool(SEARCH_KEY), 'decisions_enabled':bool(OPENAI_KEY), 'agent_enabled':bool(OPENAI_KEY),
                     'feed_enabled':bool(FEED_PATH or FEED_URL), 'routing_enabled':True,
+                    'public_sources':['tokyo', 'tsubata'] + (['permitted'] if os.environ.get('PUBLIC_HOUSING_FEED_PATH') else []),
+                    'suumo_reuse_permitted': SUUMO_REUSE_PERMITTED,
                     'listing_max_age_seconds':3600})
         if u.path == '/api/suumo-search':
             q = parse_qs(u.query, keep_blank_values=True)
@@ -549,6 +595,8 @@ class Handler(SimpleHTTPRequestHandler):
                                                     q['layout'][0] if 'layout' in q else None)
             except ValueError as exc:
                 return self.respond(400, {'error': str(exc)})
+            if not SUUMO_REUSE_PERMITTED:
+                return self.respond(403, {'error': 'SUUMOの取得・再利用許諾が未設定のため接続を停止しています'})
             key = (lat, lon, radius, max_rent, layout)
             with _cache_lock:
                 cached = _suumo_cache.get(key)
@@ -562,8 +610,17 @@ class Handler(SimpleHTTPRequestHandler):
                 if len(_suumo_cache) >= 20: _suumo_cache.clear()
                 _suumo_cache[key] = (time.monotonic(), result)
             return self.respond(200, {**result, 'cached': False})
+        if u.path == '/api/public-housing':
+            query = parse_qs(u.query)
+            try:
+                return self.respond(200, public_housing.search(query.get('source', ['tokyo'])[0],
+                                    query.get('area', [''])[0], int(query.get('offset', ['0'])[0])))
+            except ValueError as error:
+                return self.respond(400, {'error': str(error)})
+            except (HTTPError, URLError, OSError, TimeoutError, KeyError, TypeError, StopIteration) as error:
+                return self.respond(502, {'error': '公開データを取得できません: ' + type(error).__name__})
         if u.path != '/api/listings':
-            if u.path not in ('/index.html', '/i18n.js', '/property_core.js', '/session.js', '/chat.js', '/workspace.js', '/workspace.css', '/shell.js', '/shell.css', '/map_agent.js', '/map_agent.css'):
+            if u.path not in ('/index.html', '/i18n.js', '/property_core.js', '/public_housing.js', '/session.js', '/chat.js', '/workspace.js', '/workspace.css', '/shell.js', '/shell.css', '/map_agent.js', '/map_agent.css'):
                 return self.respond(404, {'error':'not found'})
             return super().do_GET()
         q = parse_qs(u.query)
@@ -580,7 +637,7 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 result = load_feed()
                 result['results'] = [record for record in result['results'] if record['kind'] == kind]
-                return self.respond(200, result)
+                return self.respond(200, self.remember_native_results(result))
             except (ValueError, OSError, HTTPError, URLError) as exc:
                 return self.respond(502, {'error':'許可済み募集データを取得できません: '+type(exc).__name__})
         details = {'layout':v('layout',10), 'keywords':v('keywords',65)}

@@ -52,6 +52,12 @@ class AgentsAPI:
 INSTRUCTIONS = '''You help people find homes in Japan through conversation. Reply in the user's language
 (English or Japanese), concisely and warmly. Use the provided tools to act, not just describe plans.
 You are also the map agent. Map actions and listing references use stable IDs from real results.
+Use search_public_housing for requests about public housing/municipal vacant homes or public reference
+layers. It uses the same UI primitives. Tokyo inventory is not live rental inventory, has unknown rent and
+unit details, and must never be offered as verified budget matches. Tsubata is the supported municipal
+source, not a nationwide search. Never silently substitute reference data for requested rental listings.
+When a public home is selected, get_map_state returns its actual fields; get_listing_details with
+result_set_id=public returns that same record. Use result_set_id=public with control_map for that layer.
 After searching, results are automatically queued to fit on the map. Read get_map_state to know what
 actually appeared. When asked to zoom, select, show a home or explain the selected pin, use get_map_state,
 control_map and get_listing_details. For ordinal references use the actual visible_results or map IDs.
@@ -110,6 +116,8 @@ def tools():
         del patch_schema['properties'][key]
     ident = {'type': 'string', 'maxLength': 100}
     return [
+        tool('search_public_housing', 'Load the SAME licensed public housing layers as the existing UI, geocode up to five records using its validated address adapter, and show them on the map. These are reference records, not confirmed vacancies or budget matches.',
+             {'source':{'type':'string','enum':['tokyo','tsubata','permitted']},'area':{'type':'string','maxLength':100},'offset':{'type':'integer','minimum':0,'maximum':10000}},['source','area']),
         tool('get_map_state', 'Read the actual browser viewport, selected listing, visible stable listing IDs and last map command acknowledgement. Refresh before moving the map.'),
         tool('control_map', 'Move the map safely: show_results fits pins; focus_listing selects and opens details; zoom changes zoom; show_place uses a resolved place ID. Never invent coordinates.',
              {'action':{'type':'string','enum':['show_results','focus_listing','zoom','show_place']},
@@ -233,12 +241,13 @@ def evidence(item, criteria):
 
 
 class HomeAgent:
-    def __init__(self, store, key, search, model=None, api=None, geocoder=None, router=None, detail_reader=None):
+    def __init__(self, store, key, search, model=None, api=None, geocoder=None, router=None, detail_reader=None, public_search=None, public_geocode=None):
         self.store, self.key, self.search = store, key, search
         self.api = api or AgentsAPI(key, model or os.environ.get('OPENAI_AGENT_MODEL', 'gpt-6.1-sol'))
         self.geocoder = geocoder or resolve_places
         self.router = router
         self.detail_reader = detail_reader
+        self.public_search, self.public_geocode = public_search, public_geocode
         self.lock = threading.Lock()
         self.workers = set()
 
@@ -247,7 +256,7 @@ class HomeAgent:
         for result in sets:
             for item in result['items']: item['match'] = evidence(item, session['criteria'])
         return {'revision': session['revision'], 'criteria': session['criteria'], 'memory': session['memory'],
-                'recent_conversation': session['conversation'][-20:], 'latest_result_set': sets[-1] if sets else None, 'saved_candidates': session['saved_candidates'], 'map_view':session.get('map_view'), 'map_command':session.get('map_command')}
+                'recent_conversation': session['conversation'][-20:], 'latest_result_set': sets[-1] if sets else None, 'saved_candidates': session['saved_candidates'], 'public_records':session.get('public_records',[]), 'map_view':session.get('map_view'), 'map_command':session.get('map_command')}
 
     def start(self, session_id, payload):
         if not self.key:
@@ -428,6 +437,8 @@ class HomeAgent:
             return {'error': 'invalid_arguments'}
         for field, value in args.items():
             spec = definition['properties'][field]
+            if spec.get('type') in ('number','integer') and (type(value) not in (int,float) or not __import__('math').isfinite(value) or value < spec.get('minimum',-1e9) or value > spec.get('maximum',1e9) or (spec['type']=='integer' and int(value)!=value)):
+                return {'error':'invalid_arguments'}
             if spec.get('type') == 'string' and (not isinstance(value, str) or not spec.get('minLength', 0) <= len(value) <= spec.get('maxLength', 2000)):
                 return {'error': 'invalid_arguments'}
             if spec.get('type') == 'array' and (not isinstance(value, list) or not spec.get('minItems', 0) <= len(value) <= spec.get('maxItems', 30) or not all(isinstance(x, str) and len(x) <= 100 for x in value)):
@@ -438,8 +449,20 @@ class HomeAgent:
                 return {'error': 'invalid_arguments'}
         external = None
         try:
+            if name == 'search_public_housing':
+                if not self.public_search: return {'error':'public_source_unavailable'}
+                external = self.public_search(args['source'],args['area'],args.get('offset',0))
+                for record in external['records'][:5]:
+                    if record.get('lat') is None and self.public_geocode:
+                        try: record.update(self.public_geocode(record['source'],record['id']))
+                        except (ValueError, OSError, URLError): pass
+            if name == 'control_map' and args.get('result_set_id') != 'public' and args['action'] in ('show_results','focus_listing'):
+                result_set = next(r for r in local['result_sets'] if r['id']==args.get('result_set_id'))
+                records = [i for i in result_set['items'] if not args.get('listing_id') or i['id']==args['listing_id']]
+                external = self.locate_records(deepcopy(records))
             if name == 'get_listing_details':
                 item = map_agent.listing(local,args['result_set_id'],args['listing_id'])
+                if args['result_set_id']=='public': return {'listing':item,'note':'All fields are the same official reference record used by the map layer.'}
                 if not self.detail_reader: return {'error':'details_unavailable'}
                 external = self.detail_reader(item['url'])
             if name == 'resolve_place':
@@ -463,12 +486,7 @@ class HomeAgent:
                 if c['max_price_yen'] is not None:
                     keywords += ' ' + str(c['max_price_yen'] / 10000) + '万円以下'
                 external = self.search(place, c['property_type'] or 'rent', {'layout': c['layout'], 'keywords': keywords.strip(), 'origin': c['origin_a'], 'radius_km': c['radius_a_km'], 'max_price_yen': c['max_price_yen']}, c['listing_provider'])
-                for item in [x for x in external.get('results', []) + external.get('leads', []) if x.get('lat') is None and x.get('extracted', {}).get('address')][:5]:
-                    locations = self.geocoder(item['extracted']['address'])
-                    if locations:
-                        item['location_evidence'] = {'query':item['extracted']['address'], 'resolved_name':locations[0]['name'], 'method':'address geocoding; approximate area, not confirmed building'}
-                        item.update(lat=locations[0]['lat'], lon=locations[0]['lon'],
-                                    positionAccuracy='住所の概略位置（国土地理院等）', geo_precision='approximate')
+                self.locate_records(external.get('results', []) + external.get('leads', []))
         except Exception:
             return {'error': 'lookup_failed', 'note': 'No data was invented; try another query or use manual search.'}
         def apply(s):
@@ -497,6 +515,21 @@ class HomeAgent:
                 time.sleep(.25)
         return result
 
+    def locate_records(self, items):
+        import public_housing
+        for item in items[:5]:
+            address = item.get('extracted', {}).get('address')
+            if item.get('lat') is not None or not address: continue
+            try: locations = self.geocoder(address)
+            except (ValueError, OSError, URLError): locations = []
+            # Reuse the merged address matching primitive; an unrelated first hit
+            # must not become a plausible-looking home pin.
+            match = next((p for p in locations if public_housing.address_key(address).startswith(public_housing.address_key(p['name']))),None)
+            if match:
+                item.update(lat=match['lat'],lon=match['lon'],geo_precision='approximate',
+                            location_evidence={'query':address,'resolved_name':match['name'],'method':'address area geocode, not exact building'})
+        return items
+
     def change_criteria(self, s, patch, record=True):
         patch = validate_patch(patch)
         if s['revision'] != s['chat']['expected_revision']:
@@ -510,14 +543,21 @@ class HomeAgent:
         return {'criteria': s['criteria'], 'revision': s['revision']}
 
     def apply_tool(self, s, name, args, external, original_criteria):
+        if name == 'search_public_housing':
+            s['public_records'] = external['records']
+            action = map_agent.queue(s,'show_results','public',expected_revision=s['chat'].get('expected_map_revision'))
+            return {**external,'map_action':action,'note':'Official reference layer only. Unknown rents, vacancy and unit details remain unknown. Uses the existing public map interface.'}
         if name == 'get_map_state':
             s['chat']['expected_map_revision'] = s['map_view']['revision']
             return {'map_view':s['map_view'],'map_command':s.get('map_command'),
-                    'selected_home':next((item for r in s['result_sets'] for item in r['items'] if item['id']==s['map_view'].get('selected_listing_id')),None)}
+                    'selected_home':next((item for item in s.get('public_records',[]) + [i for r in s['result_sets'] for i in r['items']] if item['id']==s['map_view'].get('selected_listing_id')),None)}
         if name == 'control_map':
+            if external:
+                for updated in external:
+                    map_agent.listing(s,args['result_set_id'],updated['id']).update(updated)
             place = None
             if args['action'] == 'show_place':
-                place = s['_agent'].get('places',{}).get(args.get('place_id')) or s['memory']['places'].get(args.get('place_id'))
+                place = (s['criteria'].get(args.get('place_id')) if args.get('place_id') in ('origin_a','origin_b') else None) or s['_agent'].get('places',{}).get(args.get('place_id')) or s['memory']['places'].get(args.get('place_id'))
                 if not place: return {'error':'unknown_place'}
                 place = {k:place[k] for k in ('lat','lon')}
             return map_agent.queue(s,args['action'],args.get('result_set_id'),args.get('listing_id'),args.get('zoom'),place,s['chat'].get('expected_map_revision'))
@@ -573,7 +613,7 @@ class HomeAgent:
             items = []
             for item in (external.get('results', []) + external.get('leads', []))[:30]:
                 item = deepcopy(item)
-                item['id'] = 'listing_' + sha256(item['url'].encode()).hexdigest()[:16]
+                item['id'] = 'listing_' + sha256((item['url']+'\0'+item.get('source_record_id','')).encode()).hexdigest()[:16]
                 item['match'] = evidence(item, s['criteria'])
                 items.append(item)
             if s['criteria']['sort'] == 'price':
@@ -587,7 +627,7 @@ class HomeAgent:
                       'note': 'Discovery links contain no verified property data. Source records expire after one hour; unknown requirements are not confirmed. Road commute requires get_commute or the manual route lookup.',
                       'counts': {'retrieved': len(items), 'leads': sum(bool(x.get('discovery_only')) for x in items), 'mismatched': sum(x['match']['status'] == 'mismatch' for x in items), 'confirmed': sum(x['match']['status'] == 'confirmed' for x in items)}}
             s['result_sets'] = (s['result_sets'] + [result])[-5:]
-            result['map_action'] = map_agent.queue(s,'show_results',result['id'])
+            result['map_action'] = map_agent.queue(s,'show_results',result['id'],expected_revision=s['chat'].get('expected_map_revision'))
             result['counts']['mapped'] = sum(i.get('lat') is not None for i in items)
             return result
         if name in ('compare_listings', 'save_listing'):
@@ -661,7 +701,7 @@ class HomeAgent:
                     self.api.request('DELETE', '/' + ident)
                 def clear(s):
                     reset_search = s['chat'].get('reset_search', False)
-                    s.update(conversation=[], memory={'facts': {}, 'places': {}}, result_sets=[], history=[],
+                    s.update(map_view={**map_agent.initial_view(),'revision':s['map_view']['revision']+1},map_command=None,public_records=[],conversation=[], memory={'facts': {}, 'places': {}}, result_sets=[], history=[],
                              chat={'status': 'idle'}, draft_message='', _agent={}, _tool_results={})
                     if reset_search:
                         s['criteria'] = deepcopy(DEFAULT_CRITERIA)

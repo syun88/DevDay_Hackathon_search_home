@@ -1,8 +1,8 @@
 # Search Home — 地図 × 物件検索 × 通勤圏
 
-## SUUMO接続のローカル試作（このブランチ限定）
+## SUUMO接続のローカル試作（初期状態は停止）
 
-この機能はローカル技術検証用で、公開サービスとしての利用許可は未取得です。`main` の `46da8ada` から分岐し、既存の地図UIに明示的な **「SUUMOの賃貸データを取得」** ボタンを追加しました。起動は `PORT=8771 python3 server.py`、画面は `http://127.0.0.1:8771/` です。APIキーは不要です。
+この機能はローカル技術検証用で、公開サービスとしての利用許可は未取得です。**初期状態ではサーバー側で接続を拒否し、ボタンも無効化します。** 取得・再利用の許諾を得た運用者のみ `SUUMO_REUSE_PERMITTED=1` を設定してください。環境変数は許諾を取得する機能ではありません。許諾がない場合は公式検索リンクをご利用ください。
 
 ボタンを押すと、ブラウザーは同一オリジンの `GET /api/suumo-search?lat=...&lon=...&radius_km=...&max_rent_man=15&layout=1K` のみを呼びます。家賃上限と間取りは指定した場合だけ送ります。ローカルサーバーがSUUMOの公開地図ページからその時点の匿名検索パラメーターを受け取り、賃貸地図へ **最大5件の1リクエスト** を送ります。ページ由来の値はサーバー内でのみ使い、ブラウザーやログに返しません。成功結果は同じ中心・半径・家賃上限・間取りについて120秒キャッシュします。検索は東京都内中心、半径0.1〜2kmに限定します。
 
@@ -75,6 +75,14 @@ BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
 
 ## 構成
 
+### 公的住宅・自治体空き家
+
+「公的住宅・自治体空き家データ」で、ソースと地域・団地名を選び「公開データ取得」を押します。**APIキー・追加パッケージ・課金設定は不要**です。東京都の都営住宅CSVと津幡町のCC BY空き家CSVを公式配布元から取得し、住所の概略位置を地図に表示します。UR・JKK東京・全国版空き家バンクには公式検索リンクを用意しています。
+
+**台帳や公開ファイルはリアルタイム募集ではありません。** 基準日・ファイル更新日・取得日時・募集確認日時を区別し、成約済みは除外します。参考表示は共通条件OFFが初期値です。ONにすると既存の地点A/B・半径・家賃総額/売買価格・間取り等で絞り込みます。不明な家賃、費用、間取り、募集状況や概略座標を厳密な条件一致とは扱いません。「条件が未確認の候補も表示」を選ぶと参考候補を含められますが、判明している不一致は除外します。
+
+都営の空き住戸PDFは自動転載許諾を確認できないため**公式リンクのみ**です。空き住戸数・確認済み募集は別レイヤーを持ち、許諾済みフィードを設定したときだけ実データを表示します。UR/JKKの実データAPIや全国全自治体の網羅取得は未接続です。利用条件・接続範囲・フィード形式は [公的住宅データ](docs/public-housing.md) を参照してください。
+
 - `home_agent.py`: Agents API client, durable conversation worker, validated search/memory/save/Undo tools
 - `chat.js`: chat history, progress, cancellation, recovery and memory controls
 - `session_store.py`: shared criteria schema, SQLite sessions and atomic revision checks
@@ -84,6 +92,7 @@ BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
 - `server.py`: localhost専用HTTPサーバー、Bing RSS/Brave検索、正規化と出典、任意Decisions API分類
 - `listing_feed.py`: 許可済み募集データの正規化、鮮度・出典・位置精度の確認
 - `property_core.js`: 保存候補と取り込み候補に共通の費用・不明値・距離・通勤時間の判定
+- `public_housing.py` / `public_housing.js`: 許諾確認済みオープンCSVの取得・正規化、公的資料レイヤーと地図・共通条件の接続
 - `filter_core.py`: 複数地点AND/ORと月額費用の厳密フィルタ参照実装（不明値は除外）
 - `ARCHITECTURE.md`: 設計全体、データ源・公式API、PostGIS／経路／ハザード／通知への拡張方針
 - `tests/`: 抽出、URL制約、距離、未知値・境界条件、AI通信モック検証
@@ -96,6 +105,8 @@ BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
 - `POST /api/classify` (`{"title":"...","description":"..."}`): 任意AI分類。`OPENAI_API_KEY`がある場合のみ
 - `POST /api/import` (`{"permitted":true,"records":[...]}`): 許可済みデータを検証・正規化。最大1MB・500件
 - `POST /api/route` (`{"origin":{"lat":35,"lon":139},"destination":{"lat":35.01,"lon":139},"mode":"foot"}`): 無料道路経路。`foot` / `bike` / `car`。経路なしの場合は `duration_seconds:null`
+- `GET /api/public-housing?source=tokyo&area=千代田区&offset=0`: 公式公開CSVの参考資料。`source` は `tokyo` / `tsubata` / 設定時の `permitted`。20件単位
+- `POST /api/public-geocode` (`{"source":"tokyo","id":"取得結果のid"}`): 公開住所の概略位置照会。任意URLや任意住所は受け付けない
 
 - `GET /api/session`: create or restore the cookie-bound search session (no API key)
 - `POST /api/session`: update with `{"expected_revision":0,"criteria":{"max_price_yen":100000}}`; returns 409 if another update has already advanced the revision

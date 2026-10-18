@@ -88,6 +88,7 @@ class SearchSession extends EventTarget {
   }
   accept(data) {
     if (this.saving || Object.keys(this.pending).length || (this.snapshot && data.revision < this.snapshot.revision)) return false;
+    if(this.snapshot?.chat_id===data.chat_id && (this.snapshot.map_view?.revision||0)>(data.map_view?.revision||0))data={...data,map_view:this.snapshot.map_view,map_command:this.snapshot.map_command};
     this.snapshot = data; this.criteria = structuredClone(data.criteria); this.draft = data.draft_message;
     this.status = 'saved'; this.emit(); return true;
   }

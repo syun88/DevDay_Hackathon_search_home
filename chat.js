@@ -22,7 +22,7 @@ window.mountHomeChat = ({session, adapter}) => {
     network:'送信を確認できませんでした。下書きを保持しています。再試行して確認できます。',
   };
   const progress={stopping:'処理を停止しています…',clearing:'会話と記憶を削除しています…',
-    thinking:'考えています…',resolve_place:'場所を確認しています…',set_origin:'起点を設定しています…',
+    get_map_state:'地図を確認しています…',control_map:'地図を操作しています…',get_listing_details:'物件の詳細を確認しています…',search_public_housing:'公開データを地図に読み込んでいます…',thinking:'考えています…',resolve_place:'場所を確認しています…',set_origin:'起点を設定しています…',
     update_search:'検索条件を更新しています…',search_listings:'実際の掲載ページを探しています…',
     compare_listings:'候補を比較しています…',save_listing:'候補を保存しています…',
     remember_preference:'希望を覚えています…',forget_place:'記憶を更新しています…',
@@ -60,6 +60,7 @@ window.mountHomeChat = ({session, adapter}) => {
     sending=true;$('chatError').hidden=true;render();
     try {
       await settled();
+      await window.homeMapAgent?.flush();
       const payload=retry&&pending?pending:{request_id:crypto.randomUUID(),message,
         expected_revision:session.snapshot.revision,language:document.documentElement.lang==='en'?'en':'ja',...(adapter.visibleResults?.()||{})};
       rememberSubmission(payload);
@@ -77,7 +78,7 @@ window.mountHomeChat = ({session, adapter}) => {
       if(match[1]||match[2]){const span=document.createElement(match[1]?'strong':'code');span.textContent=match[1]||match[2];root.append(span);}
       else {
         const address=match[4]||match[5];let allowed=false;
-        try {const url=new URL(address);allowed=['suumo.jp','homes.co.jp','athome.co.jp','google.com','openstreetmap.org'].some(host=>url.hostname===host||url.hostname.endsWith('.'+host));}catch{}
+        try {const url=new URL(address);const known=(session.snapshot?.public_records||[]).flatMap(i=>[i.official_url,i.source_url,i.data_url,i.license_url]);allowed=known.includes(address)||['suumo.jp','homes.co.jp','athome.co.jp','google.com','openstreetmap.org'].some(host=>url.hostname===host||url.hostname.endsWith('.'+host));}catch{}
         if(allowed){const a=document.createElement('a');a.href=address;a.textContent=match[3]||address;a.target='_blank';a.rel='noopener noreferrer';root.append(a);}
         else root.append(document.createTextNode(match[0]));
       }

@@ -10,6 +10,7 @@ def initial_view():
 
 
 def listing(session, result_set_id, listing_id):
+    if result_set_id == 'public': return next(i for i in session.get('public_records',[]) if i['id']==listing_id)
     result = next(r for r in session['result_sets'] if r['id'] == result_set_id)
     return next(i for i in result['items'] if i['id'] == listing_id)
 
@@ -23,9 +24,10 @@ def point(value):
 
 
 def report(session, data):
-    allowed = {'expected_revision','center','zoom','selected_listing_id','result_set_id','visible_listing_ids','ack'}
+    allowed = {'visible_features','reference_features','chat_id','public_records', 'expected_revision','center','zoom','selected_listing_id','result_set_id','visible_listing_ids','ack'}
     if not isinstance(data,dict) or set(data)-allowed or type(data.get('expected_revision')) is not int:
         raise ValueError('Invalid map report')
+    if data.get('chat_id',session.get('chat_id')) != session.get('chat_id'): return {'error':'chat_changed'}
     view = session.setdefault('map_view',initial_view())
     if data['expected_revision'] != view['revision']:
         return {'error':'stale_map_view','map_view':view}
@@ -41,6 +43,18 @@ def report(session, data):
         for ident in ids + ([selected] if selected else []): listing(session,result_id,ident)
     except StopIteration:
         raise ValueError('Unknown map record') from None
+    features = data.get('visible_features',[])
+    if not isinstance(features,list) or len(features)>100: raise ValueError('Invalid map features')
+    try:
+        for feature in features:
+            if not isinstance(feature,dict) or set(feature)!={'result_set_id','listing_id'}: raise ValueError('Invalid feature')
+            listing(session,feature['result_set_id'],feature['listing_id'])
+    except StopIteration: raise ValueError('Unknown visible feature') from None
+    references = data.get('reference_features',[])
+    if not isinstance(references,list) or len(references)>30: raise ValueError('Invalid references')
+    for ref in references:
+        if not isinstance(ref,dict) or set(ref)!={'kind','label','lat','lon'} or ref['kind'] not in ('building','place','saved') or not isinstance(ref['label'],str) or len(ref['label'])>180: raise ValueError('Invalid reference feature')
+        point({'lat':ref['lat'],'lon':ref['lon']})
     ack = data.get('ack')
     if ack:
         command = session.get('map_command')
@@ -48,7 +62,7 @@ def report(session, data):
             raise ValueError('Invalid map acknowledgement')
         # Once acknowledged, another tab cannot change the outcome.
         if command['status'] == 'pending': command['status'] = ack['status']
-    updated = {'center':center,'zoom':zoom,'selected_listing_id':selected,'result_set_id':result_id,'visible_listing_ids':ids}
+    updated = {'center':center,'zoom':zoom,'selected_listing_id':selected,'result_set_id':result_id,'visible_listing_ids':ids,'visible_features':features,'reference_features':references}
     if any(view.get(k) != v for k,v in updated.items()):
         view.update(updated); view['revision'] += 1
     return {'map_view':view,'map_command':session.get('map_command')}
@@ -65,7 +79,7 @@ def queue(session, action, result_set_id=None, listing_id=None, zoom=None, place
         if type(zoom) not in (int,float) or not math.isfinite(zoom) or not 3 <= zoom <= 18: raise ValueError('Invalid zoom')
         command['zoom'] = zoom
     if action in ('show_results','focus_listing'):
-        result = next(r for r in session['result_sets'] if r['id']==result_set_id)
+        result = {'items':session.get('public_records',[])} if result_set_id=='public' else next(r for r in session['result_sets'] if r['id']==result_set_id)
         mapped = [i for i in result['items'] if i.get('lat') is not None and i.get('lon') is not None]
         if action == 'focus_listing':
             item = listing(session,result_set_id,listing_id)
