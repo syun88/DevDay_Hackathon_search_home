@@ -6,16 +6,20 @@
 
 Use **EN / JP** in the header to switch the interface language. Your choice is remembered in this browser; addresses and source listing text stay in their original language.
 
-## 会話UIの土台 / Conversation foundation
+## 会話で住まいを探す / Chat with your home-search agent
 
-検索条件は画面上部のチップから編集できます。従来の設定は「検索条件を編集・詳細設定」に残っています。条件とチャットの下書きはサーバー側のSQLiteに保存され、再読み込み後も復元されます。**AIチャット送信・自然言語からの条件抽出は次の段階です。現時点の入力欄は下書き保存のみです。**
+EN/JPのチャットで、場所・予算・間取り・こだわりを伝えて検索できます。「予算だけ下げて」「職場の近く」「2番目を保存」「さっきの変更を戻して」と会話を続けられます。条件チップと詳細設定も同じ検索状態を使います。
 
-Edit the condition chips above the collapsed advanced controls. Criteria and the chat draft persist on the server and restore after reload. **AI messaging and natural-language actions are not connected yet; the composer saves a draft only.** No additional API key is needed for this foundation.
+Describe your location, budget and preferences in English or Japanese. The assistant can update criteria, resolve places, search real listing pages, compare/save retrieved candidates and undo a criteria change. Manual controls remain under **Advanced**.
 
-- Persistence: `.local/sessions.sqlite3` (ignored by Git and blocked from HTTP access). The browser holds an HttpOnly session cookie; saved property candidates retain their existing browser storage.
-- Updates contain `expected_revision` and a partial criteria object. Stale updates return HTTP 409 and require explicitly loading the saved version. Failed saves retain edits and offer Retry.
-- Prices in the shared state are whole yen; the advanced form still displays multiples of ¥10,000. Rent excludes management fees. Distances remain straight-line.
-- This is a local, single-user application. Separate browser profiles receive separate sessions; tabs in one profile share a session. This is not authenticated multi-user storage. Cookies expire after 30 days; the SQLite file currently has no automatic retention cleanup.
+- **Required for chat:** `OPENAI_API_KEY` with Agents API read/write and model inference access. The app uses the [OpenAI Agents API](https://developers.openai.com/api/docs/guides/agents-api/quickstart) directly through HTTPS, with `environment: none`; no sandbox or extra Python package is needed. `OPENAI_AGENT_MODEL` defaults to `gpt-6.1-sol` for new conversations.
+- **Memory:** The same remote agent session retains conversation context. Explicit preferences and named places (such as your office), local message history, up to five result snapshots, saved candidates and twenty criteria revisions persist in `.local/sessions.sqlite3`. Reloading or restarting the server restores the conversation. Saved legacy manual candidates retain their existing browser storage.
+- **Actions and recovery:** Messages use stable submission IDs. Tool side effects and their results are journaled together so recovery does not apply a change twice. Stop cancels the remote turn. Retry resumes uncertain work; failed actions are never presented as successful. Manual changes are protected by revision checks.
+- **Privacy controls:** “Clear chat & memory” deletes the remote session and local conversation/memory, retaining criteria and saved candidates. “New search” also resets criteria. These operations complete asynchronously; a failed remote deletion is shown as an error rather than a successful clear.
+- **Limits:** Maps, geocoding and Bing listing discovery work without extra keys; Brave is optional. Listing snippets and approximate locations are unverified, and zero results remain zero. Rent caps exclude management fees. Train/walking commute times and verified vacancies require additional data services and are not claimed by this app.
+- **Local app:** Browser profiles receive separate HttpOnly, SameSite=Strict session cookies; tabs share one session. This is not an authenticated multi-user service. Cookies expire after 30 days; automatic database retention cleanup is not implemented. Environment and database files are ignored by Git and blocked from HTTP access.
+
+例 / Example: “Remember that I have a cat named Mochi. Find a 1K rental near Tokyo Station under ¥100,000 in listed rent.” Then: “Change only the budget to ¥85,000,” “What is my cat’s name?” or “Undo the last change.” Pet/cat permission remains unverified until supported by the source.
 
 ## 起動
 
@@ -46,6 +50,8 @@ BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
 
 ## 構成
 
+- `home_agent.py`: Agents API client, durable conversation worker, validated search/memory/save/Undo tools
+- `chat.js`: chat history, progress, cancellation, recovery and memory controls
 - `session_store.py`: shared criteria schema, SQLite sessions and atomic revision checks
 - `session.js`: queued session updates, draft persistence, conflict/error recovery
 - `workspace.js` / `workspace.css`: bilingual chat shell, editable chips and advanced panel
@@ -63,7 +69,12 @@ BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
 
 - `GET /api/session`: create or restore the cookie-bound search session (no API key)
 - `POST /api/session`: update with `{"expected_revision":0,"criteria":{"max_price_yen":100000}}`; returns 409 if another update has already advanced the revision
-- `GET /api/session/schema`: versioned criteria and partial-update schemas
+- `GET /api/session/schema`: versioned criteria and partial-update schemas (schema version 2)
+- `POST /api/chat`: submit `{request_id,message,expected_revision,language}`; returns a persisted running session immediately
+- `GET /api/session`: poll progress, messages, memory and result snapshots; resumes interrupted workers
+- `POST /api/chat/resume`: resume an uncertain turn with its `request_id`
+- `POST /api/chat/cancel`: stop the current `request_id`
+- `POST /api/chat/reset`: clear remote/local chat and memory with `{expected_revision,reset_search}`; `reset_search: true` also resets criteria
 
 ## テスト
 

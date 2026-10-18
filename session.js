@@ -86,6 +86,11 @@ class SearchSession extends EventTarget {
       if (this.status === 'saving') this.flush();
     }
   }
+  accept(data) {
+    if (this.saving || Object.keys(this.pending).length || (this.snapshot && data.revision < this.snapshot.revision)) return false;
+    this.snapshot = data; this.criteria = structuredClone(data.criteria); this.draft = data.draft_message;
+    this.status = 'saved'; this.emit(); return true;
+  }
   retry() { this.status = 'saving'; this.emit(); return this.flush(); }
 }
 window.SearchSession = SearchSession;

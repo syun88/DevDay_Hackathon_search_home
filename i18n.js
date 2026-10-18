@@ -291,6 +291,53 @@ Object.assign(english, {
   "保存サービスに接続できません。手動検索は引き続き利用できます。": "Saving is unavailable. You can still use manual search.",
   "別のタブで条件が変更されました。未保存の編集を破棄して、保存済みの条件を使えます。": "Another tab changed this search. Use the saved version to discard your unsaved edits and reload."
 });
+Object.assign(english, {
+  "希望を教えてください。場所・予算・こだわりを整理して、一緒に住まいを探します。": "Tell me what matters to you. I’ll help you find places, shape your search, and compare real listings.",
+  "住まい探しの会話": "Home search conversation",
+  "住まいの希望を教えてください": "Tell me what you’re looking for",
+  "下書きと会話は自動保存されます。": "Your draft and conversation save automatically.",
+  "停止": "Stop",
+  "送信": "Send",
+  "条件の変更を戻す": "Undo criteria change",
+  "会話と記憶を削除": "Clear chat & memory",
+  "新しい検索": "New search",
+  "覚えていること": "Remembered preferences & places",
+  "保存した掲載ページ": "Saved listing pages",
+  "あなた": "You",
+  "住まいアシスタント": "Home assistant",
+  "AIを使うにはサーバーにOpenAIキーを設定してください。手動検索は利用できます。": "Add an OpenAI key on the server to use the assistant. Manual search is still available.",
+  "AIサービスの利用権限を確認してください。キーのAgents API権限が必要です。": "Check your OpenAI key’s Agents API permissions and model access.",
+  "AIサービスの利用上限に達しました。時間をおいて再試行してください。": "The AI service reached a usage limit. Try again later.",
+  "応答に時間がかかっています。再試行すると、保存済みの処理を確認して再開します。": "This is taking longer than expected. Retry will check the saved turn and resume it.",
+  "AIサービスに接続できませんでした。再試行して処理の状態を確認できます。": "Could not connect to the AI service. Retry to check and resume the saved work.",
+  "AIの処理に失敗しました。一部の変更は保存されている場合があります。現在の条件を確認して、会話を続けてください。": "The assistant could not finish. Some changes may already be saved. Check your current criteria and continue the conversation.",
+  "会話が長くなりました。「会話と記憶を削除」で新しい会話を始めてください。": "This conversation reached its limit. Use Clear chat & memory to start a fresh conversation.",
+  "別のメッセージを処理中です。完了をお待ちください。": "Another message is being processed. Please wait for it to finish.",
+  "処理を停止しました。完了済みの変更は保持されます。": "Stopped. Changes that already completed are kept.",
+  "条件が変更されました。保存済みの状態を確認して、もう一度送信してください。": "The search changed. Check the saved state and send your message again.",
+  "送信を確認できませんでした。下書きを保持しています。再試行して確認できます。": "Could not confirm delivery. Your draft is kept; Retry will check the submission.",
+  "考えています…": "Thinking…",
+  "場所を確認しています…": "Looking up the location…",
+  "起点を設定しています…": "Setting your starting point…",
+  "検索条件を更新しています…": "Updating your criteria…",
+  "実際の掲載ページを探しています…": "Searching real listing pages…",
+  "候補を比較しています…": "Comparing candidates…",
+  "候補を保存しています…": "Saving a candidate…",
+  "希望を覚えています…": "Remembering your preferences…",
+  "記憶を更新しています…": "Updating memory…",
+  "条件を元に戻しています…": "Restoring the previous criteria…",
+  "現在の条件を確認しています…": "Checking your current criteria…",
+  "保存済み候補を更新しています…": "Updating saved candidates…",
+  "まだ記憶はありません。希望や「職場」などの場所を会話で教えてください。": "No saved memories yet. Tell me your preferences or a place such as your office.",
+  "掲載情報・空室は未確認です。掲載元で確認してください。": "Listing details and availability are unverified. Check the original source.",
+  "保存から削除": "Remove from saved",
+  "{0}件の掲載ページを取得。条件・空室は掲載元で確認してください。": "Found {0} listing pages. Verify conditions and availability at the source.",
+  "条件が変わりました。現在の条件で再検索してください。": "Your criteria changed. Search again to refresh the results.",
+  "新しい検索を始めますか？会話と記憶を削除します。保存した候補は残ります。": "Start a new search? Chat, remembered preferences and criteria will reset. Saved candidates are kept.",
+  "会話と記憶を削除しますか？検索条件と保存した候補は残ります。": "Clear this chat and its remembered preferences? Current criteria and saved candidates are kept."
+});
+Object.assign(english, {"前の処理が未完了です。再試行で再開するか、停止してから新しいメッセージを送ってください。": "The previous turn is unfinished. Retry to resume it, or stop it before sending another message."});
+Object.assign(english, {"処理を停止しています…":"Stopping the current turn…", "会話と記憶を削除しています…":"Clearing conversation and memory…"});
 const storageKey = 'property_map_language';
 let language = 'ja';
 try { if (localStorage.getItem(storageKey) === 'en') language = 'en'; } catch {}

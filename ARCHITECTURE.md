@@ -123,17 +123,32 @@ curl -sS https://api.openai.com/v1/decisions \
 - [SUUMO 利用規約](https://suumo.jp/edit/kiyaku/)
 
 
-## 9. 会話UIの初期実装 / Conversation foundation (issue #3, first slice)
+## 9. 会話型エージェントの実装 / Conversational agent (issue #3)
 
-現在のHTML/JavaScriptと標準ライブラリのPythonサーバーを維持して実装する。React/PostGISへの移行はこの段階の前提にしない。
+既存のHTML/JavaScriptと標準ライブラリのPythonサーバーを維持する。チャットを主画面とし、手動設定は折りたたんで残す。
 
-- `session_store.py` is the canonical schema and persistence layer. Schema version 1 contains named origin A/B records, straight-line radii, listed-price cap in whole yen, layout/area/age filters, pet/parking requirements, listing search options and the composer draft. It does not yet represent total monthly cost, commute time or soft preferences.
-- `GET /api/session/schema` exposes machine-readable criteria/update schemas. `GET /api/session` establishes an HttpOnly, SameSite=Strict cookie. `POST /api/session` accepts partial criteria and draft updates with `expected_revision`.
-- SQLite updates run in a transaction with a revision comparison. Effective changes increment the revision; no-op updates do not. Stale writes return 409 with the current snapshot and never overwrite it.
-- The client queues edits made during a request. Chat chips and advanced controls use the same client draft; accepted server snapshots become the baseline. Save failures preserve the local draft; conflicts require explicitly loading the saved version.
-- Session records live in ignored `.local/sessions.sqlite3`. Only frontend assets are served over HTTP, excluding environment files, database files and Git metadata. Session mutation rejects cross-origin requests.
-- The existing browser-only property shortlist remains separate. This slice persists criteria and a composer draft, not conversation history, stable result references, named-place aliases, Undo or AI tool execution. Legacy map origins are not yet imported into a newly created session; existing saved candidates are preserved.
-- The EN/JP composer clearly indicates that AI messaging is not connected yet. Follow-up PRs will attach validated conversational tools to the same state contract.
-- Local-only boundaries: cookie lifetime is 30 days; automatic database retention cleanup and authenticated multi-user isolation remain future work.
+### State and memory
+- Schema version 2 migrates existing search sessions on read. SQLite stores the shared criteria, draft, user/assistant messages, explicit preference memory, named places, five result snapshots, saved candidates and twenty prior criteria snapshots.
+- Prices use whole yen, exclude management fees, and retain the existing form adapter. Distances are straight-line; route-time and verified-vacancy claims are unsupported.
+- A provider session ID stays private on the server. Reusing the same OpenAI Agents API session preserves conversation context; structured local memory remains authoritative alongside current manual edits.
+- The browser receives public state through a cookie-bound session. Provider IDs, original submission envelopes, instructions and tool-result journals are excluded.
 
-検証：価格単位の変換、チップと手動設定の同期、再読み込み復元、複数セッションの分離、同時更新・古いリビジョンの拒否、保存失敗からの復旧、EN/JP、モバイル表示、機密ファイル非公開を確認する。
+### Agent runtime
+- `home_agent.py` uses the Agents API REST endpoints with `OpenAI-Beta: agents=v1`, a configurable model, and `environment: none`. No arbitrary code execution, sandbox, unrestricted browsing or third-party messaging tool is exposed.
+- A chat POST durably records the logical submission before a background worker begins. Submission keys are scoped to the local session; provider input is saved before sending so a recovery reuses the same request.
+- Workers poll required actions and root turn outcomes, execute only validated application tools, return tool results and retrieve final assistant messages from saved items. A completed root turn, rather than idle state alone, establishes completion. Item pagination is handled.
+- Allowed tools read/update criteria, resolve real places, set/remember origins, remember/forget explicit preferences, search listing pages, compare/save/remove stable candidates, and undo criteria changes.
+- Server-side validation and revision checks protect criteria. Tool side effects and replay results commit in one SQLite transaction. A stale write returns current state instead of overwriting manual edits. A search completed against obsolete criteria is rejected.
+- In-progress work resumes after reload or server restart. Cancellation and remote/local history deletion are themselves persisted lifecycle operations. Uncertain errors require resuming or stopping the previous turn before a new message can start.
+
+### Results and interface
+- Agent search results have stable listing IDs and immutable result-set IDs/order, so references such as “the second one” can be resolved explicitly. Old result sets remain available for comparison within the bounded history.
+- Every snippet is unverified. Deterministic evidence checks flag known mismatches and unknown fields; zero results are displayed honestly. Only real provider/geocoder records are stored. Approximate geocoding never becomes an exact location claim.
+- Chat, editable chips and the advanced panel share one criteria state. With a configured AI key, the primary search button asks the agent to search the current state. Keyless manual search remains available.
+- Messages render through a small DOM-based Markdown subset without HTML injection. The UI shows actual tool progress, errors, Stop/Retry, remembered preferences and saved listing pages.
+- Clear chat & memory deletes the remote agent session before clearing local history and memory. New search also resets criteria; saved candidates are retained. A remote deletion failure remains visible.
+
+### Boundaries and validation
+- Exact personal places are sent to OpenAI only as part of the requested search context/tools; API keys remain server-side. External listing text is treated as untrusted data.
+- The server remains localhost-only. Cookie lifetime is 30 days; authenticated multi-user isolation and automatic retention cleanup are not implemented. Legacy manual candidates remain in browser storage.
+- Offline tests cover schemas, atomic revisions, HTTP/session isolation, idempotent submission/tool replay, persisted memory, stale results, stable references, saving/comparison, Undo, cancellation and deletion. Browser/live API checks cover bilingual conversation, state changes, memory after reload, real search, Japanese Undo and lifecycle recovery.

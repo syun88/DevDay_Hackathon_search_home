@@ -125,7 +125,25 @@ class SessionHTTPTest(unittest.TestCase):
         self.assertEqual(self.request('POST', '/api/session', {'expected_revision': 0}, cookie, 'https://evil.example')[0], 403)
         self.assertEqual(self.request('POST', '/api/session', {'expected_revision': 0})[0], 404)
         self.assertEqual(self.request('POST', '/api/session', {'expected_revision': 0, 'criteria': {'pets': 1}}, cookie)[0], 400)
-        self.assertEqual(self.request('GET', '/api/session/schema')[2]['schema_version'], 1)
+        self.assertEqual(self.request('GET', '/api/session/schema')[2]['schema_version'], 2)
+
+    def test_chat_endpoint_is_cookie_bound_and_hides_provider_state(self):
+        from home_agent import HomeAgent
+        agent = HomeAgent(server.SESSION_STORE, 'synthetic-test-key', lambda *args: {})
+        agent.resume = lambda token: None
+        with patch.object(server, 'HOME_AGENT', agent):
+            _, headers, _ = self.request('GET', '/api/session')
+            cookie = headers['Set-Cookie'].split(';')[0]
+            payload = {'request_id': 'request_1234567890', 'message': 'Remember my cat', 'expected_revision': 0, 'language': 'en'}
+            status, _, session = self.request('POST', '/api/chat', payload, cookie)
+            self.assertEqual(status, 200)
+            self.assertEqual(session['chat']['status'], 'running')
+            self.assertNotIn('_agent', session)
+            self.assertNotIn('provider_input', session['chat'])
+            self.assertEqual(len(self.request('GET', '/api/session', cookie=cookie)[2]['conversation']), 1)
+            self.assertEqual(self.request('GET', '/api/session')[2]['conversation'], [])
+            self.assertEqual(self.request('POST', '/api/chat', payload, cookie, 'https://evil.example')[0], 403)
+            self.assertEqual(self.request('POST', '/api/chat', [], cookie)[0], 400)
 
     def test_schema_exposes_standard_json_types(self):
         _, _, schema = self.request('GET', '/api/session/schema')

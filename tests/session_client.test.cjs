@@ -65,3 +65,14 @@ test('unavailable persistence retains local criteria without claiming they were 
   session.criteria={layout:'',pets:false};await session.load();session.patch({layout:'1K'});
   assert.equal(session.status,'unavailable');assert.equal(session.criteria.layout,'1K');
 });
+
+
+test('polling never replaces a newer revision or pending local edits',async()=>{
+  const session=setup(async()=>response(snapshot(2,{layout:'2K',pets:false})));
+  await session.load();
+  assert.equal(session.accept(snapshot(1,{layout:'1K',pets:false})),false);
+  assert.equal(session.criteria.layout,'2K');
+  session.patch({pets:true});
+  assert.equal(session.accept(snapshot(3,{layout:'2K',pets:false})),false);
+  assert.equal(session.criteria.pets,true);
+});

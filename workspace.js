@@ -167,6 +167,6 @@ window.mountSearchWorkspace = adapter => {
   window.addEventListener('pagehide', () => session.flush());
   // A stable seam for the next PR's conversational actions.
   window.searchWorkspace = {session, updateCriteria: patch => session.patch(patch)};
-  renderChips();renderStatus();session.load();
+  renderChips();renderStatus();window.mountHomeChat({session, adapter});session.load();
 };
 })();

@@ -21,7 +21,8 @@ from html import unescape
 from datetime import datetime, timezone
 import xml.etree.ElementTree as ET
 import os, json, re, socket, threading, time
-from session_store import SessionStore, RevisionConflict, CRITERIA_SCHEMA, UPDATE_SCHEMA, SCHEMA_VERSION
+from session_store import SessionStore, RevisionConflict, CRITERIA_SCHEMA, UPDATE_SCHEMA, SCHEMA_VERSION, public_session
+from home_agent import HomeAgent, AgentError
 
 BASE = Path(__file__).resolve().parent
 
@@ -259,13 +260,16 @@ def decision_classify(title: str, description: str) -> dict:
     if choice not in ('detail','list','other'):choice='unknown'
     return {'choice':choice,'confidence':answer.get('confidence'),'is_verified':False}
 
+HOME_AGENT = HomeAgent(SESSION_STORE, OPENAI_KEY, fetch_listings)
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(BASE), **kwargs)
 
     def send_head(self):
         # Serve only frontend assets, never .env, Git metadata, or source files.
-        if urlparse(self.path).path not in ('/', '/index.html', '/i18n.js', '/session.js', '/workspace.js', '/workspace.css'):
+        if urlparse(self.path).path not in ('/', '/index.html', '/i18n.js', '/session.js', '/workspace.js', '/workspace.css', '/chat.js'):
             self.send_error(404, 'Not found')
             return None
         return super().send_head()
@@ -292,7 +296,7 @@ class Handler(SimpleHTTPRequestHandler):
             pass
         return None
 
-    def update_session(self):
+    def update_session(self, action='session'):
         host = self.headers.get('Host', '')
         allowed_hosts = {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
         if (host not in allowed_hosts or self.headers.get('Sec-Fetch-Site') == 'cross-site'
@@ -305,16 +309,39 @@ class Handler(SimpleHTTPRequestHandler):
             if not 2 <= size <= 16000:
                 return self.respond(413, {'error': 'Invalid body size'})
             payload = json.loads(self.rfile.read(size))
+            if not isinstance(payload, dict):
+                raise ValueError('JSON object required')
             session_id = self.session_id()
             if not session_id or not SESSION_STORE.get(session_id):
                 return self.respond(404, {'error': 'Session not found; reload the page'})
-            return self.respond(200, SESSION_STORE.update(session_id, payload))
+            if action == 'session':
+                result = SESSION_STORE.update(session_id, payload)
+            elif action == 'chat':
+                result = HOME_AGENT.start(session_id, payload)
+            elif action == 'cancel':
+                current = SESSION_STORE.get(session_id)
+                if payload.get('request_id') != current['chat'].get('request_id'):
+                    return self.respond(409, {'error': 'request_changed', 'session': public_session(current)})
+                result = HOME_AGENT.cancel(session_id, payload.get('request_id'))
+            elif action == 'resume':
+                result = HOME_AGENT.recover(session_id, payload.get('request_id'))
+            elif action == 'reset':
+                if (type(payload.get('expected_revision')) is not int
+                        or type(payload.get('reset_search', False)) is not bool):
+                    raise ValueError('Invalid reset')
+                result = HOME_AGENT.reset(session_id, payload['expected_revision'], payload.get('reset_search', False))
+            return self.respond(200, public_session(result))
         except RevisionConflict as exc:
-            return self.respond(409, {'error': 'revision_conflict', 'session': exc.session})
+            return self.respond(409, {'error': 'revision_conflict', 'session': public_session(exc.session)})
+        except AgentError as exc:
+            return self.respond(409 if str(exc) == 'busy' else 503, {'error': str(exc)})
         except (ValueError, UnicodeError):
             return self.respond(400, {'error': 'Invalid session update'})
 
     def do_POST(self):
+        action = {'/api/chat': 'chat', '/api/chat/cancel': 'cancel', '/api/chat/reset': 'reset', '/api/chat/resume': 'resume'}.get(urlparse(self.path).path)
+        if action:
+            return self.update_session(action)
         if urlparse(self.path).path == '/api/session':
             return self.update_session()
         if urlparse(self.path).path != '/api/classify':
@@ -348,16 +375,17 @@ class Handler(SimpleHTTPRequestHandler):
             session_id = self.session_id()
             session = SESSION_STORE.get(session_id) if session_id else None
             if session:
-                return self.respond(200, session)
+                HOME_AGENT.resume(session_id)
+                return self.respond(200, public_session(session))
             session_id, session = SESSION_STORE.create()
-            return self.respond(200, session, cookie=f'search_session={session_id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000')
+            return self.respond(200, public_session(session), cookie=f'search_session={session_id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000')
         if u.path == '/':
             self.path = '/index.html'
             return super().do_GET()
         if u.path == '/api/health':
             return self.respond(200,{'listings_enabled':True,'providers':['bing'] + (['brave'] if SEARCH_KEY else []),
                     'provider':'Brave Search API + Bing RSS' if SEARCH_KEY else 'Bing RSS (APIキー不要、利用制限あり)',
-                    'has_brave_key':bool(SEARCH_KEY), 'decisions_enabled':bool(OPENAI_KEY)})
+                    'has_brave_key':bool(SEARCH_KEY), 'decisions_enabled':bool(OPENAI_KEY), 'agent_enabled':bool(OPENAI_KEY)})
         if u.path != '/api/listings':
             return super().do_GET()
         q = parse_qs(u.query)

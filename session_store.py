@@ -8,7 +8,7 @@ import math
 import secrets
 import sqlite3
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_CRITERIA = {
     'origin_a': {'name': '東京駅', 'lat': 35.681236, 'lon': 139.767125},
     'origin_b': None, 'radius_a_km': 3, 'radius_b_km': 5,
@@ -115,10 +115,33 @@ class SessionStore:
         finally:
             db.close()
 
+    @staticmethod
+    def upgrade(session):
+        session['schema_version'] = SCHEMA_VERSION
+        for key, value in {
+            'conversation': [], 'memory': {'facts': {}, 'places': {}}, 'result_sets': [],
+            'saved_candidates': [], 'history': [], 'chat': {'status': 'idle'},
+            '_agent': {}, '_tool_results': {},
+        }.items():
+            session.setdefault(key, deepcopy(value))
+        return session
+
+    def mutate(self, session_id, operation):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT data FROM sessions WHERE id=?', (session_id,)).fetchone()
+            if not row:
+                raise KeyError('Session not found')
+            session = self.upgrade(json.loads(row[0]))
+            result = operation(session)
+            session['updated_at'] = datetime.now(timezone.utc).isoformat()
+            db.execute('UPDATE sessions SET data=? WHERE id=?', (json.dumps(session), session_id))
+        return session, result
+
     def get(self, session_id):
         with self.connect() as db:
             row = db.execute('SELECT data FROM sessions WHERE id=?', (session_id,)).fetchone()
-        return json.loads(row[0]) if row else None
+        return self.upgrade(json.loads(row[0])) if row else None
 
     def create(self):
         session_id = secrets.token_urlsafe(32)
@@ -126,6 +149,7 @@ class SessionStore:
         session = {'schema_version': SCHEMA_VERSION, 'revision': 0,
                    'criteria': deepcopy(DEFAULT_CRITERIA), 'draft_message': '',
                    'created_at': now, 'updated_at': now}
+        self.upgrade(session)
         with self.connect() as db:
             db.execute('INSERT INTO sessions VALUES (?, ?)', (session_id, json.dumps(session)))
         return session_id, session
@@ -144,13 +168,25 @@ class SessionStore:
             row = db.execute('SELECT data FROM sessions WHERE id=?', (session_id,)).fetchone()
             if not row:
                 raise KeyError('Session not found')
-            session = json.loads(row[0])
+            session = self.upgrade(json.loads(row[0]))
+            if session['chat'].get('status') == 'resetting':
+                raise RevisionConflict(session)
             if revision != session['revision']:
                 raise RevisionConflict(session)
             criteria = {**session['criteria'], **patch}
             draft = payload.get('draft_message', session['draft_message'])
             if criteria != session['criteria'] or draft != session['draft_message']:
+                if criteria != session['criteria']:
+                    session['history'] = (session['history'] + [deepcopy(session['criteria'])])[-20:]
                 session.update(criteria=criteria, draft_message=draft, revision=revision + 1,
                                updated_at=datetime.now(timezone.utc).isoformat())
                 db.execute('UPDATE sessions SET data=? WHERE id=?', (json.dumps(session), session_id))
         return session
+
+
+def public_session(session):
+    """Provider IDs, idempotency records and tool journals never go to the browser."""
+    result = {key: value for key, value in session.items() if not key.startswith('_')}
+    result['chat'] = {key: value for key, value in session.get('chat', {}).items()
+                      if key in ('status', 'request_id', 'progress', 'error', 'message', 'recoverable', 'operation', 'reset_search')}
+    return result

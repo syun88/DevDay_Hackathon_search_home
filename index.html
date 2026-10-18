@@ -14,8 +14,13 @@
 <section class="conversation-intro" aria-labelledby="chatHeading">
 <h2 id="chatHeading">どんな暮らしを、見つけたいですか？</h2>
 <p>地図を見ながら、あなたに合う住まいを探しましょう。</p>
-<div class="chat-welcome">AIとの会話は次のアップデートで利用できます。今は下の条件を編集して、検索を始められます。</div>
-<div class="chat-composer"><label class="label" for="chatDraft">住まいの希望をメモ</label><textarea id="chatDraft" maxlength="2000" placeholder="例：東京駅の近くで、猫と暮らせる部屋を探したい" aria-describedby="chatAvailability" disabled></textarea><div class="composer-footer"><span id="chatAvailability">下書きは自動保存されます。AIへの送信は準備中です。</span><button class="btn small" type="button" disabled>準備中</button></div></div>
+<div class="chat-welcome">希望を教えてください。場所・予算・こだわりを整理して、一緒に住まいを探します。</div>
+<div id="chatMessages" class="chat-messages" role="log" aria-label="住まい探しの会話" aria-live="polite"></div>
+<div id="chatProgress" class="chat-progress" role="status" hidden></div>
+<div id="chatError" class="chat-error" role="alert" hidden></div>
+<div class="chat-composer"><label class="label" for="chatDraft">住まいの希望を教えてください</label><textarea id="chatDraft" maxlength="2000" placeholder="例：東京駅の近くで、猫と暮らせる部屋を探したい" aria-describedby="chatAvailability" disabled></textarea><div class="composer-footer"><span id="chatAvailability">下書きと会話は自動保存されます。</span><div class="chat-send-actions"><button id="chatStop" class="btn ghost small" type="button" hidden>停止</button><button id="chatSend" class="btn small" type="button" disabled>送信</button></div></div></div>
+<div class="chat-toolbar"><button id="chatRetry" type="button" hidden>再試行</button><button id="chatUndo" type="button">条件の変更を戻す</button><button id="chatClear" type="button">会話と記憶を削除</button><button id="chatNew" type="button">新しい検索</button></div>
+<details id="memoryPanel" class="memory-panel"><summary>覚えていること</summary><div id="memoryItems"></div></details>
 <div class="criteria-heading"><h2 id="criteriaHeading">現在の検索条件</h2><span>クリックして編集</span></div>
 <div id="criteriaChips" class="criteria-chips" role="group" aria-labelledby="criteriaHeading"></div>
 <form id="criteriaEditor" class="criteria-editor" hidden><label id="criteriaEditLabel" for="criteriaEditValue"></label><div id="criteriaEditField"></div><p id="criteriaEditError" class="criteria-error" role="alert" hidden></p><div class="buttons"><button id="criteriaEditCancel" class="btn ghost small" type="button">キャンセル</button><button class="btn small" type="submit">適用</button></div></form>
@@ -76,12 +81,14 @@
 </section>
 </div></details>
 <section id="primaryResults" class="primary-results" aria-labelledby="listingHeading"><h2 id="listingHeading">掲載ページを探す</h2><div id="primarySearchAction"></div><div id="primarySearchStatus"></div><div id="primarySearchResults"></div><p class="criteria-note">検索結果の価格・空室は未確認です。掲載元で確認してください。</p></section>
+<section id="agentSavedSection" class="section" hidden><h2>保存した掲載ページ</h2><div id="agentSaved"></div></section>
 <section class="section saved-heading"><div class="tabline"><h2>保存済みの候補物件</h2><select class="input" id="sort" style="width:116px;padding:6px"><option value="distance">Aに近い順</option><option value="price">安い順</option><option value="area">広い順</option></select></div><div id="results" class="resultlist"><div class="empty">まだ候補物件がありません。公式の地図検索で物件を探し、上の「＋」ボタンから住所や家賃を登録してください。</div></div></section>
 <p class="footer">地図 © OpenStreetMap contributors。場所検索：OpenStreetMap Nominatim／国土地理院（検索できない場合）。地図タイルの通信が必要です。直線距離は球面上の2地点間で計算。実際の経路・募集条件はリンク先で再確認してください。</p>
 </div></aside><main class="mapcol"><div class="map" id="map"><div id="tiles" class="tiles"></div><svg class="overlays" id="overlay" aria-hidden="true"></svg><div id="pins" class="pins"></div></div><div class="map-top"><div class="map-chip" id="mapModeLabel">地図をドラッグして移動できます</div></div><div class="map-error" id="mapError">地図タイルを取得できません。通信環境を確認してください。地点・距離・候補情報の操作はできます。</div><div class="map-controls"><button id="zoomIn" title="拡大">＋</button><button id="zoomOut" title="縮小">−</button><button id="resetView" title="起点Aに戻る">⌖</button></div><div class="bottomhint" id="bottomHint">青：地点A　紫：地点B　黄：住所・会社　青緑：実在建物　緑：保存候補</div><div class="map-attrib">© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors</div><div id="toast" class="toast"></div></main></div>
 <div class="modalouter" id="modalOuter"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><h2 id="modalTitle">候補物件を登録</h2><p class="muted">地図をタップして座標を指定するか、住所から位置を検索できます。</p><div class="columns"><div class="control" style="grid-column:1/-1"><label class="label">物件名 *</label><input class="input" id="pName" placeholder="例：〇〇マンション 203号室"></div></div><div class="control"><label class="label">住所（位置検索にも使用）</label><div class="field"><input class="input" id="pAddress" placeholder="住所を入力"><button class="btn secondary small" id="geocodeProperty">位置検索</button></div></div><div class="columns"><div class="control"><label class="label">種別</label><select class="input" id="pType"><option value="rent">賃貸</option><option value="sale">売買</option></select></div><div class="control"><label class="label">家賃・価格（万円）</label><input class="input" id="pPrice" type="number" min="0" step="0.1"></div><div class="control"><label class="label">間取り</label><select class="input" id="pLayout"><option value="">未指定</option><option>1R</option><option>1K</option><option>1DK</option><option>1LDK</option><option>2K</option><option>2DK</option><option>2LDK</option><option>3LDK</option></select></div><div class="control"><label class="label">面積（㎡）</label><input class="input" id="pArea" type="number" min="0" step="0.1"></div><div class="control"><label class="label">築年数（年）</label><input class="input" id="pAge" type="number" min="0"></div><div class="control"><label class="label">設備</label><div class="checkrow"><label><input id="pPets" type="checkbox">ペット可</label><label><input id="pParking" type="checkbox">駐車場</label></div></div></div><div class="control"><label class="label">掲載元URL（任意）</label><input class="input" id="pUrl" type="url" placeholder="https://..."></div><div class="columns"><div class="control"><label class="label">緯度</label><input class="input" id="pLat" type="number" step="any" placeholder="住所検索で入力"></div><div class="control"><label class="label">経度</label><input class="input" id="pLon" type="number" step="any"></div></div><div class="buttons"><button id="modalCancel" class="btn ghost">キャンセル</button><button id="modalSave" class="btn">保存</button></div></div></div>
 <script src="i18n.js"></script>
 <script src="session.js"></script>
+<script src="chat.js"></script>
 <script src="workspace.js"></script>
 <script>
 (()=>{'use strict';
@@ -220,7 +227,7 @@ function renderExternalPages(){
   const card=makeEl('article','external-item'+(f.flags.length?' out-of-range':''));
   const title=makeEl('h4');title.append(makeLink(hit.title,hit.url));card.append(title);
   const price=makeEl('div','listing-price',x.price!=null?`${x.price} ${x.price_unit||t('万円/月')}`:t('価格不明'));card.append(price);
-  const details=makeEl('div','listing-details');for(const t of [x.layout,x.area!=null?t("{0}㎡", [x.area]):null,x.age!=null?t("築{0}年", [x.age]):null])if(t)details.append(makeEl('span','',t));
+  const details=makeEl('div','listing-details');for(const detail of [x.layout,x.area!=null?t("{0}㎡", [x.area]):null,x.age!=null?t("築{0}年", [x.age]):null])if(detail)details.append(makeEl('span','',detail));
   if(details.childNodes.length)card.append(details);
   if(x.address)card.append(makeEl('p','',t("住所（索引抜粋）：{0}", [x.address])));
   if(hit.lat!=null)card.append(makeEl('p','listing-uncertain',t("地点Aから約{0}／{1}・建物所在地と異なる場合があります", [formatKm(dist(state.a,hit)), hit.positionAccuracy||t('推定位置')])));
@@ -296,6 +303,10 @@ window.addEventListener('home-language-change', () => {
 });
 sync();bind();renderSoon();
 window.mountSearchWorkspace({
+  applyAgentResults: resultSet => {
+    propertyPageHits=resultSet?structuredClone(resultSet.items):[];
+    renderExternalPages();renderSoon();
+  },
   getMapState: () => ({a:state.a,b:state.b,ra:state.ra,rb:state.rb}),
   applyMapState: c => {
     const moved=JSON.stringify(state.a)!==JSON.stringify(c.origin_a);
