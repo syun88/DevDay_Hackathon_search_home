@@ -134,6 +134,7 @@ class SessionStore:
             session['history'] = []
             session['revision'] += 1
         session['criteria'] = {**deepcopy(DEFAULT_CRITERIA), **session.get('criteria', {})}
+        session['history'] = [{**deepcopy(DEFAULT_CRITERIA), **criteria} for criteria in session.get('history', [])]
         for criteria in [session['criteria'], *session.get('history', [])]:
             if criteria.get('listing_provider') == 'brave':
                 criteria['listing_provider'] = 'auto'

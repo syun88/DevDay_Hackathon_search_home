@@ -49,12 +49,14 @@ class SessionStoreTest(unittest.TestCase):
         legacy = self.store.get(self.token)
         legacy['criteria']['listing_provider'] = 'brave'
         legacy['history'] = [{**legacy['criteria'], 'layout': '1K'}]
+        legacy['history'][0].pop('range_mode')
         with self.store.connect() as db:
             db.execute('UPDATE sessions SET data=? WHERE id=?', (json.dumps(legacy), self.token))
         restored = SessionStore(self.store.path).get(self.token)
         self.assertEqual(restored['criteria']['listing_provider'], 'auto')
         self.assertEqual(restored['history'][0]['listing_provider'], 'auto')
         self.assertEqual(restored['history'][0]['layout'], '1K')
+        self.assertEqual(restored['history'][0]['range_mode'], 'distance')
         self.assertEqual(SessionStore.upgrade(restored), restored)
 
     def test_sessions_are_isolated_and_defaults_not_mutated(self):

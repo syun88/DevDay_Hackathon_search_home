@@ -2,6 +2,7 @@
 (() => {
 'use strict';
 const english = {
+  '会話で保存した掲載ページは、ここに表示されます。': 'Pages saved through chat appear here.',
   'A：徒歩{0}分以内': 'A: within a {0}-minute walk',
   '{0}：徒歩{1}分以内': '{0}: within a {1}-minute walk',
   '{0}：徒歩{1}km以内': '{0}: within a {1} km walk',

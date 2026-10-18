@@ -128,6 +128,8 @@ test('missing AI configuration leaves a clear manual-search path without a provi
  await new Promise(resolve=>setImmediate(resolve));
  assert.equal(app.element('chatSend').disabled,true);
  assert.equal(app.element('chatError').hidden,true);
+ assert.equal(app.element('agentSavedSection').hidden,false);
+ assert.match(app.element('agentSaved').textContent,/ここに表示/);
  assert.match(app.element('chatAvailability').textContent,/未接続/);
  app.element('searchListings').click();assert.equal(app.searches(),1);
  assert.equal(app.element('resultsDrawer').hidden,false);

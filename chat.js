@@ -112,7 +112,8 @@ window.mountHomeChat = ({session, adapter}) => {
   }
   function renderSaved(s){
     const signature=document.documentElement.lang+JSON.stringify(s.saved_candidates);if(signature===lastSaved)return;lastSaved=signature;
-    const root=$('agentSaved');root.replaceChildren();$('agentSavedSection').hidden=!s.saved_candidates?.length;
+    const root=$('agentSaved');root.replaceChildren();$('agentSavedSection').hidden=false;
+    if(!s.saved_candidates?.length){const message=document.createElement('p');message.className='empty';setText(message,()=>t('会話で保存した掲載ページは、ここに表示されます。'));root.append(message);}
     for(const item of s.saved_candidates||[]){
       const card=document.createElement('article');card.className='external-item';
       const link=document.createElement('a');link.href=item.url;link.textContent=item.title;link.target='_blank';link.rel='noopener noreferrer';
