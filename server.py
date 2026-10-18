@@ -25,8 +25,11 @@ from listing_feed import normalize_feed
 from session_store import SessionStore, RevisionConflict, CRITERIA_SCHEMA, UPDATE_SCHEMA, SCHEMA_VERSION, public_session
 from home_agent import HomeAgent, AgentError
 from suumo_bridge import SuumoError, search as search_suumo, validate_search, validate_filters, RENT_STEPS
+import public_housing
 
 BASE = Path(__file__).resolve().parent
+FRONTEND_ASSETS = frozenset(('/index.html', '/i18n.js', '/property_core.js', '/public_housing.js',
+                            '/session.js', '/chat.js', '/workspace.js', '/workspace.css', '/shell.js', '/shell.css'))
 
 
 def load_env(path):
@@ -60,6 +63,7 @@ OPENAI_KEY = os.environ.get('OPENAI_API_KEY', '').strip()
 SEARCH_KEY = os.environ.get('BRAVE_SEARCH_API_KEY', '').strip()
 FEED_PATH = os.environ.get('LISTINGS_FEED_PATH', '').strip()
 FEED_URL = os.environ.get('LISTINGS_FEED_URL', '').strip()
+SUUMO_REUSE_PERMITTED = os.environ.get('SUUMO_REUSE_PERMITTED', '') == '1'
 PORT = int(os.environ.get('PORT', '8765'))
 ALLOWED_DOMAINS = ('suumo.jp', 'homes.co.jp', 'athome.co.jp')
 USER_AGENT = 'PropertyFinderLocal/2.0 (+browser-side user initiated search)'
@@ -342,7 +346,7 @@ def agent_listings(place, kind, details, provider='auto'):
     result = {'results': [], 'leads': [], 'discovery_links': [], 'errors': [],
               'provider': 'discovery', 'inventory_status': 'no_verified_feed_configured'}
     origin = details.get('origin', {})
-    if provider == 'auto' and kind == 'rent' and origin:
+    if provider == 'auto' and kind == 'rent' and origin and SUUMO_REUSE_PERMITTED:
         try:
             radius = min(details.get('radius_km', 2), 2)
             lat, lon, radius = validate_search(origin['lat'], origin['lon'], radius)
@@ -397,7 +401,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def send_head(self):
         # Serve only frontend assets, never .env, Git metadata, or source files.
-        if urlparse(self.path).path not in ('/', '/index.html', '/i18n.js', '/session.js', '/workspace.js', '/workspace.css', '/chat.js', '/shell.js', '/shell.css', '/property_core.js'):
+        if urlparse(self.path).path not in FRONTEND_ASSETS | {'/'}:
             self.send_error(404, 'Not found')
             return None
         return super().send_head()
@@ -477,7 +481,7 @@ class Handler(SimpleHTTPRequestHandler):
         if urlparse(self.path).path == '/api/session':
             return self.update_session()
         endpoint = urlparse(self.path).path
-        if endpoint not in ('/api/classify', '/api/import', '/api/route'):
+        if endpoint not in ('/api/classify', '/api/import', '/api/route', '/api/public-geocode'):
             return self.respond(404,{'error':'not found'})
         if endpoint == '/api/classify' and not OPENAI_KEY:
             return self.respond(503,{'error':'Decisions APIは未設定です'})
@@ -495,6 +499,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.respond(200, normalize_feed(payload.get('records')))
             if endpoint == '/api/route':
                 return self.respond(200, route_time(payload))
+            if endpoint == '/api/public-geocode':
+                return self.respond(200, public_housing.geocode(payload.get('source'), payload.get('id')))
             title=payload.get('title','')
             description=payload.get('description','')
             if not isinstance(title,str) or not isinstance(description,str) or not title.strip():
@@ -532,6 +538,8 @@ class Handler(SimpleHTTPRequestHandler):
                     'provider':'Brave Search API + Bing RSS' if SEARCH_KEY else 'Bing RSS (APIキー不要、利用制限あり)',
                     'has_brave_key':bool(SEARCH_KEY), 'decisions_enabled':bool(OPENAI_KEY), 'agent_enabled':bool(OPENAI_KEY),
                     'feed_enabled':bool(FEED_PATH or FEED_URL), 'routing_enabled':True,
+                    'public_sources':['tokyo', 'tsubata'] + (['permitted'] if os.environ.get('PUBLIC_HOUSING_FEED_PATH') else []),
+                    'suumo_reuse_permitted': SUUMO_REUSE_PERMITTED,
                     'listing_max_age_seconds':3600})
         if u.path == '/api/suumo-search':
             q = parse_qs(u.query, keep_blank_values=True)
@@ -543,6 +551,8 @@ class Handler(SimpleHTTPRequestHandler):
                                                     q['layout'][0] if 'layout' in q else None)
             except ValueError as exc:
                 return self.respond(400, {'error': str(exc)})
+            if not SUUMO_REUSE_PERMITTED:
+                return self.respond(403, {'error': 'SUUMOの取得・再利用許諾が未設定のため接続を停止しています'})
             key = (lat, lon, radius, max_rent, layout)
             with _cache_lock:
                 cached = _suumo_cache.get(key)
@@ -556,8 +566,17 @@ class Handler(SimpleHTTPRequestHandler):
                 if len(_suumo_cache) >= 20: _suumo_cache.clear()
                 _suumo_cache[key] = (time.monotonic(), result)
             return self.respond(200, {**result, 'cached': False})
+        if u.path == '/api/public-housing':
+            query = parse_qs(u.query)
+            try:
+                return self.respond(200, public_housing.search(query.get('source', ['tokyo'])[0],
+                                    query.get('area', [''])[0], int(query.get('offset', ['0'])[0])))
+            except ValueError as error:
+                return self.respond(400, {'error': str(error)})
+            except (HTTPError, URLError, OSError, TimeoutError, KeyError, TypeError, StopIteration) as error:
+                return self.respond(502, {'error': '公開データを取得できません: ' + type(error).__name__})
         if u.path != '/api/listings':
-            if u.path not in ('/index.html', '/i18n.js', '/property_core.js', '/session.js', '/chat.js', '/workspace.js', '/workspace.css', '/shell.js', '/shell.css'):
+            if u.path not in FRONTEND_ASSETS:
                 return self.respond(404, {'error':'not found'})
             return super().do_GET()
         q = parse_qs(u.query)

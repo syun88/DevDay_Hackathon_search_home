@@ -1,5 +1,6 @@
 """No network access required."""
 import json
+import time
 import unittest
 from unittest.mock import patch, MagicMock
 from http.server import ThreadingHTTPServer
@@ -73,6 +74,9 @@ class FilterTest(unittest.TestCase):
 
 class SuumoHttpTest(unittest.TestCase):
     def setUp(self):
+        permission = patch.object(server, 'SUUMO_REUSE_PERMITTED', True)
+        permission.start()
+        self.addCleanup(permission.stop)
         server._suumo_cache.clear()
         self.httpd = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
         self.worker = Thread(target=self.httpd.serve_forever, daemon=True)
@@ -107,6 +111,14 @@ class SuumoHttpTest(unittest.TestCase):
             self.assertFalse(self.get(query.replace('radius_km=1', 'radius_km=1.001'))[1]['cached'])
         self.assertEqual(search.call_count, 6)
 
+    def test_unpermitted_suumo_never_contacts_upstream_or_serves_cached_data(self):
+        server._suumo_cache[(35.681236, 139.767125, 1, None, None)] = (time.monotonic(), {'results': ['TEST ONLY cached']})
+        with patch.object(server, 'SUUMO_REUSE_PERMITTED', False), patch.object(server, 'search_suumo') as search:
+            status, body = self.get('lat=35.681236&lon=139.767125&radius_km=1')
+        self.assertEqual(status, 403)
+        self.assertNotIn('results', body)
+        search.assert_not_called()
+
     def test_invalid_input_and_upstream_failure_do_not_search_or_cache(self):
         query = 'lat=35.681236&lon=139.767125&radius_km=1'
         invalid = [query + '&max_rent_man=10.5', query + '&layout=bad',
@@ -126,6 +138,18 @@ if __name__=='__main__': unittest.main()
 
 
 class AgentDiscoveryTest(unittest.TestCase):
+    def setUp(self):
+        permission = patch.object(server, 'SUUMO_REUSE_PERMITTED', True)
+        permission.start()
+        self.addCleanup(permission.stop)
+
+    def test_chat_discovery_obeys_the_same_permission_gate_as_manual_search(self):
+        with patch.object(server, 'SUUMO_REUSE_PERMITTED', False), patch.object(server, 'FEED_PATH', ''), patch.object(server, 'FEED_URL', ''), patch.object(server, 'search_suumo') as search, patch.object(server, 'fetch_listings', return_value={'results': []}):
+            result = server.agent_listings('Tokyo', 'rent', self.details())
+        search.assert_not_called()
+        self.assertEqual(result['leads'], [])
+        self.assertEqual(len(result['source_search_links']), 3)
+
     def details(self, budget=300000):
         return {'origin': {'name':'東京駅', 'lat':35.681236, 'lon':139.767125},
                 'radius_km':3, 'layout':'', 'keywords':'', 'max_price_yen':budget}

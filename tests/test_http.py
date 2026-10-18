@@ -87,7 +87,7 @@ class HttpTest(unittest.TestCase):
         self.assertNotIn('duration_seconds', body)
 
     def test_private_files_are_not_served(self):
-        for path in ['/.git/config', '/server.py', '/listing_feed.py', '/.env']:
+        for path in ['/.git/config', '/server.py', '/listing_feed.py', '/public_housing.py', '/.env']:
             self.assertEqual(self.request(path)[0], 404)
 
     def test_invalid_imports_and_routes_are_rejected(self):
@@ -100,3 +100,27 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(body['feed_enabled'])
         self.assertNotIn('/private/', json.dumps(body))
+
+    def test_public_endpoint_is_allowlisted_and_retains_reference_dates(self):
+        with patch.object(server.public_housing, 'read_url') as fetch:
+            self.assertEqual(self.request('/api/public-housing?source=https://example.com/')[0], 400)
+            fetch.assert_not_called()
+        fixture = {'records': [{'id': 'TEST ONLY', 'data_as_of': '2025-03-31', 'fetched_at': '2026-10-18T00:00:00+00:00'}], 'total': 1}
+        with patch.object(server.public_housing, 'search', return_value=fixture) as search:
+            status, body = self.request('/api/public-housing?source=tokyo&area=TEST&offset=20')
+            search.assert_called_once_with('tokyo', 'TEST', 20)
+        self.assertEqual(status, 200)
+        self.assertEqual(body, fixture)
+        self.assertEqual(self.request('/api/public-housing?offset=invalid')[0], 400)
+
+    def test_public_geocode_rejects_unknown_records_and_handles_upstream_failure(self):
+        self.assertEqual(self.request('/api/public-geocode', {'source': 'not-approved', 'id': 'TEST ONLY'})[0], 400)
+        with patch.object(server.public_housing, 'geocode', side_effect=OSError('TEST ONLY')):
+            self.assertEqual(self.request('/api/public-geocode', {'source': 'tokyo', 'id': 'TEST ONLY'})[0], 502)
+        with patch.object(server.public_housing, 'search', side_effect=OSError('TEST ONLY')):
+            self.assertEqual(self.request('/api/public-housing?source=tokyo')[0], 502)
+
+    def test_public_ui_module_is_served_as_javascript(self):
+        with urlopen(self.base + '/public_housing.js', timeout=3) as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn(b'root.publicHousing', response.read())
