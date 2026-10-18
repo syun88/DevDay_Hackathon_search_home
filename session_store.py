@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+from hashlib import sha256
 import math
 import secrets
 import sqlite3
@@ -111,6 +112,7 @@ class SessionStore:
         try:
             with db:
                 db.execute('CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
+                db.execute('CREATE TABLE IF NOT EXISTS archived_chats (owner TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner,id))')
                 yield db
         finally:
             db.close()
@@ -118,6 +120,7 @@ class SessionStore:
     @staticmethod
     def upgrade(session):
         session['schema_version'] = SCHEMA_VERSION
+        session.setdefault('chat_id', 'chat_' + sha256(session['created_at'].encode()).hexdigest()[:24])
         for key, value in {
             'conversation': [], 'memory': {'facts': {}, 'places': {}}, 'result_sets': [],
             'saved_candidates': [], 'history': [], 'chat': {'status': 'idle'},
@@ -182,6 +185,51 @@ class SessionStore:
                                updated_at=datetime.now(timezone.utc).isoformat())
                 db.execute('UPDATE sessions SET data=? WHERE id=?', (json.dumps(session), session_id))
         return session
+
+
+    @staticmethod
+    def chat_title(session):
+        first = next((m['text'] for m in session.get('conversation', []) if m['role'] == 'user'), '')
+        return ' '.join(first.split())[:80]
+
+    def list_chats(self, owner):
+        current = self.get(owner)
+        if not current:
+            raise KeyError('Session not found')
+        with self.connect() as db:
+            rows = db.execute('SELECT id,title,updated_at FROM archived_chats WHERE owner=? AND id!=? ORDER BY updated_at DESC', (owner,current['chat_id'])).fetchall()
+        return [{'id':current['chat_id'],'title':self.chat_title(current),'updated_at':current['updated_at'],'active':True}] + [
+            {'id':row[0],'title':row[1],'updated_at':row[2],'active':False} for row in rows]
+
+    def switch_chat(self, owner, revision, chat_id=None):
+        if type(revision) is not int:
+            raise ValueError('Revision required')
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT data FROM sessions WHERE id=?',(owner,)).fetchone()
+            if not row:
+                raise KeyError('Session not found')
+            current = self.upgrade(json.loads(row[0]))
+            if current['revision'] != revision or current['chat'].get('status') in ('running','cancelling','resetting') or (current['chat'].get('status') == 'error' and current['chat'].get('recoverable')):
+                raise RevisionConflict(current)
+            if chat_id == current['chat_id']:
+                return current
+            if chat_id:
+                target = db.execute('SELECT data FROM archived_chats WHERE owner=? AND id=?',(owner,chat_id)).fetchone()
+                if not target:
+                    raise ValueError('Unknown chat')
+                selected = self.upgrade(json.loads(target[0]))
+                db.execute('DELETE FROM archived_chats WHERE owner=? AND id=?',(owner,chat_id))
+            else:
+                now = datetime.now(timezone.utc).isoformat()
+                selected = self.upgrade({'schema_version':SCHEMA_VERSION,'revision':0,'criteria':deepcopy(DEFAULT_CRITERIA),
+                                         'draft_message':'','created_at':now,'updated_at':now})
+            db.execute('INSERT OR REPLACE INTO archived_chats VALUES (?,?,?,?,?)',
+                       (owner,current['chat_id'],self.chat_title(current),json.dumps(current),current['updated_at']))
+            selected['revision'] = current['revision'] + 1
+            selected['updated_at'] = datetime.now(timezone.utc).isoformat()
+            db.execute('UPDATE sessions SET data=? WHERE id=?',(json.dumps(selected),owner))
+        return selected
 
 
 def public_session(session):

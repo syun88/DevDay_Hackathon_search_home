@@ -67,6 +67,36 @@ class SessionStoreTest(unittest.TestCase):
         self.assertCountEqual(outcomes, ['saved', 'conflict'])
         self.assertEqual(self.store.get(self.token)['revision'], 1)
 
+    def test_multiple_chats_restore_their_own_memory_and_criteria(self):
+        first = self.store.get(self.token)
+        self.store.mutate(self.token, lambda s: s['memory']['facts'].update(cat='Mochi'))
+        first = self.store.update(self.token, {'expected_revision': 0, 'criteria': {'layout': '1K'}})
+        second = self.store.switch_chat(self.token, 1)
+        self.assertNotEqual(first['chat_id'], second['chat_id'])
+        self.assertEqual(second['memory']['facts'], {})
+        self.assertEqual(second['criteria']['layout'], '')
+        restored = self.store.switch_chat(self.token, second['revision'], first['chat_id'])
+        self.assertEqual(restored['memory']['facts']['cat'], 'Mochi')
+        self.assertEqual(restored['criteria']['layout'], '1K')
+        self.assertGreater(restored['revision'], second['revision'])
+        self.assertEqual(len(self.store.list_chats(self.token)), 2)
+        with self.store.connect() as db:
+            self.assertIsNone(db.execute('SELECT data FROM archived_chats WHERE owner=? AND id=?',(self.token,first['chat_id'])).fetchone())
+
+    def test_chat_archive_is_scoped_to_browser_session(self):
+        first = self.store.get(self.token)
+        self.store.switch_chat(self.token, 0)
+        other, _ = self.store.create()
+        with self.assertRaises(ValueError):
+            self.store.switch_chat(other, 0, first['chat_id'])
+        self.assertEqual(len(self.store.list_chats(other)), 1)
+
+    def test_chat_switch_rejects_stale_revisions_and_active_work(self):
+        from session_store import RevisionConflict
+        with self.assertRaises(RevisionConflict): self.store.switch_chat(self.token, 99)
+        self.store.mutate(self.token, lambda s: s['chat'].update(status='running'))
+        with self.assertRaises(RevisionConflict): self.store.switch_chat(self.token, 0)
+
     def test_update_envelope_and_draft_limits(self):
         for data in [{}, {'expected_revision': True}, {'expected_revision': 0, 'other': 1},
                      {'expected_revision': 0, 'draft_message': 'x' * 2001}]:

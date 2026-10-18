@@ -338,6 +338,7 @@ Object.assign(english, {
 });
 Object.assign(english, {"前の処理が未完了です。再試行で再開するか、停止してから新しいメッセージを送ってください。": "The previous turn is unfinished. Retry to resume it, or stop it before sending another message."});
 Object.assign(english, {"処理を停止しています…":"Stopping the current turn…", "会話と記憶を削除しています…":"Clearing conversation and memory…"});
+Object.assign(english, {"ワークスペース": "Workspace", "チャット履歴": "Your chats", "新しいチャット": "New chat", "地図": "Map", "検索結果": "Results", "保存済み": "Saved", "記憶": "Memory", "詳細設定": "Advanced settings", "検索結果と保存済み": "Results & saved candidates", "閉じる": "Close", "パネルを閉じる": "Close panel", "地図とチャットの高さを調整": "Adjust map and chat height", "チャットを広げる": "Expand chat", "チャットを小さくする": "Compact chat", "現在のチャット": "Current chat", "状態 r{0}": "State r{0}", "チャットを切り替えられません。未保存の変更を確認して再試行してください。": "Could not switch chats. Check unsaved changes and try again.", "チャット履歴を読み込めませんでした。": "Could not load your chat history."});
 const storageKey = 'property_map_language';
 let language = 'ja';
 try { if (localStorage.getItem(storageKey) === 'en') language = 'en'; } catch {}

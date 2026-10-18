@@ -269,7 +269,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def send_head(self):
         # Serve only frontend assets, never .env, Git metadata, or source files.
-        if urlparse(self.path).path not in ('/', '/index.html', '/i18n.js', '/session.js', '/workspace.js', '/workspace.css', '/chat.js'):
+        if urlparse(self.path).path not in ('/', '/index.html', '/i18n.js', '/session.js', '/workspace.js', '/workspace.css', '/chat.js', '/shell.js', '/shell.css'):
             self.send_error(404, 'Not found')
             return None
         return super().send_head()
@@ -323,6 +323,10 @@ class Handler(SimpleHTTPRequestHandler):
                 if payload.get('request_id') != current['chat'].get('request_id'):
                     return self.respond(409, {'error': 'request_changed', 'session': public_session(current)})
                 result = HOME_AGENT.cancel(session_id, payload.get('request_id'))
+            elif action in ('new_chat', 'switch_chat'):
+                if action == 'switch_chat' and not isinstance(payload.get('chat_id'), str):
+                    raise ValueError('Chat ID required')
+                result = SESSION_STORE.switch_chat(session_id, payload.get('expected_revision'), payload.get('chat_id') if action == 'switch_chat' else None)
             elif action == 'resume':
                 result = HOME_AGENT.recover(session_id, payload.get('request_id'))
             elif action == 'reset':
@@ -339,7 +343,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self.respond(400, {'error': 'Invalid session update'})
 
     def do_POST(self):
-        action = {'/api/chat': 'chat', '/api/chat/cancel': 'cancel', '/api/chat/reset': 'reset', '/api/chat/resume': 'resume'}.get(urlparse(self.path).path)
+        action = {'/api/chat': 'chat', '/api/chat/cancel': 'cancel', '/api/chat/reset': 'reset', '/api/chat/resume': 'resume', '/api/chats/new': 'new_chat', '/api/chats/switch': 'switch_chat'}.get(urlparse(self.path).path)
         if action:
             return self.update_session(action)
         if urlparse(self.path).path == '/api/session':
@@ -368,6 +372,11 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path == '/api/chats':
+            session_id = self.session_id()
+            if not session_id or not SESSION_STORE.get(session_id):
+                return self.respond(404, {'error': 'Session not found'})
+            return self.respond(200, {'chats': SESSION_STORE.list_chats(session_id)})
         if u.path == '/api/session/schema':
             return self.respond(200, {'schema_version': SCHEMA_VERSION, 'criteria': CRITERIA_SCHEMA,
                                      'update': UPDATE_SCHEMA})

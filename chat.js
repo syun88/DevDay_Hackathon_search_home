@@ -4,7 +4,7 @@
 window.mountHomeChat = ({session, adapter}) => {
   const $ = id => document.getElementById(id);
   const {t,setText} = window.homeI18n;
-  let enabled=false, sending=false, fetching=false, timer=null, lastMessages='', lastResults=null, pending=null, lastMemory='', lastSaved='';
+  let enabled=false, sending=false, fetching=false, timer=null, lastMessages='', lastResults=null, pending=null, lastMemory='', lastSaved='', activeChat=null;
   const pendingKey='home_chat_submission';
   try { pending=JSON.parse(sessionStorage.getItem(pendingKey)||'null'); } catch {}
   const errors={
@@ -61,7 +61,7 @@ window.mountHomeChat = ({session, adapter}) => {
     try {
       await settled();
       const payload=retry&&pending?pending:{request_id:crypto.randomUUID(),message,
-        expected_revision:session.snapshot.revision,language:document.documentElement.lang==='en'?'en':'ja'};
+        expected_revision:session.snapshot.revision,language:document.documentElement.lang==='en'?'en':'ja',...(adapter.visibleResults?.()||{})};
       rememberSubmission(payload);
       const data=await api('/api/chat',payload);
       rememberSubmission(null);session.accept(data);pollSoon(100);
@@ -123,6 +123,7 @@ window.mountHomeChat = ({session, adapter}) => {
   function render(){
     const s=session.snapshot;
     if(!s)return;
+    if(activeChat!==s.chat_id){activeChat=s.chat_id;lastMessages='';lastResults=undefined;lastMemory='';lastSaved='';$('chatError').hidden=true;}
     const recovery=s.chat?.status==='error'&&s.chat.recoverable;
     const running=['running','cancelling','resetting'].includes(s.chat?.status),busy=running||sending;
     $('chatSend').disabled=!enabled||busy||recovery||session.status!=='saved';
@@ -142,6 +143,7 @@ window.mountHomeChat = ({session, adapter}) => {
     const isCurrent=latest&&JSON.stringify(latest.criteria)===JSON.stringify(session.criteria);
     const token=isCurrent?latest.id:null;
     if(token!==lastResults){adapter.applyAgentResults(isCurrent?latest:null);lastResults=token;}
+    if(!latest)setText($('listingsStatus'),()=>t('掲載ページを検索できます。'));
     if(latest){
       setText($('listingsStatus'),()=>isCurrent?t('{0}件の掲載ページを取得。条件・空室は掲載元で確認してください。',[latest.items.length]):t('条件が変わりました。現在の条件で再検索してください。'));
     }

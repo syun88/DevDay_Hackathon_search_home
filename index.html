@@ -9,7 +9,7 @@
 
 .marker.listing{background:#175cd3;border-radius:8px;font-size:11px;max-width:110px;overflow:hidden;text-overflow:ellipsis}.listing-price{font-size:15px;font-weight:850;color:#174bc9}.listing-details{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}.listing-details span{padding:3px 6px;background:#edf2fb;border-radius:5px;font-size:10px}.listing-ok{color:#08734d}.listing-uncertain{color:#98601d}.listing-out{color:#b3261e}.external-item.out-of-range{opacity:.6}.external-item p{overflow-wrap:anywhere}
 .header-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.language-toggle{display:flex;gap:2px;padding:3px;background:#eef3fa;border:1px solid var(--border);border-radius:9px}.language-toggle button{border:0;border-radius:6px;padding:5px 9px;background:transparent;color:#536279;font-size:11px;font-weight:750}.language-toggle button[aria-pressed="true"]{background:#fff;color:#1d4ed8;box-shadow:0 1px 4px #0001}html[lang="en"] .btn{white-space:normal}html[lang="en"] .sidebar .columns{grid-template-columns:repeat(2,minmax(0,1fr))}
-</style><link rel="stylesheet" href="workspace.css"></head><body>
+</style><link rel="stylesheet" href="workspace.css"><link rel="stylesheet" href="shell.css"></head><body>
 <div class="wrap"><aside class="sidebar"><div class="header"><div class="header-top"><p class="kicker">PROPERTY DISTANCE FINDER</p><div class="language-toggle" role="group" aria-label="Language / 言語"><button type="button" data-language="en" lang="en" aria-pressed="false">EN</button><button type="button" data-language="ja" lang="ja" aria-pressed="true">JP</button></div></div><h1>住まいの地図</h1><p>住所・会社を検索 → 半径内の実在する建物・掲載ページを表示 → 条件比較</p></div><div class="scroll">
 <section class="conversation-intro" aria-labelledby="chatHeading">
 <h2 id="chatHeading">どんな暮らしを、見つけたいですか？</h2>
@@ -89,6 +89,7 @@
 <script src="i18n.js"></script>
 <script src="session.js"></script>
 <script src="chat.js"></script>
+<script src="shell.js"></script>
 <script src="workspace.js"></script>
 <script>
 (()=>{'use strict';
@@ -318,6 +319,13 @@ window.addEventListener('home-language-change', () => {
 });
 sync();bind();renderSoon();
 window.mountSearchWorkspace({
+  onLayoutChange: () => renderSoon(),
+  visibleResults: () => {
+    const resultSet=window.searchWorkspace?.session.snapshot?.result_sets?.at(-1);
+    if(!resultSet)return {};
+    const ids=[...document.querySelectorAll('#externalResults article h4 a')].map(a=>resultSet.items.find(item=>item.url===a.getAttribute('href'))?.id).filter(Boolean);
+    return {result_set_id:resultSet.id,visible_listing_ids:ids};
+  },
   applyAgentResults: resultSet => {
     propertyPageHits=resultSet?structuredClone(resultSet.items):[];
     renderExternalPages();renderSoon();
