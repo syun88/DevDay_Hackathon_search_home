@@ -167,14 +167,15 @@ class AgentAccuracyTest(unittest.TestCase):
         self.assertEqual(self.refines, [False, True])  # Fewer than two checked listing pages: one refinement.
         self.assertEqual(result['web_search']['checked_listing_pages'], 1)
 
-    def test_two_checked_listings_need_no_refinement_and_over_budget_is_a_labelled_mismatch(self):
+    def test_over_budget_page_is_a_labelled_mismatch_and_does_not_count_as_reliable(self):
         a, b = 'https://www.homes.co.jp/chintai/room/a/', 'https://www.homes.co.jp/chintai/room/b/'
         self.rows = [[self.row(a), self.row(b, rent=150000, fee=8000)]]
         self.pages = {a: (200, a, 'text/html', page('1LDK', '13.5万円 15,000円 1LDK 36.84㎡ 東京都中央区日本橋浜町３丁目')),
                       b: (200, b, 'text/html', page('1LDK', '15万円 1LDK'))}
         self.places = {'東京都中央区日本橋浜町３丁目': [{'name': '東京都中央区', 'lat': 35.67, 'lon': 139.77}, {'name': '東京都中央区日本橋浜町三丁目', 'lat': 35.6852, 'lon': 139.7895}]}
         result = self.run_search()
-        self.assertEqual(self.refines, [False])
+        self.assertEqual(self.refines, [False, True])  # Only one checked page without a known conflict.
+        self.assertEqual((result['web_search']['checked_listing_pages'], result['web_search']['checked_without_known_conflict']), (2, 1))
         first, second = result['items']
         self.assertEqual((first['lat'], first['geocode_level']), (35.6852, 'chome'))  # Most specific candidate, not the ward.
         self.assertEqual(first['fact_sources'], {'price': 'page', 'management_fee_yen': 'page', 'layout': 'page', 'area': 'page', 'address': 'page'})
@@ -182,6 +183,14 @@ class AgentAccuracyTest(unittest.TestCase):
         self.assertEqual(first['match']['status'], 'unverified')
         self.assertEqual(second['match']['status'], 'mismatch')
         self.assertIn('budget', second['match']['mismatches'])
+
+    def test_two_conflict_free_checked_listings_need_no_refinement(self):
+        a, b = 'https://www.homes.co.jp/chintai/room/a/', 'https://www.homes.co.jp/chintai/room/b/'
+        self.rows = [[self.row(a), self.row(b, rent=120000, fee=10000)]]
+        self.pages = {a: (200, a, 'text/html', page('1LDK', '13.5万円')), b: (200, b, 'text/html', page('1LDK', '12万円'))}
+        result = self.run_search()
+        self.assertEqual(self.refines, [False])
+        self.assertNotIn('refinement', result['web_search'])
 
     def test_failed_refinement_is_reported_truthfully(self):
         self.rows = [[], []]
@@ -198,6 +207,46 @@ class AgentAccuracyTest(unittest.TestCase):
         self.assertEqual(result['web_search']['status'], 'empty')
         self.assertEqual((result['web_search']['refinement']['status'], result['web_search']['refinement']['code']), ('error', 'rate_limited'))
         self.assertEqual(result['items'], [])
+
+    def test_removed_listing_is_ended_and_never_pinned(self):
+        url = 'https://realestate.yahoo.co.jp/rent/detail/000001280258befebec72221bdce43e6e3ac1e40b307/'
+        self.rows = [[self.row(url, address='東京都中央区月島4')], []]
+        self.pages = {url: HTTPError(url, 404, 'Not Found', {}, None)}
+        self.places = {'東京都中央区月島4': [{'name': '東京都中央区月島四丁目', 'lat': 35.6604, 'lon': 139.7827}]}
+        verify = self.agent.page_verifier
+        def raising(u, extracted):
+            return page_verify.verify(u, extracted, (), fetcher=lambda target: (_ for _ in ()).throw(self.pages[target]))
+        self.agent.page_verifier = raising
+        item = self.run_search()['items'][0]
+        self.assertEqual((item['reliability'], item['listing_status'], item['lat']), ('ended_or_moved', 'ended_or_moved', None))
+        self.assertIn('HTTP 404', ' '.join(item['limitations']))
+
+    def test_consulted_detail_pages_are_checked_and_added_with_page_facts_only(self):
+        live = 'https://www.homes.co.jp/chintai/b-1331530543050/'
+        ended = 'https://www.homes.co.jp/chintai/b-2222222222/'
+        listing = 'https://www.homes.co.jp/chintai/theme/11158/tokyo/chuo-city/list/'
+        restricted = 'https://www.chintai.net/detail/bk-C010090830000012042692190001/'
+        self.rows = [[self.row(LIST, 'listing_search_page', None, None, None)], []]
+        original = self.agent.web_search
+        def with_sources(query, context='', refine=False):
+            result = original(query, context, refine)
+            result['source_urls'] = [LIST, live, ended, listing, restricted]
+            return result
+        self.agent.web_search = with_sources
+        ld = {'address': {'addressRegion': '東京都', 'addressLocality': '中央区', 'streetAddress': '日本橋人形町２丁目33-3'}}
+        self.pages = {LIST: (200, LIST, 'text/html', page('一覧')),
+                      live: (200, live, 'text/html', page('AZ日本橋人形町 [1LDK/2階/31.86㎡]', '', live, ld)),
+                      ended: (200, ended, 'text/html', page('物件', 'この物件の掲載は終了しました'))}
+        self.places = {'東京都中央区日本橋人形町2丁目33-3': [{'name': '東京都中央区日本橋人形町二丁目', 'lat': 35.6858, 'lon': 139.7826}]}
+        result = self.run_search()
+        harvested = [i for i in result['items'] if i.get('harvested')]
+        self.assertEqual([i['url'] for i in harvested], [live])  # Ended, list and non-reuse pages are not added.
+        item = harvested[0]
+        self.assertEqual((item['reliability'], item['extracted']['layout'], item['extracted']['area'], item['extracted']['price']), ('page_checked', '1LDK', 31.86, None))
+        self.assertEqual(item['fact_sources'], {'layout': 'page', 'area': 'page', 'address': 'page'})
+        self.assertEqual(item['checks']['budget']['result'], 'unknown')  # Rent was not read, so it is not assumed.
+        title = '京葉線八丁堀駅14階建築15年東京都中央区新川1(18.2万円/1LDK(洋5.8LDK8.2)/35.68m2)|賃貸物件'
+        self.assertEqual(page_verify.title_facts(page_verify.normalize(title)), {'price': 18.2, 'address': '東京都中央区新川1', 'layout': '1LDK', 'area': 35.68})
 
     def test_refinement_uses_documented_portal_filter(self):
         body = web_search.build_request('m', 'q', 'c', web_search.RENTAL_PORTALS)

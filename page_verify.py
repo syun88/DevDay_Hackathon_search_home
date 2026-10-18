@@ -136,6 +136,24 @@ def money_forms(yen):
     return {normalize(f) for f in forms}
 
 
+def title_facts(title):
+    """Layout and floor area when the page title states them, e.g. [1LDK/2階/34.08㎡]."""
+    layout = re.search(r'(?<![0-9A-Z])([1-9](?:S?LDK|DK|K|R))(?![A-Z])|ワンルーム', title.upper())
+    area = re.search(r'([0-9]{1,4}(?:\.[0-9]{1,2})?)(?:㎡|M2|M²)', title.upper())
+    facts = {}
+    rent = re.search(r'([0-9]{1,3}(?:\.[0-9]{1,2})?)万円', title)
+    if rent and 1 <= float(rent.group(1)) <= 500:
+        facts['price'] = float(rent.group(1))  # Portal titles state the base rent in 万円.
+    address = re.search(r'(東京都|北海道|京都府|大阪府|[^\s\d()（）|｜/、。]{2,3}県)[^\s()（）|｜/、。【】\[\]]{2,40}', title)
+    if address:
+        facts['address'] = re.sub(r'(?<=[0-9])[^0-9-]+$', '', address.group(0))[:80]
+    if layout:
+        facts['layout'] = '1R' if layout.group(0) == 'ワンルーム' else layout.group(1)
+    if area and 5 <= float(area.group(1)) <= 2000:
+        facts['area'] = float(area.group(1))
+    return facts
+
+
 def confirm_facts(text, extracted):
     """Which summary values appear on the page itself. Absence is 'not_found', never a contradiction."""
     result = {}
@@ -189,4 +207,5 @@ def verify(url, extracted, restricted_hosts=(), fetcher=None):
             'canonical_url': canonical if canonical and canonical.startswith('https://') else None,
             'page_title': normalize(unescape(title.group(1)))[:160] if title else None,
             'moved': moved, 'looks_ended': ended, 'looks_like_search_page': bool(SEARCH_PATH.search(urlsplit(final).path + '?' + urlsplit(final).query)),
-            'page_addresses': json_ld_addresses(html), 'facts': confirm_facts(text, extracted)}
+            'page_addresses': json_ld_addresses(html), 'facts': confirm_facts(text, extracted),
+            'title_facts': title_facts(normalize(unescape(title.group(1))) if title else '')}

@@ -24,6 +24,10 @@ AGENT_CONFIG_VERSION = 6
 WEB_SEARCHES_PER_MESSAGE = 3  # A fallback plus one refinement, or explicit searches.
 RELIABLE_TARGET = 2  # Refine once when fewer verified listing pages are found.
 PINNABLE_LEVELS = ('block', 'chome')
+# Single-unit listing URL shapes on major portals, for checking pages the search consulted.
+DETAIL_URL = re.compile(r'^https://(www\.homes\.co\.jp/chintai/(b-\d+|room/[0-9a-f]{20,})|www\.eheya\.net/detail/\d+'
+                        r'|realestate\.yahoo\.co\.jp/rent/detail/_?[0-9a-f]{20,}|www\.athome\.co\.jp/chintai/\d{6,}'
+                        r'|www\.housecom\.jp/room_\d+)/?(\?.*)?$')
 LEVEL_UNCERTAINTY_KM = {'block': .15, 'chome': .4, 'town': 1.0}
 MAX_WEB_ITEMS = 8
 
@@ -422,10 +426,16 @@ def apply_verification(item, check):
     """Fold a page check into a web result: live URL, ended/moved pages and where each fact came from."""
     item['verification'] = {k: v for k, v in check.items() if k not in ('facts', 'page_addresses')}
     item['fact_sources'] = {k: 'search_summary' for k, v in (item.get('extracted') or {}).items() if v is not None}
+    if check.get('status') == 'gone' and item.get('page_kind') in MAPPABLE_KINDS:
+        # 404/410: the search index is stale and the listing has been removed.
+        item['listing_status'] = item['reliability'] = 'ended_or_moved'
+        item['limitations'] = item.get('limitations', []) + ['The listing page no longer exists (HTTP %s)' % check.get('http_status')]
+        return item
     if check.get('status') != 'ok':
         item['reliability'] = 'search_page' if item.get('page_kind') not in MAPPABLE_KINDS else 'page_not_checked'
         return item
-    live = check.get('canonical_url') or check.get('final_url')
+    # Link to the page actually checked (after redirects); a canonical URL may be a broader building page.
+    live = check.get('final_url') or check.get('canonical_url')
     if live and live != item['url']:
         item['search_result_url'], item['url'] = item['url'], live
     if check.get('looks_like_search_page') and item.get('page_kind') in MAPPABLE_KINDS:
@@ -1078,20 +1088,23 @@ class HomeAgent:
             self.step(session_id, step_id, 'web_search', 'running')
         result = self.hosted_search(query, criteria)
         self.check_pages(result['results'])
-        reliable = sum(r.get('reliability') == 'page_checked' for r in result['results'])
+        result['results'] += self.harvest(result, query)
+        reliable = self.reliable_count(result['results'], criteria)
         if result['status'] in ('ok', 'empty') and reliable < RELIABLE_TARGET and used + 1 < WEB_SEARCHES_PER_MESSAGE:
             self.mark(session_id, request_id, web_searches=used + 2)
             extra = self.hosted_search(query, criteria, refine=True)
             known = {web_search_module.normalize_url(r.get('search_result_url') or r['url']) for r in result['results']} | {web_search_module.normalize_url(r['url']) for r in result['results']}
             added = [r for r in extra['results'] if web_search_module.normalize_url(r['url']) not in known]
             self.check_pages(added)
+            added += self.harvest({**extra, 'results': result['results'] + added}, query)
             result['results'] = (result['results'] + added)[:12]
-            result['refinement'] = {'status': extra['status'], 'code': extra.get('code'), 'added': len(added), 'reason': f'fewer than {RELIABLE_TARGET} checked listing pages'}
+            result['refinement'] = {'status': extra['status'], 'code': extra.get('code'), 'added': len(added), 'reason': f'fewer than {RELIABLE_TARGET} checked listing pages without a known conflict'}
             if result['status'] == 'empty' and added:
                 result['status'] = 'ok'
             elif result['status'] == 'error' and extra['status'] == 'ok':
                 result.update(status='ok', code=None)
         result['checked_listing_pages'] = sum(r.get('reliability') == 'page_checked' for r in result['results'])
+        result['checked_without_known_conflict'] = self.reliable_count(result['results'], criteria)
         if step_id:
             self.step(session_id, step_id, 'web_search', 'done' if result['status'] == 'ok' else 'empty' if result['status'] == 'empty' else 'error')
         return result
@@ -1103,6 +1116,48 @@ class HomeAgent:
             return {'status': 'error', 'code': error.code, 'query': query, 'results': []}
         except Exception:
             return {'status': 'error', 'code': 'search_failed', 'query': query, 'results': []}
+
+    @staticmethod
+    def reliable_count(results, criteria):
+        """Checked listing pages whose stated budget and layout do not already contradict the criteria."""
+        criteria = {**DEFAULT_CRITERIA, **criteria}
+        return sum(r.get('reliability') == 'page_checked' and not any(c['result'] == 'fail' for c in discovery_checks(r, criteria).values())
+                   for r in results)
+
+    def harvest(self, result, query, limit=4):
+        """Check single-unit pages the search consulted but did not return. Only the page title,
+        title layout/area and structured address are read; everything else stays unknown."""
+        if not self.page_verifier:
+            return []
+        seen = {web_search_module.normalize_url(u) for r in result['results'] for u in (r['url'], r.get('search_result_url') or r['url'])}
+        candidates = []
+        for url in result.get('source_urls', []):
+            key = web_search_module.normalize_url(url)
+            if DETAIL_URL.match(url) and key not in seen:
+                seen.add(key); candidates.append(url)
+        found = []
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            checks = list(zip(candidates[:limit], [pool.submit(self.page_verifier, url, {}) for url in candidates[:limit]]))
+            for url, future in checks:
+                try:
+                    check = future.result(timeout=25)
+                except Exception:
+                    continue
+                if check.get('status') != 'ok' or check.get('moved') or check.get('looks_ended') or check.get('looks_like_search_page'):
+                    continue
+                facts = check.get('title_facts') or {}
+                record = {'title': check.get('page_title') or urlparse(url).hostname, 'url': url, 'source': urlparse(url).hostname,
+                          'web_result': True, 'discovery_only': True, 'page_kind': 'listing_detail', 'snippet': '', 'harvested': True,
+                          'availability_status': 'unknown', 'last_verified_at': None, 'retrieved_at': check.get('checked_at'),
+                          'lat': None, 'lon': None, 'geo_precision': 'unknown', 'search_query': query,
+                          'extracted': {'price': facts.get('price'), 'management_fee_yen': None, 'mandatory_fee_yen': None, 'layout': facts.get('layout'),
+                                        'area': facts.get('area'), 'address': facts.get('address'), 'transport': None},
+                          'limitations': ['A page the web search consulted; the app read only its title and structured address',
+                                          'Management and other fees and availability were not read: open the source page']}
+                apply_verification(record, check)
+                record['fact_sources'].update({k: 'page' for k in facts})
+                found.append(record)
+        return found
 
     def check_pages(self, results):
         """Check up to eight pages concurrently with a hard overall bound."""

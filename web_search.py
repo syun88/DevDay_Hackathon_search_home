@@ -118,6 +118,18 @@ def evidence(data):
     return urls, queries[:8], searched
 
 
+def consulted_urls(data):
+    """Raw HTTPS URLs the hosted search consulted or opened, in order, for the app's own page checks."""
+    found = []
+    for item in data.get('output', []) if isinstance(data, dict) else []:
+        if isinstance(item, dict) and item.get('type') == 'web_search_call':
+            action = item.get('action') if isinstance(item.get('action'), dict) else {}
+            for url in [s.get('url') for s in action.get('sources') or [] if isinstance(s, dict)] + [action.get('url')]:
+                if safe_url(url) and url not in found:
+                    found.append(url)
+    return found[:80]
+
+
 def output_text(data):
     for item in data.get('output', []) if isinstance(data, dict) else []:
         if isinstance(item, dict) and item.get('type') == 'message':
@@ -194,7 +206,7 @@ def parse(data, query, restricted_hosts=(), retrieved_at=None):
         })
         if len(records) >= MAX_RESULTS:
             break
-    return {'status': 'ok' if records else 'empty', 'query': query, 'queries': queries, 'results': records,
+    return {'status': 'ok' if records else 'empty', 'query': query, 'queries': queries, 'results': records, 'source_urls': consulted_urls(data),
             'summary': clean_text(payload.get('summary'), 400), 'source_count': len(urls), 'dropped_unverified': dropped}
 
 
