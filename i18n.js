@@ -2,6 +2,10 @@
 (() => {
 'use strict';
 const english = {
+  "{0}：徒歩{1}分以内": "{0}: within a {1}-minute walk",
+  "{0}：徒歩{1}km以内": "{0}: within a {1} km walk",
+  "Bの範囲制限なし": "No area limit from B",
+  "範囲は徒歩道路網による概算、カードの距離は直線距離です。賃貸予算は管理費・必須月額費用を含む総額です。": "Areas are approximate walking-network outlines; card distances are straight-line. Rental budgets include management and mandatory monthly fees.",
  '地図を確認しています…':'Reading the current map…','地図を操作しています…':'Updating the map…','物件の詳細を確認しています…':'Reading source details…','公開データを地図に読み込んでいます…':'Loading public records onto the map…',
   '物件の詳細':'Home details',
   '住所の概略位置です。建物の正確な位置ではありません。':'Approximate address area. This is not the exact building location.',
@@ -233,9 +237,8 @@ const english = {
   "物件を検索する地域": "Area to search for properties",
   "追加キーワード（例：南向き・駅徒歩10分）": "Extra keywords (e.g. south-facing, 10-minute walk to station)",
   "検索エンジン": "Search engine",
-  "検索：自動（Braveがあれば優先／なければBing）": "Search: automatic (Brave if configured, otherwise Bing)",
+  "検索：自動（許可済みデータ／Bing）": "Search: automatic (permitted feed / Bing)",
   "Bing RSS（APIキー不要）": "Bing RSS (no API key needed)",
-  "Brave Search API（キーがある場合）": "Brave Search API (requires a key)",
   "利用可能な検索連携を確認中…": "Checking available search services…",
   "OPENAI_API_KEYをサーバーに設定すると、取得した掲載ページをボタンからDecisions APIで分類できます（任意・費用発生）。": "Set OPENAI_API_KEY on the server to classify retrieved listing pages with the Decisions API using a button (optional; charges apply).",
   "位置判明分は半径内のみ表示": "Show located results within radius only",

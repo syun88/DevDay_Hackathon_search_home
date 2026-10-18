@@ -102,7 +102,7 @@
 <p class="muted">募集候補には掲載元が1時間以内に募集を確認したデータだけを採用します。検索索引は最新性を保証できないため、掲載元リンクのみを表示します。取得時刻を募集の確認時刻として扱いません。</p>
 <div class="field"><input id="listingArea" class="input" placeholder="検索地域（空欄なら地点Aの名前）" aria-label="物件を検索する地域"></div>
 <div class="field"><input id="listingKeywords" class="input" placeholder="追加キーワード（例：南向き・駅徒歩10分）"></div>
-<div class="field"><select id="listingProvider" class="input" aria-label="検索エンジン"><option value="auto">検索：自動（Braveがあれば優先／なければBing）</option><option value="feed">許可済み募集データ</option><option value="bing">Bing RSS（掲載先リンクのみ）</option><option value="brave">Brave Search API（キーがある場合）</option></select></div>
+<div class="field"><select id="listingProvider" class="input" aria-label="検索エンジン"><option value="auto">検索：自動（許可済みデータ／Bing）</option><option value="feed">許可済み募集データ</option><option value="bing">Bing RSS（掲載先リンクのみ）</option></select></div>
 <div class="field"><button id="searchListings" class="btn" style="flex:1">掲載ページを検索</button></div>
 <div id="listingsStatus" class="live-count" role="status">利用可能な検索連携を確認中…</div><div class="muted">OPENAI_API_KEYをサーバーに設定すると、取得した掲載ページをボタンからDecisions APIで分類できます（任意・費用発生）。</div>
 <div class="checkrow" style="margin:7px 0"><label><input type="checkbox" id="listingOnlyWithin" checked>位置判明分は範囲内のみ表示</label></div>
@@ -474,7 +474,7 @@ function renderExternalPages(){
 }
 async function getListingHealth(){
  if(location.protocol==='file:'){listingsReady=false;listingHealthChecked=true;setText($('listingsStatus'), () => t('検索結果を読み込むにはZIP内のサーバーを起動してください：python3 property-server.py。HTML単体で外部ページの内容を取得することはできません。'));return}
- try{const response=await fetch('/api/health',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('backend');const j=await response.json();$('listingProvider').querySelector('option[value="feed"]').disabled=!j.feed_enabled;listingsReady=!!j.listings_enabled;decisionsReady=!!j.decisions_enabled;listingHealthChecked=true;setText($('listingsStatus'), () => listingsReady?t("外部検索が有効：{0}。検索ボタンで掲載ページを取得します。", [t(j.provider)]):t('検索サーバーは起動していますが、検索エンジンが利用できません。'));if(!j.has_brave_key)$('listingProvider').querySelector('option[value="brave"]').disabled=true;
+ try{const response=await fetch('/api/health',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('backend');const j=await response.json();$('listingProvider').querySelector('option[value="feed"]').disabled=!j.feed_enabled;listingsReady=!!j.listings_enabled;decisionsReady=!!j.decisions_enabled;listingHealthChecked=true;setText($('listingsStatus'), () => listingsReady?t("外部検索が有効：{0}。検索ボタンで掲載ページを取得します。", [t(j.provider)]):t('検索サーバーは起動していますが、検索エンジンが利用できません。'));
  $('suumoSearch').disabled=j.suumo_reuse_permitted!==true;
  if(j.suumo_reuse_permitted===true)setText($('suumoStatus'),()=>t('未検索。半径は0.1〜2km、地点Aは東京都内にしてください。'));
  }catch{listingsReady=false;listingHealthChecked=true;setText($('listingsStatus'), () => t('検索結果の取得にはローカルサーバーが必要です（README参照）。この画面だけを開いた場合は外部検索リンクをご利用ください。'))}
@@ -647,11 +647,13 @@ window.mountSearchWorkspace({
     for(const link of resultSet?.discovery_links||[])if(/^https:\/\//.test(link.url))$('discoveryLinks').append(makeLink(t('最新情報は掲載元で確認：')+link.source,link.url));
     renderExternalPages();renderSoon();
   },
-  getMapState: () => ({a:state.a,b:state.b,ra:state.ra,rb:state.rb}),
+  getMapState: () => ({a:state.a,b:state.b,ra:state.ra,rb:state.rb,wa:state.wa,wb:state.wb,wda:state.wda,wdb:state.wdb}),
   applyMapState: c => {
     const moved=JSON.stringify(state.a)!==JSON.stringify(c.origin_a);
     state.a={...c.origin_a};state.b=c.origin_b?{...c.origin_b}:null;
     state.ra=c.radius_a_km;state.rb=c.radius_b_km;
+    state.rangeMode=c.range_mode;state.wa=c.walk_a_minutes;state.wb=c.walk_b_minutes;
+    state.wda=c.walk_a_km;state.wdb=c.walk_b_km;
     if(moved){center={lat:state.a.lat,lon:state.a.lon};locationHits=[];buildingHits=[];propertyPageHits=[];
       $('globalResults').replaceChildren();$('buildingResults').replaceChildren();}
     sync();refreshPortals();refreshWalkingAreas();refreshRangeResults();renderExternalPages();if(buildingHits.length)showBuildings();renderSoon();

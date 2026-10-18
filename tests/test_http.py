@@ -90,6 +90,15 @@ class HttpTest(unittest.TestCase):
         for path in ['/.git/config', '/server.py', '/listing_feed.py', '/public_housing.py', '/.env']:
             self.assertEqual(self.request(path)[0], 404)
 
+    def test_removed_brave_provider_is_not_advertised_or_contacted(self):
+        status, health = self.request('/api/health')
+        self.assertEqual(status, 200)
+        self.assertEqual(health['providers'], ['bing'])
+        self.assertNotIn('has_brave_key', health)
+        with patch.object(server, 'fetch_listings') as fetch:
+            self.assertEqual(self.request('/api/listings?place=Tokyo&provider=brave')[0], 400)
+            fetch.assert_not_called()
+
     def test_invalid_imports_and_routes_are_rejected(self):
         self.assertEqual(self.request('/api/import', {'permitted': True, 'records': {}})[0], 400)
         self.assertEqual(self.request('/api/route', {'mode': 'transit'})[0], 400)

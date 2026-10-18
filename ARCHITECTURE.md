@@ -36,7 +36,7 @@
 | 優先 | データ源 | 用途 | 条件・制約 |
 |---|---|---|---|
 | A | **実際の募集物件**：不動産会社／管理会社の許諾済みフィード、契約した物件データAPI | 賃料・部屋・掲載状態の一次情報 | 最重要。公開ポータルに誰でも使える無条件の物件APIがあるとは仮定しない。データ契約・転載範囲・更新周期を確認 |
-| B | **SUUMO／LIFULL HOME'S／at home**、検索エンジン（例：Brave Search API） | 公開掲載ページの発見、掲載元へ誘導 | 検索エンジンのスニペットは空室の証拠でも正規の配信フィードでもない。個別サイトのロボット制限、利用規約、再掲載・写真利用許諾を確認 |
+| B | **SUUMO／LIFULL HOME'S／at home**、Bing RSS | 公開掲載ページの発見、掲載元へ誘導 | 検索エンジンのスニペットは空室の証拠でも正規の配信フィードでもない。個別サイトのロボット制限、利用規約、再掲載・写真利用許諾を確認 |
 | B | **国交省 不動産情報ライブラリ API** | 災害・学校・医療・都市計画・過去の不動産取引価格 | 利用申請→承認→APIキー。サーバー側で利用し、頻度制御・キャッシュ必須。**現在募集中の物件APIではない** |
 | B | **OSM + Overpass API** | 建物、道路、店舗、スーパー、生活施設 | オープンな地物データであり、募集中の部屋・家賃は含まれない。公開Overpassは負荷制限あり |
 | B | **Google Places / Geocoding API** または契約済み地名検索 | 会社名・住所・施設名の検索、座標付与 | キー／課金／保存・表示条件を確認。住所と企業名は別種の検索として扱う |
@@ -167,4 +167,12 @@ curl -sS https://api.openai.com/v1/decisions \
 ### Boundaries and validation
 - Exact personal places are sent to OpenAI only as part of the requested search context/tools; API keys remain server-side. External listing text is treated as untrusted data.
 - The server remains localhost-only. Cookie lifetime is 30 days; authenticated multi-user isolation and automatic retention cleanup are not implemented. Legacy manual candidates remain in browser storage.
+
+### Range and discovery cleanup (schema v4)
+
+`session_store.py` owns the selected `range_mode` and independent A/B walking minutes, walking kilometres and straight-line radii. `workspace.js`/the existing map adapter apply the same values to controls, chips and the map. The initial walking-time mode stays at 15 minutes. Old sessions and Undo snapshots missing these fields receive the same defaults; saved straight-line radii are retained, never converted to walking time. The server remains authoritative after session restoration, including chat switching and Undo.
+
+Brave is removed from discovery code, health metadata, provider choices and environment setup. The supported provider set is exactly `auto`, `bing`, `feed`; saved `brave` choices migrate to `auto`, including archived chats and Undo history. Bing/verified-feed search and the existing bounded OpenAI web-search fallback remain separate and unchanged in responsibility.
+
+Agent context and web-search context distinguish all three range modes. Walking-outline membership stays unknown in server-side match evidence instead of being tested with a straight-line radius. Browser outline filtering is still approximate and does not establish an exact walking route to a home. Map acknowledgements/public records, streaming, cancellation and existing tools are retained. No new AI tool, Decisions integration, framework, runtime or development dependency is added.
 - Offline tests cover schemas, atomic revisions, HTTP/session isolation, idempotent submission/tool replay, persisted memory, stale results, stable references, saving/comparison, Undo, cancellation and deletion. Browser/live API checks cover bilingual conversation, state changes, memory after reload, real search, Japanese Undo and lifecycle recovery.

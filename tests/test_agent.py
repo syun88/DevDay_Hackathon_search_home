@@ -37,6 +37,16 @@ class AgentToolsTest(unittest.TestCase):
         self.assertEqual(self.store.get(self.token)['revision'], 2)
         self.assertEqual(len(self.store.get(self.token)['history']), 1)
 
+    def test_undo_restores_range_mode_and_values_without_moving_the_map(self):
+        before = self.store.get(self.token)['map_view']
+        self.execute('update_search', {'criteria':{'range_mode':'distance','radius_a_km':4}})
+        self.execute('update_search', {'criteria':{'range_mode':'walk','walk_a_minutes':25}})
+        result = self.execute('undo_search')
+        self.assertEqual(result['criteria']['range_mode'], 'distance')
+        self.assertEqual(result['criteria']['radius_a_km'], 4)
+        self.assertEqual(result['criteria']['walk_a_minutes'], 15)
+        self.assertEqual(self.store.get(self.token)['map_view'], before)
+
     def test_manual_edits_are_not_silently_overwritten(self):
         self.store.update(self.token, {'expected_revision': 1, 'criteria': {'layout': '2K'}})
         result = self.execute('update_search', {'criteria': {'max_price_yen': 100000}})
@@ -263,7 +273,7 @@ class CurrentListingRulesTest(unittest.TestCase):
 
     def test_agent_budget_counts_all_monthly_fees_and_unknown_is_not_zero(self):
         from session_store import DEFAULT_CRITERIA
-        criteria = {**DEFAULT_CRITERIA, 'property_type': 'rent', 'max_price_yen': 87000}
+        criteria = {**DEFAULT_CRITERIA, 'property_type': 'rent', 'max_price_yen': 87000, 'range_mode':'distance'}
         item = self.record()
         self.assertEqual(evidence(item, criteria)['status'], 'confirmed')
         criteria['max_price_yen'] = 86999
@@ -277,6 +287,19 @@ class CurrentListingRulesTest(unittest.TestCase):
         self.assertEqual(evidence(item, DEFAULT_CRITERIA)['status'], 'unverified')
         item['last_verified_at'] = '2000-01-01T00:00:00+00:00'
         self.assertEqual(evidence(item, DEFAULT_CRITERIA)['status'], 'mismatch')
+
+    def test_walking_range_is_not_verified_using_a_straight_line_radius(self):
+        from session_store import DEFAULT_CRITERIA
+        from home_agent import search_context
+        for mode in ('walk', 'walk-distance'):
+            criteria = {**DEFAULT_CRITERIA, 'range_mode':mode, 'walk_a_minutes':25, 'walk_a_km':1.5}
+            flags = evidence(self.record(), criteria)
+            self.assertEqual(flags['status'], 'unverified')
+            self.assertIn('walking area', flags['unknown'])
+            context = search_context(criteria)
+            self.assertNotIn('straight-line', context)
+            self.assertIn('25 minutes' if mode == 'walk' else '1.5 km', context)
+        self.assertIn('straight-line', search_context({**DEFAULT_CRITERIA, 'range_mode':'distance'}))
 
     def test_prototype_listed_budget_requires_reconfirmation_after_upgrade(self):
         from session_store import DEFAULT_CRITERIA
