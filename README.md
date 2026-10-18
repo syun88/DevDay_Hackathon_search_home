@@ -76,7 +76,7 @@ python3 server.py
 ### 全体構成
 
 ```mermaid
-flowchart LR
+flowchart TB
     UI["ブラウザ：地図・条件・チャット"] <-->|JSON / SSE| API["Python HTTPサーバー"]
     API <--> DB[(SQLite)]
     API <-->|HTTPS| AI["OpenAI：会話・Web検索・分類"]
