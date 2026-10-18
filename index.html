@@ -9,8 +9,9 @@
 
 .marker.listing{background:#175cd3;border-radius:8px;font-size:11px;max-width:110px;overflow:hidden;text-overflow:ellipsis}.listing-price{font-size:15px;font-weight:850;color:#174bc9}.listing-details{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}.listing-details span{padding:3px 6px;background:#edf2fb;border-radius:5px;font-size:10px}.listing-ok{color:#08734d}.listing-uncertain{color:#98601d}.listing-out{color:#b3261e}.external-item.out-of-range{opacity:.6}.external-item p{overflow-wrap:anywhere}
 .header-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.language-toggle{display:flex;gap:2px;padding:3px;background:#eef3fa;border:1px solid var(--border);border-radius:9px}.language-toggle button{border:0;border-radius:6px;padding:5px 9px;background:transparent;color:#536279;font-size:11px;font-weight:750}.language-toggle button[aria-pressed="true"]{background:#fff;color:#1d4ed8;box-shadow:0 1px 4px #0001}html[lang="en"] .btn{white-space:normal}html[lang="en"] .sidebar .columns{grid-template-columns:repeat(2,minmax(0,1fr))}
+[hidden]{display:none!important}.walking-panel{margin-top:10px;padding:10px 12px;background:#edf5ff;border:1px solid #d9e8ff;border-radius:10px}.walking-panel[data-status="error"]{background:#fff4e8;border-color:#f3cfa7}.walking-panel p{margin:0 0 7px;font-size:11px;line-height:1.6}.walking-panel .sub{margin:7px 0 0}.map-top{max-width:calc(100% - 74px)}#walkingMapSummary{display:block;width:fit-content;line-height:1.6}.sliderrow strong{min-width:70px}.range-mode{margin:12px 0}
 </style></head><body>
-<div class="wrap"><aside class="sidebar"><div class="header"><div class="header-top"><p class="kicker">PROPERTY DISTANCE FINDER</p><div class="language-toggle" role="group" aria-label="Language / 言語"><button type="button" data-language="en" lang="en" aria-pressed="false">EN</button><button type="button" data-language="ja" lang="ja" aria-pressed="true">JP</button></div></div><h1>住まいの地図</h1><p>住所・会社を検索 → 半径内の実在する建物・掲載ページを表示 → 条件比較</p></div><div class="scroll">
+<div class="wrap"><aside class="sidebar"><div class="header"><div class="header-top"><p class="kicker">PROPERTY DISTANCE FINDER</p><div class="language-toggle" role="group" aria-label="Language / 言語"><button type="button" data-language="en" lang="en" aria-pressed="false">EN</button><button type="button" data-language="ja" lang="ja" aria-pressed="true">JP</button></div></div><h1>住まいの地図</h1><p>住所・会社を検索 → 範囲内の実在する建物・掲載ページを表示 → 条件比較</p></div><div class="scroll">
 <section class="section"><h2>場所を横断検索 <span class="pill">住所・会社・駅名</span></h2>
 <div class="live-search">
 <div class="field"><input class="input" id="globalQuery" placeholder="例：ソニー本社 / 東京都港区港南1-7-1" autocomplete="off"><button class="btn" id="globalSearch">検索</button></div>
@@ -21,11 +22,13 @@
 </div></section>
 <section class="section"><h2>① 起点を選ぶ <span class="pill">最大2か所</span></h2>
 <div class="anchor-card"><div class="anchor-title"><span><span class="dot a"></span>地点A・勤務先など</span><button id="setA" class="btn secondary small">地図で指定</button></div><div class="anchor-name" id="nameA">東京駅</div><div class="field"><input id="queryA" class="input" placeholder="会社・駅・住所を検索"><button class="btn small" id="searchA">検索</button></div><div class="searchchoices" id="choicesA"></div></div>
-<div class="anchor-card"><div class="anchor-title"><span><span class="dot b"></span>地点B・別の会社など</span><button id="setB" class="btn secondary small">地図で指定</button></div><div class="anchor-name" id="nameB">未指定</div><div class="field"><input id="queryB" class="input" placeholder="2か所目を追加（任意）"><button class="btn small" id="searchB">検索</button></div><div class="searchchoices" id="choicesB"></div><label class="muted"><input type="checkbox" id="restrictB"> 地点Bからの距離でも絞り込む</label></div>
+<div class="anchor-card"><div class="anchor-title"><span><span class="dot b"></span>地点B・別の会社など</span><button id="setB" class="btn secondary small">地図で指定</button></div><div class="anchor-name" id="nameB">未指定</div><div class="field"><input id="queryB" class="input" placeholder="2か所目を追加（任意）"><button class="btn small" id="searchB">検索</button></div><div class="searchchoices" id="choicesB"></div><label class="muted"><input type="checkbox" id="restrictB"> 地点Bの範囲でも絞り込む（A・B両方）</label></div>
+<div class="control range-mode"><label class="label" for="rangeMode">範囲の指定方法</label><select id="rangeMode" class="input"><option value="walk">徒歩（所要時間）</option><option value="distance">直線距離（半径）</option></select></div>
 <div class="sliderrow"><label class="label" for="radiusA">Aから</label><input type="range" min="0.5" max="25" step="0.5" id="radiusA" value="3"><strong id="radiusLabelA">3 km</strong></div>
 <div class="chiprow"><button class="chip" data-radius="1">1km</button><button class="chip" data-radius="2">2km</button><button class="chip active" data-radius="3">3km</button><button class="chip" data-radius="5">5km</button><button class="chip" data-radius="10">10km</button></div>
 <div id="bRadiusWrap" style="display:none"><div class="sliderrow"><label class="label" for="radiusB">Bから</label><input type="range" min="0.5" max="25" step="0.5" id="radiusB" value="5"><strong id="radiusLabelB">5 km</strong></div></div>
-<p class="muted">円は直線距離です。地図上を押して地点を指定できます。会社名で見つからない場合は住所検索、またはGoogle マップ検索をお試しください。</p></section>
+<div class="walking-panel" id="walkingPanel"><p id="walkingStatus" role="status" aria-live="polite">徒歩で到達できる範囲を取得中…</p><p id="walkingAreaReference" class="sub"></p><button class="btn ghost small" id="retryWalking" hidden>徒歩圏を再取得</button><p class="sub">徒歩速度4.8km/h（80m/分）で時間内に到達した道路・歩道を着色します。線の太さは見やすさのための表示です。信号待ち・通行規制・建物の入口により実際の所要時間は変わります。</p><p class="sub">徒歩圏：<a href="https://valhalla.openstreetmap.de/" target="_blank" rel="noopener noreferrer">Valhalla / OpenStreetMap</a></p></div>
+<p class="muted" id="rangeHint">色付きの線は時間内に到達した道路・歩道です。破線は徒歩圏の外周の目安です。</p></section>
 <section class="section"><h2>② 物件を条件で絞る</h2><div class="columns"><div class="control"><label class="label">最大家賃・価格</label><input id="maxPrice" class="input" type="number" min="0" step="0.5" placeholder="例：8"></div><div class="control"><label class="label">最小面積（㎡）</label><input id="minArea" class="input" type="number" min="0" placeholder="例：25"></div></div>
 <div class="columns"><div class="control"><label class="label">間取り</label><select class="input" id="layout"><option value="">すべて</option><option value="1R">1R</option><option value="1K">1K</option><option value="1DK">1DK</option><option value="1LDK">1LDK</option><option value="2K">2K</option><option value="2DK">2DK</option><option value="2LDK">2LDK</option><option value="3LDK">3LDK</option></select></div><div class="control"><label class="label">築年数（上限・年）</label><input class="input" type="number" id="maxAge" min="0" placeholder="指定なし"></div></div>
 <div class="control"><label class="label">用途・物件種別</label><select class="input" id="type"><option value="">すべて</option><option value="rent">賃貸</option><option value="sale">売買</option></select><p class="sub">賃貸価格は万円/月、売買価格は万円。金額条件は種別を指定して利用してください。</p></div>
@@ -36,7 +39,7 @@
 <div class="live-search">
 <h3>近くの集合住宅（OpenStreetMap）</h3>
 <p class="muted">実在する地図上の建物データを取得して地図と一覧に表示します。<strong>賃貸募集・空室情報ではありません。</strong></p>
-<div class="field"><button class="btn" id="searchBuildings" style="flex:1">半径内の集合住宅を探す</button><button class="btn ghost" id="clearBuildings">消去</button></div>
+<div class="field"><button class="btn" id="searchBuildings" style="flex:1">範囲内の集合住宅を探す</button><button class="btn ghost" id="clearBuildings">消去</button></div>
 <div class="live-count" id="buildingStatus" role="status">未検索。表示件数はOpenStreetMapの登録状況に依存します。</div>
 <div class="live-panel" id="buildingResults"></div>
 </div>
@@ -48,7 +51,7 @@
 <div class="field"><select id="listingProvider" class="input" aria-label="検索エンジン"><option value="auto">検索：自動（Braveがあれば優先／なければBing）</option><option value="bing">Bing RSS（APIキー不要）</option><option value="brave">Brave Search API（キーがある場合）</option></select></div>
 <div class="field"><button id="searchListings" class="btn" style="flex:1">掲載ページを検索</button></div>
 <div id="listingsStatus" class="live-count" role="status">利用可能な検索連携を確認中…</div><div class="muted">OPENAI_API_KEYをサーバーに設定すると、取得した掲載ページをボタンからDecisions APIで分類できます（任意・費用発生）。</div>
-<div class="checkrow" style="margin:7px 0"><label><input type="checkbox" id="listingOnlyWithin" checked>位置判明分は半径内のみ表示</label></div>
+<div class="checkrow" style="margin:7px 0"><label><input type="checkbox" id="listingOnlyWithin" checked>位置判明分は範囲内のみ表示</label></div>
 <div id="externalResults"></div>
 <div class="portal-grid" id="portals">
 <a class="portal" id="linkSuumo" target="_blank" rel="noopener noreferrer" href="https://suumo.jp/chintai/">SUUMOで検索<small>掲載元で空室・条件を確認</small></a>
@@ -63,21 +66,79 @@
 <input type="file" id="csvFile" style="display:none" accept=".csv,text/csv">
 </section>
 <section class="section"><div class="tabline"><h2>④ 保存済みの候補物件</h2><select class="input" id="sort" style="width:116px;padding:6px"><option value="distance">Aに近い順</option><option value="price">安い順</option><option value="area">広い順</option></select></div><div id="results" class="resultlist"><div class="empty">まだ候補物件がありません。公式の地図検索で物件を探し、上の「＋」ボタンから住所や家賃を登録してください。</div></div></section>
-<p class="footer">地図 © OpenStreetMap contributors。場所検索：OpenStreetMap Nominatim／国土地理院（検索できない場合）。地図タイルの通信が必要です。直線距離は球面上の2地点間で計算。実際の経路・募集条件はリンク先で再確認してください。</p>
-</div></aside><main class="mapcol"><div class="map" id="map"><div id="tiles" class="tiles"></div><svg class="overlays" id="overlay" aria-hidden="true"></svg><div id="pins" class="pins"></div></div><div class="map-top"><div class="map-chip" id="mapModeLabel">地図をドラッグして移動できます</div></div><div class="map-error" id="mapError">地図タイルを取得できません。通信環境を確認してください。地点・距離・候補情報の操作はできます。</div><div class="map-controls"><button id="zoomIn" title="拡大">＋</button><button id="zoomOut" title="縮小">−</button><button id="resetView" title="起点Aに戻る">⌖</button></div><div class="bottomhint" id="bottomHint">青：地点A　紫：地点B　黄：住所・会社　青緑：実在建物　緑：保存候補</div><div class="map-attrib">© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors</div><div id="toast" class="toast"></div></main></div>
+<p class="footer">地図 © OpenStreetMap contributors。場所検索：Nominatim／国土地理院。徒歩圏：Valhallaの道路網による概算（4.8km/h）。カードの距離は直線距離です。実際の経路・募集条件は掲載元で確認してください。</p>
+</div></aside><main class="mapcol"><div class="map" id="map"><div id="tiles" class="tiles"></div><svg class="overlays" id="overlay" aria-hidden="true"></svg><div id="pins" class="pins"></div></div><div class="map-top"><div class="map-chip" id="mapModeLabel">地図をドラッグして移動できます</div><div class="map-chip" id="walkingMapSummary" role="status" aria-live="polite"></div></div><div class="map-error" id="mapError">地図タイルを取得できません。通信環境を確認してください。地点・距離・候補情報の操作はできます。</div><div class="map-controls"><button id="zoomIn" title="拡大">＋</button><button id="zoomOut" title="縮小">−</button><button id="resetView" title="起点Aに戻る">⌖</button></div><div class="bottomhint" id="bottomHint">青：地点A　紫：地点B　黄：住所・会社　青緑：実在建物　緑：保存候補</div><div class="map-attrib">© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors</div><div id="toast" class="toast"></div></main></div>
 <div class="modalouter" id="modalOuter"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><h2 id="modalTitle">候補物件を登録</h2><p class="muted">地図をタップして座標を指定するか、住所から位置を検索できます。</p><div class="columns"><div class="control" style="grid-column:1/-1"><label class="label">物件名 *</label><input class="input" id="pName" placeholder="例：〇〇マンション 203号室"></div></div><div class="control"><label class="label">住所（位置検索にも使用）</label><div class="field"><input class="input" id="pAddress" placeholder="住所を入力"><button class="btn secondary small" id="geocodeProperty">位置検索</button></div></div><div class="columns"><div class="control"><label class="label">種別</label><select class="input" id="pType"><option value="rent">賃貸</option><option value="sale">売買</option></select></div><div class="control"><label class="label">家賃・価格（万円）</label><input class="input" id="pPrice" type="number" min="0" step="0.1"></div><div class="control"><label class="label">間取り</label><select class="input" id="pLayout"><option value="">未指定</option><option>1R</option><option>1K</option><option>1DK</option><option>1LDK</option><option>2K</option><option>2DK</option><option>2LDK</option><option>3LDK</option></select></div><div class="control"><label class="label">面積（㎡）</label><input class="input" id="pArea" type="number" min="0" step="0.1"></div><div class="control"><label class="label">築年数（年）</label><input class="input" id="pAge" type="number" min="0"></div><div class="control"><label class="label">設備</label><div class="checkrow"><label><input id="pPets" type="checkbox">ペット可</label><label><input id="pParking" type="checkbox">駐車場</label></div></div></div><div class="control"><label class="label">掲載元URL（任意）</label><input class="input" id="pUrl" type="url" placeholder="https://..."></div><div class="columns"><div class="control"><label class="label">緯度</label><input class="input" id="pLat" type="number" step="any" placeholder="住所検索で入力"></div><div class="control"><label class="label">経度</label><input class="input" id="pLon" type="number" step="any"></div></div><div class="buttons"><button id="modalCancel" class="btn ghost">キャンセル</button><button id="modalSave" class="btn">保存</button></div></div></div>
 <script src="i18n.js"></script>
+<script src="walking.js"></script>
 <script>
 (()=>{'use strict';
 const $=id=>document.getElementById(id), Earth=6371.0088, RAD=Math.PI/180;
 const {t, setText} = window.homeI18n;
-const defaults={a:{name:'東京駅',lat:35.681236,lon:139.767125},b:null,ra:3,rb:5,properties:[]};
+const defaults={a:{name:'東京駅',lat:35.681236,lon:139.767125},b:null,ra:3,rb:5,rangeMode:'walk',wa:15,wb:15,properties:[]};
 let state;try{state=Object.assign({},defaults,JSON.parse(localStorage.getItem('property_map_v2')||'{}'))}catch{state={...defaults}}
 if(!state.a||!Number.isFinite(Number(state.a.lat)))state.a={...defaults.a};if(!Array.isArray(state.properties))state.properties=[];
+if(!['walk','distance'].includes(state.rangeMode))state.rangeMode='walk';
+for(const key of ['wa','wb'])if(!Number.isInteger(state[key])||state[key]<5||state[key]>60)state[key]=15;
 let center={lat:state.a.lat,lon:state.a.lon}, zoom=12, mode='view', editId=null,activePointer=null,pointMoved=false,renderPending=false,tilesLoaded=0,tilesErrors=0,geoTime=0,tileCache=new Map();
 const persist=()=>{try{localStorage.setItem('property_map_v2',JSON.stringify(state))}catch{}};
 const valid=(lat,lon)=>Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=85&&Math.abs(lon)<=180;
 const clamp=(v,lo,hi)=>Math.min(hi,Math.max(lo,v));
+const walkingMode=()=>state.rangeMode==='walk';
+const requiredWalkingAnchors=()=>state.b&&$('restrictB').checked?['a','b']:['a'];
+let fittedWalkingKey='';
+const walkingAreas=window.homeWalking.createAreaLoader({
+ async fetchArea(request,signal){
+  if(location.protocol==='file:')throw Error('Local server required');
+  const response=await fetch('/api/walking-area?'+new URLSearchParams(request),{signal});
+  if(!response.ok)throw Error('Walking area unavailable');
+  return response.json();
+ },
+ onChange(){updateWalkingStatus();fitWalkingAreas();refreshRangeResults()}
+});
+function rangesReady(){return !walkingMode()||requiredWalkingAnchors().every(which=>walkingAreas.get(which)?.status==='ready')}
+function withinRange(point){
+ if(!walkingMode())return dist(state.a,point)<=state.ra&&(!$('restrictB').checked||!state.b||dist(state.b,point)<=state.rb);
+ // Unknown areas remain unknown; they must never count as matching candidates.
+ if(!rangesReady())return null;
+ return requiredWalkingAnchors().every(which=>window.homeWalking.contains(walkingAreas.get(which).geometry,point));
+}
+function rangeSearchRadius(){return walkingMode()?window.homeWalking.searchRadiusKm(walkingAreas.get('a')?.geometry,state.a,dist):state.ra}
+function fitWalkingAreas(force=false){
+ if(!walkingMode()||!rangesReady())return;
+ const areas=requiredWalkingAnchors().map(which=>walkingAreas.get(which));
+ const key=areas.map(area=>area.key).join('|');
+ if(!force&&key===fittedWalkingKey)return;
+ const rect=$('map').getBoundingClientRect();
+ if(rect.width<80||rect.height<80)return;
+ const boxes=areas.map(area=>window.homeWalking.bounds(area.geometry));
+ const nw=project(Math.max(...boxes.map(b=>b.north)),Math.min(...boxes.map(b=>b.west)),0);
+ const se=project(Math.min(...boxes.map(b=>b.south)),Math.max(...boxes.map(b=>b.east)),0);
+ zoom=clamp(Math.log2(Math.min((rect.width-80)/Math.max(se.x-nw.x,1e-6),(rect.height-120)/Math.max(se.y-nw.y,1e-6))),3,18);
+ center=unproject((nw.x+se.x)/2,(nw.y+se.y)/2,0);fittedWalkingKey=key;
+}
+function refreshRangeResults(){if(buildingHits.length)showBuildings();renderExternalPages();renderSoon()}
+function updateWalkingStatus(){
+ const walk=walkingMode(),entries=requiredWalkingAnchors().map(which=>[which,walkingAreas.get(which)]);
+ const failed=entries.some(([,area])=>area?.status==='error');
+ $('walkingPanel').dataset.status=failed?'error':rangesReady()?'ready':'loading';
+ $('retryWalking').hidden=!failed;
+ const message=()=>entries.map(([which,area])=>{
+  const name=which.toUpperCase();
+  if(area?.status==='ready')return t('{0}：徒歩{1}分・道路の合計 約{2}km',[name,state['w'+which],window.homeWalking.networkLengthKm(area.network).toFixed(1)]);
+  if(area?.status==='error')return name+'：'+(location.protocol==='file:'?t('徒歩圏の取得には python3 server.py で起動してください。'):t('徒歩圏を取得できません。通信環境を確認して再試行してください。'));
+  return t('{0}：徒歩{1}分の範囲を取得中…',[name,state['w'+which]]);
+ }).join(' / ');
+ setText($('walkingStatus'),message);setText($('walkingMapSummary'),message);
+ setText($('walkingAreaReference'),()=>entries.filter(([,area])=>area?.status==='ready').map(([which,area])=>t('{0}：外周の参考面積 約{1}km²（歩ける地面の面積ではありません）',[which.toUpperCase(),window.homeWalking.areaKm2(area.geometry).toFixed(2)])).join(' / '));
+ $('walkingMapSummary').hidden=!walk;
+ $('searchBuildings').disabled=!!$('searchBuildings').dataset.busy||!rangesReady();
+}
+function refreshWalkingAreas(immediate=false,force=false){
+ const requests={};
+ if(walkingMode())for(const which of requiredWalkingAnchors())requests[which]={lat:state[which].lat,lon:state[which].lon,minutes:state['w'+which]};
+ walkingAreas.update(requests,{immediate,force});
+}
 const formatKm=n=>n<1?Math.round(n*1000)+'m':(n<10?n.toFixed(2):n.toFixed(1))+'km';
 function dist(p,q){const dLat=(q.lat-p.lat)*RAD,dLon=(q.lon-p.lon)*RAD;const a=Math.sin(dLat/2)**2+Math.cos(p.lat*RAD)*Math.cos(q.lat*RAD)*Math.sin(dLon/2)**2;return 2*Earth*Math.asin(Math.min(1,Math.sqrt(a)))}
 function project(lat,lon,z=zoom){const s=256*2**z,phi=clamp(lat,-85,85)*RAD;return {x:(lon+180)/360*s,y:(1-Math.asinh(Math.tan(phi))/Math.PI)/2*s}}
@@ -102,15 +163,23 @@ function handleMapWheel(event){
 }
 function renderSoon(){if(!renderPending){renderPending=true;requestAnimationFrame(()=>{renderPending=false;renderMap();renderList()})}}
 function circleSVG(p,radius,color){let {x,y}=screen(p);let circ=project(p.lat,p.lon);let d=(radius/Earth)/RAD*256*2**zoom/360/Math.cos(p.lat*RAD);return `<circle cx="${x}" cy="${y}" r="${d}" stroke="${color}" stroke-width="2" fill="${color}" fill-opacity=".10"/><circle cx="${x}" cy="${y}" r="3.5" fill="${color}" stroke="white" stroke-width="1.5"/>`}
+function rangeSVG(which,color){
+ if(!walkingMode())return circleSVG(state[which],state['r'+which],color);
+ const area=walkingAreas.get(which);
+ if(area?.status!=='ready')return '';
+ const rect=$('map').getBoundingClientRect(),origin=project(center.lat,center.lon);
+ const onMap=point=>{const p=project(point.lat,point.lon);return {x:rect.width/2+p.x-origin.x,y:rect.height/2+p.y-origin.y}};
+ return `<path data-walking-outline="${which}" d="${window.homeWalking.svgPath(area.geometry,onMap)}" stroke="${color}" stroke-width="1" stroke-dasharray="5 5" stroke-opacity=".45" fill="none"/><path data-walking-network="${which}" d="${window.homeWalking.networkPath(area.network,onMap)}" fill="none" stroke="${color}" stroke-width="2.5" stroke-opacity=".8" stroke-linejoin="round" stroke-linecap="round"/>`;
+}
 function renderMap(){const r=$('map').getBoundingClientRect();if(r.width<50||r.height<50)return;const c=project(center.lat,center.lon),left=c.x-r.width/2,top=c.y-r.height/2,tileZoom=Math.floor(zoom),tileSize=256*2**(zoom-tileZoom),sz=2**tileZoom,frag=document.createDocumentFragment();tilesLoaded=0;tilesErrors=0;
 let xMin=Math.floor(left/tileSize),xMax=Math.floor((left+r.width)/tileSize),yMin=Math.max(0,Math.floor(top/tileSize)),yMax=Math.min(sz-1,Math.floor((top+r.height)/tileSize)),nextCache=new Map();for(let x=xMin;x<=xMax;x++)for(let y=yMin;y<=yMax;y++){const key=`${tileZoom}/${(x%sz+sz)%sz}/${y}`;let img=tileCache.get(key);if(!img){img=document.createElement('img');img.loading='eager';img.decoding='async';img.alt='';img.src=`https://tile.openstreetmap.org/${key}.png`;img.onload=()=>{tilesLoaded++;$('mapError').style.display='none'};img.onerror=()=>{tilesErrors++;if(tilesErrors>2&&tilesLoaded===0)$('mapError').style.display='block'}}img.style.width=tileSize+'px';img.style.height=tileSize+'px';img.style.left=(x*tileSize-left)+'px';img.style.top=(y*tileSize-top)+'px';nextCache.set(key,img);frag.append(img)}tileCache=nextCache;$('tiles').replaceChildren(frag);
-const ov=$('overlay');ov.setAttribute('width',String(r.width));ov.setAttribute('height',String(r.height));ov.setAttribute('viewBox',`0 0 ${r.width} ${r.height}`);ov.innerHTML=circleSVG(state.a,state.ra,'#2563eb')+(state.b?circleSVG(state.b,state.rb,'#a855f7'):'');
+const ov=$('overlay');ov.setAttribute('width',String(r.width));ov.setAttribute('height',String(r.height));ov.setAttribute('viewBox',`0 0 ${r.width} ${r.height}`);ov.innerHTML=rangeSVG('a','#2563eb')+(state.b&&(!walkingMode()||$('restrictB').checked)?rangeSVG('b','#a855f7'):'');
 const pins=$('pins');pins.replaceChildren();function marker(p,label,cls,title,click){const pos=screen(p);if(pos.x< -120||pos.x>r.width+120||pos.y< -50||pos.y>r.height+50)return;const b=document.createElement('button');b.className='marker '+cls;b.style.left=pos.x+'px';b.style.top=pos.y+'px';setText(b, () => label);b.title=title;b.onclick=e=>{e.stopPropagation();click()};pins.append(b)}marker(state.a,'','anchor a',state.a.name,()=>toast(t('地点A：')+state.a.name));if(state.b)marker(state.b,'','anchor b',state.b.name,()=>toast(t('地点B：')+state.b.name));
 for(const p of matched().slice(0,500)){const label=p.price!=null&&p.price!==''?t("{0}万{1}", [p.price, p.type==='rent'?t('/月'):'']):t('物件');marker(p,label,'',p.name,()=>openModal(p))} }
 function filtered(){const maxPrice=Number($('maxPrice').value),minArea=Number($('minArea').value),maxAge=Number($('maxAge').value),layout=$('layout').value,type=$('type').value,insideOnly=$('insideOnly').checked,restrictB=$('restrictB').checked;
-return state.properties.filter(p=>{const da=dist(state.a,p),db=state.b?dist(state.b,p):0;if(insideOnly&&(da>state.ra||(restrictB&&state.b&&db>state.rb)))return false;if(type&&p.type!==type)return false;if($('maxPrice').value&&(!Number.isFinite(+p.price)||p.price==null||+p.price>maxPrice))return false;if($('minArea').value&&(!Number.isFinite(+p.area)||p.area==null||+p.area<minArea))return false;if($('maxAge').value&&(!Number.isFinite(+p.age)||p.age==null||+p.age>maxAge))return false;if(layout&&p.layout!==layout)return false;if($('pets').checked&&!p.pets)return false;if($('parking').checked&&!p.parking)return false;return true})}
+return state.properties.filter(p=>{if(insideOnly&&withinRange(p)!==true)return false;if(type&&p.type!==type)return false;if($('maxPrice').value&&(!Number.isFinite(+p.price)||p.price==null||+p.price>maxPrice))return false;if($('minArea').value&&(!Number.isFinite(+p.area)||p.area==null||+p.area<minArea))return false;if($('maxAge').value&&(!Number.isFinite(+p.age)||p.age==null||+p.age>maxAge))return false;if(layout&&p.layout!==layout)return false;if($('pets').checked&&!p.pets)return false;if($('parking').checked&&!p.parking)return false;return true})}
 function matched(){const arr=filtered(),s=$('sort').value;return arr.sort((p,q)=>s==='price'?(+(p.price??Infinity))-(+(q.price??Infinity)):s==='area'?(+(q.area??-Infinity))-(+(p.area??-Infinity)):dist(p,state.a)-dist(q,state.a))}
-function renderList(){setText($('matchCount'), () => matched().length+' / '+state.properties.length);const el=$('results');el.replaceChildren();let arr=matched();if(!arr.length){let d=document.createElement('div');d.className='empty';setText(d, () => state.properties.length?t('条件に合う候補はありません。距離・家賃などの条件を変更してください。'):t('候補物件は未登録です。上の「＋」から住所・家賃・掲載URLを登録すると比較できます。'));el.append(d);return}for(let p of arr.slice(0,150)){let d=document.createElement('article');d.className='result';let heading=document.createElement('div');heading.style.cssText='display:flex;justify-content:space-between;gap:8px';const h=document.createElement('h3');setText(h, () => p.name);heading.append(h);const price=document.createElement('div');price.className='price';setText(price, () => p.price!=null&&p.price!==''?p.price+t('万円')+(p.type==='rent'?t('/月'):''):t('価格未入力'));heading.append(price);d.append(heading);let txt=document.createElement('div');txt.className='description';setText(txt, () => t("Aから{0}{1}｜{2}｜{3}㎡｜築{4}年", [formatKm(dist(state.a,p)), state.b?t('・Bから')+formatKm(dist(state.b,p)):'', p.layout||t('間取り不明'), p.area??'?', p.age??'?']));d.append(txt);if(p.address){let addr=document.createElement('div');addr.className='description';setText(addr, () => p.address);d.append(addr)}let actions=document.createElement('div');actions.className='actions';function action(name,fn){const b=document.createElement('button');setText(b, () => name);b.onclick=fn;actions.append(b)}action(t('地図'),()=>{center={lat:p.lat,lon:p.lon};zoom=Math.max(zoom,14);renderSoon()});action(t('道順'),()=>window.open(`https://www.google.com/maps/dir/?api=1&origin=${state.a.lat},${state.a.lon}&destination=${p.lat},${p.lon}`,'_blank','noopener'));action(t('編集'),()=>openModal(p));action(t('削除'),()=>{if(confirm(t('この候補を削除しますか？'))){state.properties=state.properties.filter(q=>q.id!==p.id);persist();renderSoon()}});if(p.url&&/^https?:\/\//.test(p.url)){const a=document.createElement('a');a.href=p.url;setText(a, () => t('掲載元'));a.target='_blank';a.rel='noopener noreferrer';actions.append(a)}d.append(actions);el.append(d)} }
+function renderList(){setText($('matchCount'), () => matched().length+' / '+state.properties.length);const el=$('results');el.replaceChildren();let arr=matched();if(!arr.length){let d=document.createElement('div');d.className='empty';setText(d, () => state.properties.length?($('insideOnly').checked&&!rangesReady()?t('徒歩圏が未取得のため、範囲内の候補は判定できません。'):t('条件に合う候補はありません。距離・家賃などの条件を変更してください。')):t('候補物件は未登録です。上の「＋」から住所・家賃・掲載URLを登録すると比較できます。'));el.append(d);return}for(let p of arr.slice(0,150)){let d=document.createElement('article');d.className='result';let heading=document.createElement('div');heading.style.cssText='display:flex;justify-content:space-between;gap:8px';const h=document.createElement('h3');setText(h, () => p.name);heading.append(h);const price=document.createElement('div');price.className='price';setText(price, () => p.price!=null&&p.price!==''?p.price+t('万円')+(p.type==='rent'?t('/月'):''):t('価格未入力'));heading.append(price);d.append(heading);let txt=document.createElement('div');txt.className='description';setText(txt, () => t('直線距離：')+t("Aから{0}{1}｜{2}｜{3}㎡｜築{4}年", [formatKm(dist(state.a,p)), state.b?t('・Bから')+formatKm(dist(state.b,p)):'', p.layout||t('間取り不明'), p.area??'?', p.age??'?']));d.append(txt);if(p.address){let addr=document.createElement('div');addr.className='description';setText(addr, () => p.address);d.append(addr)}let actions=document.createElement('div');actions.className='actions';function action(name,fn){const b=document.createElement('button');setText(b, () => name);b.onclick=fn;actions.append(b)}action(t('地図'),()=>{center={lat:p.lat,lon:p.lon};zoom=Math.max(zoom,14);renderSoon()});action(t('道順'),()=>window.open(`https://www.google.com/maps/dir/?api=1&origin=${state.a.lat},${state.a.lon}&destination=${p.lat},${p.lon}${walkingMode()?'&travelmode=walking':''}`,'_blank','noopener'));action(t('編集'),()=>openModal(p));action(t('削除'),()=>{if(confirm(t('この候補を削除しますか？'))){state.properties=state.properties.filter(q=>q.id!==p.id);persist();renderSoon()}});if(p.url&&/^https?:\/\//.test(p.url)){const a=document.createElement('a');a.href=p.url;setText(a, () => t('掲載元'));a.target='_blank';a.rel='noopener noreferrer';actions.append(a)}d.append(actions);el.append(d)} }
 function setAnchor(which,obj){const normalized={name:obj.name||'地図上の地点',lat:+obj.lat,lon:+obj.lon};if(!valid(normalized.lat,normalized.lon))return toast(t('座標を設定できません'));state[which]=normalized;center={lat:normalized.lat,lon:normalized.lon};setText($('name'+which.toUpperCase()), () => normalized.name);mode='view';setText($('mapModeLabel'), () => t('地図をドラッグして移動できます'));persist();renderSoon()}
 async function nominatim(q){if(q.trim().length<2)throw Error(t('地名・会社名・住所は2文字以上入力してください'));let wait=Math.max(0,1100-(Date.now()-geoTime));if(wait)await new Promise(resolve=>setTimeout(resolve,wait));geoTime=Date.now();const url='https://nominatim.openstreetmap.org/search?'+new URLSearchParams({q,format:'jsonv2',limit:5,'accept-language':'ja'});const r=await fetch(url,{headers:{Accept:'application/json'}});if(!r.ok)throw Error(t('位置情報の検索に失敗しました（')+r.status+'）');return r.json()}
 async function searchAnchor(which){const upper=which.toUpperCase(),q=$('query'+upper).value.trim(),b=$('search'+upper),el=$('choices'+upper);b.disabled=true;setText(b, () => t('検索中'));el.replaceChildren();el.style.display='none';try{let items=await searchLocationWithAddressFallback(q);if(!items.length)throw Error(t('場所が見つかりません。会社名ではなく所在地で試してください'));locationHits=items.map(p=>({label:p.display_name.split(',')[0],description:p.display_name,lat:+p.lat,lon:+p.lon}));$('globalQuery').value=q;$('linkGoogleMapsSearch').href='https://www.google.com/maps/search/?api=1&'+new URLSearchParams({query:q});globalResultUI();center={lat:+items[0].lat,lon:+items[0].lon};zoom=Math.max(zoom,14);renderSoon();for(let p of items){let button=document.createElement('button');setText(button, () => p.display_name);button.onclick=()=>{setAnchor(which,{name:q,lat:+p.lat,lon:+p.lon});el.style.display='none'};el.append(button)}el.style.display='block'}catch(e){toast(e.message)}finally{b.disabled=false;setText(b, () => t('検索'))}}
@@ -125,14 +194,27 @@ function csvExport(rows,name){const data='\uFEFF'+rows.map(row=>row.map(s=>'"'+S
 const headers=['name','address','lat','lon','type','price','layout','area','age','pets','parking','url'];const pRow=p=>headers.map(h=>p[h]??'');
 function templateCSV(){csvExport([headers,['物件名','東京都千代田区丸の内1-9-1','35.681236','139.767125','rent','','1K','25','','false','false','https://example.com/']], 'property-template.csv');toast(t('CSVひな型には形式確認用の架空の例が含まれます。実際の募集物件ではありません'))}
 async function importCSV(file){if(!file)return;try{const rows=csvParse((await file.text()).replace(/^\uFEFF/,'')),columns=rows.shift().map(x=>x.trim().toLowerCase());for(let h of ['name','lat','lon'])if(!columns.includes(h))throw Error(t('CSVに ')+h+t(' 列が必要です。ひな型を確認してください'));let get=(r,k)=>r[columns.indexOf(k)]||'';let count=0;for(let r of rows){let lat=+get(r,'lat'),lon=+get(r,'lon');if(!get(r,'name')||!get(r,'lat')||!get(r,'lon')||!valid(lat,lon))continue;const n=k=>get(r,k)===''?null:+get(r,k);state.properties.push({id:'csv'+Date.now()+Math.random(),name:get(r,'name'),address:get(r,'address'),lat,lon,type:get(r,'type')||'rent',price:n('price'),layout:get(r,'layout'),area:n('area'),age:n('age'),pets:/^(true|1|yes|可)$/i.test(get(r,'pets')),parking:/^(true|1|yes|可)$/i.test(get(r,'parking')),url:get(r,'url')});count++;if(count>=1000)break}persist();renderSoon();toast(count+t('件の物件を取り込みました'))}catch(e){toast(t('CSVエラー：')+e.message)}finally{$('csvFile').value=''}}
-function sync(){setText($('nameA'), () => state.a.name);setText($('nameB'), () => state.b?.name||t('未指定'));$('radiusA').value=state.ra;$('radiusB').value=state.rb;setText($('radiusLabelA'), () => state.ra+' km');setText($('radiusLabelB'), () => state.rb+' km');document.querySelectorAll('[data-radius]').forEach(b=>b.classList.toggle('active',+b.dataset.radius===state.ra));$('bRadiusWrap').style.display=state.b&&$('restrictB').checked?'block':'none'}
-function changeRadius(which,v){state['r'+which]=+v;persist();sync();renderSoon()}
+function sync(){
+ setText($('nameA'),()=>state.a.name);setText($('nameB'),()=>state.b?.name||t('未指定'));
+ $('rangeMode').value=state.rangeMode;
+ const walk=walkingMode(),presets=walk?[5,10,15,30,60]:[1,2,3,5,10];
+ for(const which of ['a','b']){
+  const upper=which.toUpperCase(),input=$('radius'+upper),value=state[(walk?'w':'r')+which];
+  input.min=walk?'5':'0.5';input.max=walk?'60':'25';input.step=walk?'5':'0.5';input.value=value;
+  setText($('radiusLabel'+upper),()=>walk?t('徒歩{0}分',[value]):value+' km');
+ }
+ document.querySelectorAll('[data-radius]').forEach((button,index)=>{button.dataset.radius=presets[index];setText(button,()=>walk?t('{0}分',[presets[index]]):presets[index]+'km');button.classList.toggle('active',presets[index]===state[(walk?'w':'r')+'a'])});
+ $('bRadiusWrap').style.display=state.b&&$('restrictB').checked?'block':'none';
+ $('walkingPanel').hidden=!walk;$('walkingMapSummary').hidden=!walk;
+ setText($('rangeHint'),()=>walk?t('色付きの線は時間内に到達した道路・歩道です。破線は徒歩圏の外周の目安です。'):t('円は直線距離です。地図上を押して地点を指定できます。会社名で見つからない場合は住所検索、またはGoogle マップ検索をお試しください。'));
+}
+function changeRadius(which,v){state[(walkingMode()?'w':'r')+which]=+v;persist();sync();refreshWalkingAreas();refreshRangeResults()}
 function mapClick(e){const p=geoFromScreen(e.clientX,e.clientY);if(mode==='a'||mode==='b')setAnchor(mode,{name:'地図上で指定',lat:p.lat,lon:p.lon});else if(mode==='property'){setMode('view');openModal(null,p.lat,p.lon)}else{setAnchor('a',{name:'地図上で指定',lat:p.lat,lon:p.lon})}}
-function bind(){for(const w of ['a','b']){let W=w.toUpperCase();$('set'+W).onclick=()=>setMode(w);$('search'+W).onclick=()=>searchAnchor(w);$('query'+W).onkeydown=e=>{if(e.key==='Enter')searchAnchor(w)}}$('restrictB').onchange=()=>{sync();renderSoon()};$('radiusA').oninput=e=>changeRadius('a',e.target.value);$('radiusB').oninput=e=>changeRadius('b',e.target.value);document.querySelectorAll('[data-radius]').forEach(b=>b.onclick=()=>changeRadius('a',b.dataset.radius));for(const id of ['maxPrice','minArea','layout','maxAge','type','pets','parking','insideOnly','sort'])$(id).addEventListener('input',renderSoon);$('addBtn').onclick=()=>{setMode('property');toast(t('地図をタップして登録、または再度＋から座標を入力してください'));openModal(null)};$('modalCancel').onclick=closeModal;$('modalSave').onclick=saveModal;$('geocodeProperty').onclick=geocodeProperty;$('modalOuter').onclick=e=>{if(e.target===$('modalOuter'))closeModal()};$('importBtn').onclick=()=>$('csvFile').click();$('csvFile').onchange=e=>importCSV(e.target.files[0]);$('templateBtn').onclick=templateCSV;$('exportBtn').onclick=()=>csvExport([headers,...state.properties.map(pRow)],'property-candidates.csv');$('zoomIn').onclick=()=>{zoom=clamp(zoom+1,3,18);renderSoon()};$('zoomOut').onclick=()=>{zoom=clamp(zoom-1,3,18);renderSoon()};$('resetView').onclick=()=>{center={lat:state.a.lat,lon:state.a.lon};zoom=12;renderSoon()};
+function bind(){for(const w of ['a','b']){let W=w.toUpperCase();$('set'+W).onclick=()=>setMode(w);$('search'+W).onclick=()=>searchAnchor(w);$('query'+W).onkeydown=e=>{if(e.key==='Enter')searchAnchor(w)}}$('restrictB').onchange=()=>{sync();refreshWalkingAreas();refreshRangeResults()};$('rangeMode').onchange=()=>{state.rangeMode=$('rangeMode').value;persist();sync();refreshWalkingAreas();refreshRangeResults()};$('retryWalking').onclick=()=>refreshWalkingAreas(true,true);$('radiusA').oninput=e=>changeRadius('a',e.target.value);$('radiusB').oninput=e=>changeRadius('b',e.target.value);document.querySelectorAll('[data-radius]').forEach(b=>b.onclick=()=>changeRadius('a',b.dataset.radius));for(const id of ['maxPrice','minArea','layout','maxAge','type','pets','parking','insideOnly','sort'])$(id).addEventListener('input',renderSoon);$('addBtn').onclick=()=>{setMode('property');toast(t('地図をタップして登録、または再度＋から座標を入力してください'));openModal(null)};$('modalCancel').onclick=closeModal;$('modalSave').onclick=saveModal;$('geocodeProperty').onclick=geocodeProperty;$('modalOuter').onclick=e=>{if(e.target===$('modalOuter'))closeModal()};$('importBtn').onclick=()=>$('csvFile').click();$('csvFile').onchange=e=>importCSV(e.target.files[0]);$('templateBtn').onclick=templateCSV;$('exportBtn').onclick=()=>csvExport([headers,...state.properties.map(pRow)],'property-candidates.csv');$('zoomIn').onclick=()=>{zoom=clamp(zoom+1,3,18);renderSoon()};$('zoomOut').onclick=()=>{zoom=clamp(zoom-1,3,18);renderSoon()};$('resetView').onclick=()=>{center={lat:state.a.lat,lon:state.a.lon};zoom=12;if(walkingMode())fitWalkingAreas(true);renderSoon()};
 const map=$('map');map.addEventListener('pointerdown',e=>{if(e.target.closest('.marker'))return;if(e.button!==0&&e.pointerType==='mouse')return;activePointer={id:e.pointerId,x:e.clientX,y:e.clientY,c:{...center}};pointMoved=false;map.setPointerCapture(e.pointerId);map.classList.add('drag')});map.addEventListener('pointermove',e=>{if(!activePointer||e.pointerId!==activePointer.id)return;let dx=e.clientX-activePointer.x,dy=e.clientY-activePointer.y;if(Math.abs(dx)+Math.abs(dy)>8)pointMoved=true;if(pointMoved){let cp=project(activePointer.c.lat,activePointer.c.lon),s=256*2**zoom;center=unproject(((cp.x-dx)%s+s)%s,clamp(cp.y-dy,1,s-1));renderSoon()}});map.addEventListener('pointerup',e=>{if(!activePointer||e.pointerId!==activePointer.id)return;map.classList.remove('drag');activePointer=null;if(!pointMoved)mapClick(e)});map.addEventListener('pointercancel',()=>{activePointer=null;map.classList.remove('drag')});map.addEventListener('wheel',handleMapWheel,{passive:false});window.addEventListener('resize',renderSoon);document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();setMode('view')}})}
 
 // === LIVE LOOKUP EXTENSION ===
-let locationHits=[],buildingHits=[],buildingSearchRadius=0,propertyPageHits=[],searchSequence=0, listingsReady=false,listingHealthChecked=false,decisionsReady=false;
+let locationHits=[],buildingHits=[],buildingSearchRadius=0,buildingSequence=0,propertyPageHits=[],searchSequence=0, listingsReady=false,listingHealthChecked=false,decisionsReady=false;
 const externalFilter=()=>{const parts=[];const type=$('type').value;parts.push(type==='sale'?'売買':'賃貸');if($('maxPrice').value)parts.push($('maxPrice').value+'万円以下');if($('layout').value)parts.push($('layout').value);if($('minArea').value)parts.push($('minArea').value+'㎡以上');if($('pets').checked)parts.push('ペット可');if($('parking').checked)parts.push('駐車場');if($('maxAge').value)parts.push('築'+$('maxAge').value+'年以内');if($('listingKeywords').value.trim())parts.push($('listingKeywords').value.trim());return parts.join(' ')};
 function searchTerms(){return `${state.a.name} 周辺 ${externalFilter()}`.trim()}
 function refreshPortals(){const q=searchTerms(),path=$('type').value==='sale'?'':'chintai/';$('linkGoogle').href='https://www.google.com/search?'+new URLSearchParams({q:`(site:suumo.jp OR site:homes.co.jp OR site:athome.co.jp) ${q}`});$('linkSuumo').href='https://www.google.com/search?'+new URLSearchParams({q:`site:suumo.jp/${path} ${q}`});$('linkHomes').href='https://www.google.com/search?'+new URLSearchParams({q:`site:homes.co.jp/${path} ${q}`});$('linkAtHome').href='https://www.google.com/search?'+new URLSearchParams({q:`site:athome.co.jp/${path} ${q}`})}
@@ -162,15 +244,15 @@ async function searchLocationWithAddressFallback(query){
 }
 // Overpass returns actual OSM building features, NOT advertised vacancies or rooms.
 const overpassEndpoints=['https://overpass.kumi.systems/api/interpreter','https://overpass-api.de/api/interpreter'];
-async function loadBuildings(){const button=$('searchBuildings'),output=$('buildingResults'),r=Math.min(5,Math.max(0.5,state.ra));button.disabled=true;setText(button, () => t('検索中'));output.replaceChildren();setText($('buildingStatus'), () => t('OpenStreetMapから集合住宅を照会中…'));
- const seq=++searchSequence;
+async function loadBuildings(){if(!rangesReady())return toast(t('徒歩圏を取得してから検索してください。'));const button=$('searchBuildings'),output=$('buildingResults'),r=Math.min(5,Math.max(0.5,rangeSearchRadius()));button.dataset.busy='true';button.disabled=true;setText(button, () => t('検索中'));output.replaceChildren();setText($('buildingStatus'), () => t('OpenStreetMapから集合住宅を照会中…'));
+ const seq=++buildingSequence;
  const query=`[out:json][timeout:24];(nwr["building"="apartments"](around:${Math.round(r*1000)},${state.a.lat.toFixed(6)},${state.a.lon.toFixed(6)});nwr["building"="residential"]["name"](around:${Math.round(r*1000)},${state.a.lat.toFixed(6)},${state.a.lon.toFixed(6)}););out center 220;`;
  try{let result=null,lastError=null;for(const endpoint of overpassEndpoints){try{const abort=new AbortController();const timer=setTimeout(()=>abort.abort(),27000);try{const resp=await fetch(endpoint,{method:'POST',body:new URLSearchParams({data:query}),signal:abort.signal});if(!resp.ok)throw Error('HTTP '+resp.status);result=await resp.json();break}finally{clearTimeout(timer)}}catch(e){lastError=e}}
- if(!result)throw lastError||Error(t('サーバーが応答しません'));
+ if(seq!==buildingSequence)return;if(!result)throw lastError||Error(t('サーバーが応答しません'));
  let ids=new Set();buildingHits=(result.elements||[]).map(x=>{const lat=x.lat??x.center?.lat,lon=x.lon??x.center?.lon;const addr=x.tags?.['addr:full']||[x.tags?.['addr:city'],x.tags?.['addr:suburb'],x.tags?.['addr:street'],x.tags?.['addr:housenumber']].filter(Boolean).join(' ');return {id:`${x.type}/${x.id}`,lat:+lat,lon:+lon,label:x.tags?.name||x.tags?.['addr:housename']||'集合住宅（名称未登録）',description:addr||'住所データなし',type:'building',url:`https://www.openstreetmap.org/${x.type}/${x.id}`}}).filter(x=>valid(x.lat,x.lon)&&!ids.has(x.id)&&ids.add(x.id));buildingSearchRadius=r;showBuildings();renderSoon();
- }catch(e){setText($('buildingStatus'), () => t('建物情報を取得できません：')+e.message+t('。時間をおいて再検索するか、物件サイトをご利用ください。'))}finally{button.disabled=false;setText(button, () => t('半径内の集合住宅を探す'))}}
-function filteredBuildings(){return buildingHits.filter(b=>dist(b,state.a)<=state.ra&&(!$('restrictB').checked||!state.b||dist(b,state.b)<=state.rb)).sort((a,b)=>dist(a,state.a)-dist(b,state.a))}
-function showBuildings(){const list=$('buildingResults');list.replaceChildren();if(!buildingHits.length){setText($('buildingStatus'), () => t('建物データがありません。地点A・半径を変えてお試しください。'));return}const hits=filteredBuildings();setText($('buildingStatus'), () => t("地図データ {0}件取得・現在の半径内 {1}件（{2}kmまで照会）。これは空室・募集物件の件数ではありません。{3}", [buildingHits.length, hits.length, Math.min(5,buildingSearchRadius), state.ra>buildingSearchRadius?t('半径を広げた場合は再検索してください。'):'']));for(const b of hits.slice(0,60)){const d=makeEl('div','live-item');d.append(makeEl('h4','',b.label),makeEl('div','muted',t("地点Aから{0}｜{1}", [formatKm(dist(b,state.a)), b.description])));const row=makeEl('div','line-actions');row.append(makeButton(t('地図で確認'),()=>showHitOnMap(b)),makeButton(t('候補に登録'),()=>openModal(null,b.lat,b.lon)));row.append(makeLink(t('地図データ'),b.url));if(b.label!=='集合住宅（名称未登録）')row.append(makeLink(t('掲載情報を探す'),'https://www.google.com/search?'+new URLSearchParams({q:`${b.label} ${state.a.name} (site:suumo.jp OR site:homes.co.jp) 賃貸`}))); d.append(row);list.append(d)}if(hits.length>60)list.append(makeEl('div','muted',t('一覧は近い60件を表示。地図は最大220件を表示します。')))}
+ }catch(e){if(seq!==buildingSequence)return;setText($('buildingStatus'), () => t('建物情報を取得できません：')+e.message+t('。時間をおいて再検索するか、物件サイトをご利用ください。'))}finally{delete button.dataset.busy;button.disabled=!rangesReady();setText(button, () => t('範囲内の集合住宅を探す'))}}
+function filteredBuildings(){return buildingHits.filter(b=>withinRange(b)===true).sort((a,b)=>dist(a,state.a)-dist(b,state.a))}
+function showBuildings(){const list=$('buildingResults');list.replaceChildren();if(!buildingHits.length){setText($('buildingStatus'), () => t('建物データがありません。地点A・範囲を変えてお試しください。'));return}const hits=filteredBuildings();setText($('buildingStatus'), () => t("地図データ {0}件取得・現在の範囲内 {1}件（周辺{2}kmまで照会）。これは空室・募集物件の件数ではありません。{3}", [buildingHits.length, hits.length, buildingSearchRadius.toFixed(2), !rangesReady()?t('徒歩圏は未取得のため判定できません。'):rangeSearchRadius()>buildingSearchRadius+0.01?t('検索範囲の一部が未取得です。建物の照会は最大5km・220件です。範囲を広げた場合は再検索してください。'):'']));for(const b of hits.slice(0,60)){const d=makeEl('div','live-item');d.append(makeEl('h4','',b.label),makeEl('div','muted',t("Aから直線{0}｜{1}", [formatKm(dist(b,state.a)), b.description])));const row=makeEl('div','line-actions');row.append(makeButton(t('地図で確認'),()=>showHitOnMap(b)),makeButton(t('候補に登録'),()=>openModal(null,b.lat,b.lon)));row.append(makeLink(t('地図データ'),b.url));if(b.label!=='集合住宅（名称未登録）')row.append(makeLink(t('掲載情報を探す'),'https://www.google.com/search?'+new URLSearchParams({q:`${b.label} ${state.a.name} (site:suumo.jp OR site:homes.co.jp) 賃貸`}))); d.append(row);list.append(d)}if(hits.length>60)list.append(makeEl('div','muted',t('一覧は近い60件を表示。地図は最大220件を表示します。')))}
 // Search-engine snippets are not a live inventory. Estimated map positions never count as exact addresses.
 function resultFlags(hit){
  const x=hit.extracted||{},flags=[],unknown=[];
@@ -179,11 +261,11 @@ function resultFlags(hit){
  if(area){if(x.area==null)unknown.push(t('面積'));else if(x.area<+area)flags.push(t('面積条件外'))}
  if(age){if(x.age==null)unknown.push(t('築年数'));else if(x.age>+age)flags.push(t('築年数条件外'))}
  if(layout){if(!x.layout)unknown.push(t('間取り'));else if(x.layout!==layout)flags.push(t('間取り条件外'))}
- if(hit.lat!=null){if(dist(hit,state.a)>state.ra||($('restrictB').checked&&state.b&&dist(hit,state.b)>state.rb))flags.push(t('指定半径外'))}
+ if(hit.lat!=null){const within=withinRange(hit);if(within===false)flags.push(t('指定範囲外'));else if(within===null)unknown.push(t('徒歩圏の判定（取得待ち・取得失敗）'))}
  else unknown.push(t('位置'));
  if($('pets').checked)unknown.push(t('ペット可'));
  if($('parking').checked)unknown.push(t('駐車場'));
- return {flags,unknown,within:hit.lat!=null&&!flags.includes(t('指定半径外'))}
+ return {flags,unknown,within:hit.lat!=null&&withinRange(hit)===true}
 }
 function locateImportedListing(hit,quiet=false){
  if(hit.lat!=null)return Promise.resolve(true);
@@ -209,20 +291,20 @@ function importListing(hit){
 }
 function renderExternalPages(){
  const el=$('externalResults');el.replaceChildren();
- let withinCount=0,estimated=0,outside=0,unlocated=0;
+ let withinCount=0,estimated=0,outside=0,unlocated=0,pending=0;
  const onlyWithin=$('listingOnlyWithin').checked;
  for(const hit of propertyPageHits){
   const f=resultFlags(hit),x=hit.extracted||{};
-  if(f.within)withinCount++;else if(hit.lat==null)unlocated++;else outside++;
+  if(f.within)withinCount++;else if(hit.lat==null)unlocated++;else if(!rangesReady())pending++;else outside++;
   if(hit.lat!=null)estimated++;
-  if(onlyWithin&&f.flags.includes(t('指定半径外')))continue;
+  if(onlyWithin&&f.flags.includes(t('指定範囲外')))continue;
   const card=makeEl('article','external-item'+(f.flags.length?' out-of-range':''));
   const title=makeEl('h4');title.append(makeLink(hit.title,hit.url));card.append(title);
   const price=makeEl('div','listing-price',x.price!=null?`${x.price} ${x.price_unit||t('万円/月')}`:t('価格不明'));card.append(price);
   const details=makeEl('div','listing-details');for(const t of [x.layout,x.area!=null?t("{0}㎡", [x.area]):null,x.age!=null?t("築{0}年", [x.age]):null])if(t)details.append(makeEl('span','',t));
   if(details.childNodes.length)card.append(details);
   if(x.address)card.append(makeEl('p','',t("住所（索引抜粋）：{0}", [x.address])));
-  if(hit.lat!=null)card.append(makeEl('p','listing-uncertain',t("地点Aから約{0}／{1}・建物所在地と異なる場合があります", [formatKm(dist(state.a,hit)), hit.positionAccuracy||t('推定位置')])));
+  if(hit.lat!=null)card.append(makeEl('p','listing-uncertain',t('直線距離：')+t("地点Aから約{0}／{1}・建物所在地と異なる場合があります", [formatKm(dist(state.a,hit)), hit.positionAccuracy||t('推定位置')])));
   else card.append(makeEl('p','listing-uncertain',t('住所の座標が未確認のため、距離条件との一致は未判定')));
   if(f.flags.length)card.append(makeEl('p','listing-out',t('検索条件と不一致の可能性：')+f.flags.join(t('・'))));
   if(f.unknown.length)card.append(makeEl('p','listing-uncertain',t('未確認：')+f.unknown.join(t('・'))));
@@ -243,7 +325,7 @@ function renderExternalPages(){
   card.append(makeEl('small','',t("{0}｜{1}｜検索の抜粋・掲載日/空室未確認", [hit.source, hit.retrieved_at||t('取得日時不明')])));el.append(card);
  }
  if(propertyPageHits.length){
-  const line=makeEl('div','live-count',t("検索で発見 {0}件／位置を概略推定 {1}件／半径内の可能性 {2}件／半径外 {3}件／位置不明 {4}件", [propertyPageHits.length, estimated, withinCount, outside, unlocated]));
+  const line=makeEl('div','live-count',t("検索で発見 {0}件／位置を概略推定 {1}件／範囲内の可能性 {2}件／範囲外 {3}件／位置不明 {4}件／範囲未判定 {5}件", [propertyPageHits.length, estimated, withinCount, outside, unlocated, pending]));
   el.prepend(line);
  }
 }
@@ -271,16 +353,14 @@ async function searchListingPages(){
 }
 // Include live map search pins in the existing custom tile renderer.
 const baseRenderMap=renderMap;
-renderMap=function(){baseRenderMap();const r=$('map').getBoundingClientRect(),pins=$('pins');function addPin(hit,kind,label){const pos=screen(hit);if(pos.x< -130||pos.x>r.width+130||pos.y< -60||pos.y>r.height+60)return;const b=makeEl('button',`marker ${kind}`,label);b.style.left=pos.x+'px';b.style.top=pos.y+'px';b.title=hit.label||'';b.onclick=e=>{e.stopPropagation();showHitOnMap(hit);toast((hit.label||t('地点'))+t(' / 地点Aから')+formatKm(dist(state.a,hit)))};pins.append(b)}
+renderMap=function(){baseRenderMap();const r=$('map').getBoundingClientRect(),pins=$('pins');function addPin(hit,kind,label){const pos=screen(hit);if(pos.x< -130||pos.x>r.width+130||pos.y< -60||pos.y>r.height+60)return;const b=makeEl('button',`marker ${kind}`,label);b.style.left=pos.x+'px';b.style.top=pos.y+'px';b.title=hit.label||'';b.onclick=e=>{e.stopPropagation();showHitOnMap(hit);toast((hit.label||t('地点'))+t(' / 地点Aから（直線）')+formatKm(dist(state.a,hit)))};pins.append(b)}
  for(const hit of filteredBuildings().slice(0,220))addPin(hit,'building',hit.label.length>8?hit.label.slice(0,8)+'…':hit.label);
  for(let i=0;i<locationHits.length;i++)addPin(locationHits[i],'find',String(i+1));
- for(const hit of propertyPageHits.filter(h=>h.lat!=null&&!($('listingOnlyWithin').checked&&resultFlags(h).flags.includes(t('指定半径外')))).slice(0,30))addPin(hit,'listing',hit.extracted?.price!=null?hit.extracted.price+t('万'):t('掲載情報'))};
+ for(const hit of propertyPageHits.filter(h=>h.lat!=null&&!($('listingOnlyWithin').checked&&resultFlags(h).flags.includes(t('指定範囲外')))).slice(0,30))addPin(hit,'listing',hit.extracted?.price!=null?hit.extracted.price+t('万'):t('掲載情報'))};
 const originalSetAnchor=setAnchor;
-setAnchor=function(which,p){originalSetAnchor(which,p);refreshPortals();if(which==='a'&&propertyPageHits.length){propertyPageHits=[];renderExternalPages();setText($('listingsStatus'), () => t('地点Aが変わりました。新しい地域で掲載物件を再検索してください。'));}if(which==='a'&&buildingHits.length){buildingHits=[];buildingSearchRadius=0;$('buildingResults').replaceChildren();setText($('buildingStatus'), () => t('地点Aを変更しました。「半径内の集合住宅を探す」で新しい地点から再検索してください。'));renderSoon()}else if(buildingHits.length)showBuildings()};
-const originalChangeRadius=changeRadius;
-changeRadius=function(which,v){originalChangeRadius(which,v);if(buildingHits.length)showBuildings()};
+setAnchor=function(which,p){originalSetAnchor(which,p);if(which==='a')buildingSequence++;refreshPortals();if(which==='a'&&propertyPageHits.length){propertyPageHits=[];renderExternalPages();setText($('listingsStatus'), () => t('地点Aが変わりました。新しい地域で掲載物件を再検索してください。'));}if(which==='a'&&buildingHits.length){buildingHits=[];buildingSearchRadius=0;$('buildingResults').replaceChildren();setText($('buildingStatus'), () => t('地点Aを変更しました。「範囲内の集合住宅を探す」で新しい地点から再検索してください。'));renderSoon()}sync();refreshWalkingAreas();refreshRangeResults()};
 $('globalSearch').onclick=globalLocationSearch;$('globalQuery').onkeydown=e=>{if(e.key==='Enter')globalLocationSearch()};
-$('searchBuildings').onclick=loadBuildings;$('clearBuildings').onclick=()=>{buildingHits=[];buildingSearchRadius=0;$('buildingResults').replaceChildren();setText($('buildingStatus'), () => t('建物の検索結果をクリアしました。'));renderSoon()};
+$('searchBuildings').onclick=loadBuildings;$('clearBuildings').onclick=()=>{buildingSequence++;buildingHits=[];buildingSearchRadius=0;$('buildingResults').replaceChildren();setText($('buildingStatus'), () => t('建物の検索結果をクリアしました。'));renderSoon()};
 $('searchListings').onclick=searchListingPages;
 $('listingOnlyWithin').onchange=()=>{renderExternalPages();renderSoon()};
 for(const id of ['maxPrice','minArea','layout','maxAge','type','pets','parking','insideOnly'])$(id).addEventListener('input',()=>{if(propertyPageHits.length){renderExternalPages();renderSoon()}});
@@ -291,7 +371,7 @@ refreshPortals();getListingHealth();
 window.addEventListener('home-language-change', () => {
   if(locationHits.length)globalResultUI();
   if(buildingHits.length)showBuildings();
-  renderExternalPages();renderSoon();
+  sync();updateWalkingStatus();renderExternalPages();renderSoon();
 });
-sync();bind();renderSoon();})();
+sync();bind();refreshWalkingAreas(true);renderSoon();})();
 </script></body></html>

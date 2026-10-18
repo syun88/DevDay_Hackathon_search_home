@@ -19,7 +19,7 @@ from pathlib import Path
 from html import unescape
 from datetime import datetime, timezone
 import xml.etree.ElementTree as ET
-import os, json, re, socket, threading, time
+import os, json, math, re, socket, threading, time
 
 BASE = Path(__file__).resolve().parent
 OPENAI_KEY = os.environ.get('OPENAI_API_KEY', '').strip()
@@ -31,16 +31,171 @@ CACHE_TTL = 120
 _cache: dict[str, tuple[float, dict]] = {}
 _cache_lock = threading.Lock()
 MAX_BYTES = 1_000_000
+VALHALLA_URL = os.environ.get('VALHALLA_URL', 'https://valhalla1.openstreetmap.de').rstrip('/')
+WALKING_SPEED_KMH = 4.8
+WALKING_CACHE_TTL = 900
+_walking_cache: dict[tuple, tuple[float, dict]] = {}
+_walking_cache_lock = threading.Lock()
+_walking_lock = threading.Lock()
+_walking_last_request = 0.0
 
 
-def get_text(url: str, headers: dict | None = None, timeout=12) -> str:
+def get_text(url: str, headers: dict | None = None, timeout=12, max_bytes=MAX_BYTES) -> str:
     req = Request(url, headers={'User-Agent': USER_AGENT, 'Accept': 'application/rss+xml, application/json;q=0.8', **(headers or {})})
     with urlopen(req, timeout=timeout) as response:
-        body = response.read(MAX_BYTES + 1)
-        if len(body) > MAX_BYTES:
+        body = response.read(max_bytes + 1)
+        if len(body) > max_bytes:
             raise ValueError('検索結果が大きすぎます')
         encoding = response.headers.get_content_charset() or 'utf-8'
         return body.decode(encoding, errors='replace')
+
+
+def walking_parameters(lat, lon, minutes):
+    """Reject invalid coordinates and unsupported times before making a request."""
+    try:
+        lat, lon, minutes = float(lat), float(lon), float(minutes)
+    except (ValueError, TypeError):
+        raise ValueError('緯度・経度・徒歩時間は数値で指定してください') from None
+    if not all(math.isfinite(v) for v in (lat, lon, minutes)):
+        raise ValueError('緯度・経度・徒歩時間が不正です')
+    if not -85 <= lat <= 85 or not -180 <= lon <= 180:
+        raise ValueError('緯度・経度が範囲外です')
+    if not 5 <= minutes <= 60 or not minutes.is_integer():
+        raise ValueError('徒歩時間は5〜60分の整数で指定してください')
+    return round(lat, 6), round(lon, 6), int(minutes)
+
+
+def walking_geometry(data, minutes):
+    """Accept only a matching polygon contour, including holes and islands."""
+    if not isinstance(data, dict) or data.get('type') != 'FeatureCollection':
+        raise ValueError('徒歩圏の応答が不正です')
+    for feature in data.get('features', []):
+        if not isinstance(feature, dict):
+            continue
+        properties = feature.get('properties')
+        if not isinstance(properties, dict):
+            continue
+        if properties.get('contour') != minutes or properties.get('metric') != 'time':
+            continue
+        geometry = feature.get('geometry')
+        if not isinstance(geometry, dict):
+            continue
+        kind, coordinates = geometry.get('type'), geometry.get('coordinates')
+        if kind not in ('Polygon', 'MultiPolygon') or not isinstance(coordinates, list) or not coordinates:
+            continue
+        polygons = [coordinates] if kind == 'Polygon' else coordinates
+        for polygon in polygons:
+            if not isinstance(polygon, list) or not polygon:
+                raise ValueError('徒歩圏の多角形が不正です')
+            for ring in polygon:
+                if not isinstance(ring, list) or len(ring) < 4 or ring[0] != ring[-1]:
+                    raise ValueError('徒歩圏の境界が不正です')
+                for point in ring:
+                    if not isinstance(point, list) or len(point) != 2 or any(
+                        isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in point
+                    ) or not -180 <= point[0] <= 180 or not -85 <= point[1] <= 85:
+                        raise ValueError('徒歩圏の座標が不正です')
+        return {'type': kind, 'coordinates': coordinates}
+    raise ValueError('指定時間の徒歩圏がありません')
+
+
+def walking_network(data, minutes):
+    """Only fully reached pedestrian edges, never the interpolated land surface.
+
+    Expansion includes search-frontier edges beyond the requested time. Keep
+    settled edges whose cumulative travel duration is within the time budget.
+    """
+    if not isinstance(data, dict) or data.get('type') != 'FeatureCollection' or not isinstance(data.get('features'), list):
+        raise ValueError('徒歩道路網の応答が不正です')
+    lines = []
+    for feature in data['features']:
+        if not isinstance(feature, dict):
+            continue
+        properties, geometry = feature.get('properties'), feature.get('geometry')
+        if not isinstance(properties, dict) or not isinstance(geometry, dict):
+            continue
+        duration = properties.get('duration')
+        if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(duration):
+            continue
+        if properties.get('edge_status') != 's' or not 0 <= duration <= minutes * 60:
+            continue
+        points = geometry.get('coordinates')
+        if geometry.get('type') != 'LineString' or not isinstance(points, list) or len(points) < 2:
+            raise ValueError('徒歩道路網の形状が不正です')
+        for point in points:
+            if not isinstance(point, list) or len(point) != 2 or any(
+                isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in point
+            ) or not -180 <= point[0] <= 180 or not -85 <= point[1] <= 85:
+                raise ValueError('徒歩道路網の座標が不正です')
+        lines.append(points)
+    if not lines:
+        raise ValueError('指定時間内に到達した徒歩道路がありません')
+    return {'type': 'MultiLineString', 'coordinates': lines}
+
+
+def fetch_walking_area(lat, lon, minutes):
+    """Pedestrian road-network isochrone. Never substitute a distance circle."""
+    global _walking_last_request
+    lat, lon, minutes = walking_parameters(lat, lon, minutes)
+    key = (lat, lon, minutes)
+    def cached_area():
+        with _walking_cache_lock:
+            cached = _walking_cache.get(key)
+            if cached and time.monotonic() - cached[0] < WALKING_CACHE_TTL:
+                return {**cached[1], 'cached': True}
+        return None
+    # A slow, large-area request must not block already cached smaller areas.
+    cached = cached_area()
+    if cached is not None:
+        return cached
+    # Serialize public-service calls, deduplicate concurrent requests, and cache
+    # results so slider changes and repeat visits do not burden the demo service.
+    with _walking_lock:
+        cached = cached_area()
+        if cached is not None:
+            return cached
+        now = time.monotonic()
+        wait = max(0, 1 - (now - _walking_last_request))
+        if wait:
+            time.sleep(wait)
+        payload = {
+            'locations': [{'lat': lat, 'lon': lon, 'search_filter': {'exclude_ferry': True}}],
+            'costing': 'pedestrian',
+            # Public servers may disable hard exclusions. A boarding time above
+            # our 60-minute limit prevents ferry travel from entering this area;
+            # excluding ferry origin edges also prevents starting on a ferry.
+            'costing_options': {'pedestrian': {'walking_speed': WALKING_SPEED_KMH,
+                                                'use_ferry': 0, 'ferry_cost': 43200}},
+            'contours': [{'time': minutes}], 'polygons': True,
+            'denoise': 0.5, 'generalize': 25,
+        }
+        _walking_last_request = time.monotonic()
+        headers = {
+            'Accept': 'application/json',
+            'X-Client-Id': 'github.com/syun88/DevDay_Hackathon_search_home',
+        }
+        data = json.loads(get_text(VALHALLA_URL + '/isochrone?' + urlencode({
+            'json': json.dumps(payload, separators=(',', ':')),
+        }), headers=headers, timeout=15))
+        geometry = walking_geometry(data, minutes)
+        time.sleep(max(0, 1 - (time.monotonic() - _walking_last_request)))
+        _walking_last_request = time.monotonic()
+        expansion = json.loads(get_text(VALHALLA_URL + '/expansion?' + urlencode({
+            'json': json.dumps({**payload, 'action': 'isochrone', 'skip_opposites': True,
+                                'dedupe': True, 'expansion_properties': ['duration', 'edge_status']},
+                               separators=(',', ':')),
+        }), headers=headers, timeout=15, max_bytes=16_000_000))
+        result = {
+            'geometry': geometry, 'network': walking_network(expansion, minutes), 'minutes': minutes,
+            'origin': {'lat': lat, 'lon': lon}, 'walking_speed_kmh': WALKING_SPEED_KMH,
+            'source': 'Valhalla / OpenStreetMap',
+            'attribution': '© OpenStreetMap contributors',
+        }
+        with _walking_cache_lock:
+            if len(_walking_cache) >= 12:
+                _walking_cache.clear()
+            _walking_cache[key] = (time.monotonic(), result)
+        return result
 
 
 def clean(value, limit=500):
@@ -272,7 +427,23 @@ class Handler(SimpleHTTPRequestHandler):
         if u.path == '/api/health':
             return self.respond(200,{'listings_enabled':True,'providers':['bing'] + (['brave'] if SEARCH_KEY else []),
                     'provider':'Brave Search API + Bing RSS' if SEARCH_KEY else 'Bing RSS (APIキー不要、利用制限あり)',
-                    'has_brave_key':bool(SEARCH_KEY), 'decisions_enabled':bool(OPENAI_KEY)})
+                    'has_brave_key':bool(SEARCH_KEY), 'decisions_enabled':bool(OPENAI_KEY),
+                    'walking_enabled':True})
+        if u.path == '/api/walking-area':
+            q = parse_qs(u.query)
+            try:
+                parameters = walking_parameters(*(q.get(k, [''])[0] for k in ('lat', 'lon', 'minutes')))
+            except ValueError as exc:
+                return self.respond(400, {'error': str(exc)})
+            try:
+                result = fetch_walking_area(*parameters)
+            except (HTTPError, URLError, OSError, TimeoutError, ValueError, TypeError):
+                return self.respond(502, {'error': '徒歩圏を取得できません。通信環境を確認して再試行してください。'})
+            try:
+                return self.respond(200, result)
+            except (BrokenPipeError, ConnectionResetError):
+                # A user may select another range before a large response ends.
+                return
         if u.path != '/api/listings':
             return super().do_GET()
         q = parse_qs(u.query)
