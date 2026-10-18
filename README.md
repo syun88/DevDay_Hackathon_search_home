@@ -1,1 +1,55 @@
-# DevDay_Hackathon_search_home
+# Search Home — 地図 × 物件検索 × 通勤圏
+
+住所・会社名・駅名から起点を検索し、指定半径内の建物・物件候補を地図上で比較するローカルWebアプリ。**実物件を架空データで補完しません。**
+
+## 起動
+
+Python 3.10+ が必要（追加パッケージ不要）。
+
+```bash
+python3 server.py
+# http://127.0.0.1:8765/
+```
+
+Linux: `./start-linux.sh` / Windows: `start-windows.bat` でも起動可能。
+
+任意のAPIキー:
+
+```bash
+BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
+```
+
+- **APIキーなし**: 住所・駅・会社検索（Nominatim/GSI）、OSMタイル、Overpassによる建物探索、2地点の直線距離、候補CSV・絞り込み、Bing RSSによる掲載URL探索（ベストエフォート）
+- **Braveのキーあり**: 安定的なWeb掲載ページの発見（課金・クォータ依存）。SUUMO／HOME'S／at homeの本文スクレイピングは行わない。
+- **OpenAIのキーあり**: 検索で見つかった掲載ページの種類をボタンで分類（Decisions API / `gpt-6-luna`）。利用者が操作したときのみ呼び出し、空室確認には使わない。
+
+**重要**: 検索エンジンの抜粋から推定した家賃・間取り・住所は未確認。住所検索ピンは概略位置となる場合があります。OSMの建物データは募集中の住戸ではありません。実際の募集・所在地・家賃は必ずリンク先で確認してください。検索結果が0件の場合は0件と表示します。無許可の物件サイト自動クロールは行いません。
+
+## 構成
+
+- `index.html`: レスポンシブ地図UI（依存ライブラリなし）、地点A/B、距離円、外部検索、候補保存、CSV
+- `server.py`: localhost専用HTTPサーバー、Bing RSS/Brave検索、正規化と出典、任意Decisions API分類
+- `filter_core.py`: 複数地点AND/ORと月額費用の厳密フィルタ参照実装（不明値は除外）
+- `ARCHITECTURE.md`: 設計全体、データ源・公式API、PostGIS／経路／ハザード／通知への拡張方針
+- `tests/`: 抽出、URL制約、距離、未知値・境界条件、AI通信モック検証
+
+## API
+
+- `GET /api/health`: 機能・APIキー設定状態（キー自体は返さない）
+- `GET /api/listings?place=渋谷区&kind=rent&provider=auto&layout=1K`: 公開検索エンジンのリンクと未検証フィールド
+- `POST /api/classify` (`{"title":"...","description":"..."}`): 任意AI分類。`OPENAI_API_KEY`がある場合のみ
+
+## テスト
+
+```bash
+python3 -m unittest discover -s tests -v
+python3 filter_core.py
+```
+
+## 今後の優先度
+
+1. 物件オーナー・管理会社等の**許可された正式な募集物件フィード**を接続し、空室ステータスを保証できるデータを増やす。
+2. Google Routes／駅すぱあとによる移動時間条件、国交省 不動産情報ライブラリによるハザード・生活環境レイヤー、重複住戸統合、費用内訳を追加する。
+3. PostgreSQL/PostGIS、差分通知、検索条件保存、AIによる希望条件の補助採点へ拡張する。
+
+詳細なAPI URL・利用条件は [ARCHITECTURE.md](./ARCHITECTURE.md) を参照。OSMタイル・Nominatim・Overpassの利用規約、各掲載サイトの利用規約を守ってください。
