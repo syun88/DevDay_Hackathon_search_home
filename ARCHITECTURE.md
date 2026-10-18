@@ -1,0 +1,123 @@
+# 条件付き物件検索マップ：統合設計仕様
+
+更新日：2026-10-18／対象：日本国内・賃貸を優先（売買へ拡張可能）
+
+## 1. 目的と完成イメージ
+住所・会社名・駅名・地図クリックから任意の起点を指定し、「会社Aから直線3km以内、会社Bまで電車30分以内、家賃＋管理費8万円以下、1K以上、浸水リスクを確認」といった条件で、**実際に取得できた物件掲載情報**を地図・一覧・比較表に表示する。検索結果には必ず掲載元リンク、取得日時、価格や所在地の根拠、募集状況の確認状態を併記する。
+
+処理例：`起点検索 → 距離・移動時間範囲 → 物件収集 → 正規化・重複統合 → ハード条件検索 → 周辺情報・リスク付加 → ソフト条件評価 → 地図・通知`。
+
+## 2. 機能要件
+
+- **起点・範囲**：住所／会社／学校／駅／施設名で候補検索、地図クリック、複数起点、起点ごとの直線半径（0.5～50km）、徒歩・自転車・車・電車の所要時間、AND/OR条件、地図上に手描きした多角形検索。直線の円と移動時間の等時間圏を区別。
+- **物件条件**：賃貸／売買、価格帯、間取り（1R・1K・1LDK等）、面積、築年、階数、駅徒歩、敷金・礼金・管理費・駐車場代、ペット・楽器・宅配ボックス・ネット回線・入居可能日・構造・空調など。各条件は必須／希望／除外を選べる。
+- **結果表示**：地図ピン＋価格、サイド一覧、物件カード（写真は再利用許諾がある場合のみ）、条件に一致した理由／不一致・未確認の理由、検索先サイトへの遷移。距離・通勤時間・価格・更新日時・推薦度でソート。検索結果ゼロ件の場合は正確にゼロ件と示し、条件緩和候補を提示。
+- **比較と生活環境**：月額総負担（家賃＋管理費＋必須費用）と初期費用の明細／概算、駅・スーパー・病院・学校・保育園・公園などの到達時間、洪水／津波／土砂災害／高潮／液状化、用途地域、将来人口、地価。公的レイヤーと掲載物件レイヤーを分離。
+- **保存**：お気に入り、候補の比較、CSV/GeoJSONエクスポート、検索条件保存、新着・値下げ・掲載消失の差分通知、リンク共有。価格の変更履歴を保存できる範囲はデータ提供契約による。
+
+## 3. 外部データ・API：優先順
+
+| 優先 | データ源 | 用途 | 条件・制約 |
+|---|---|---|---|
+| A | **実際の募集物件**：不動産会社／管理会社の許諾済みフィード、契約した物件データAPI | 賃料・部屋・掲載状態の一次情報 | 最重要。公開ポータルに誰でも使える無条件の物件APIがあるとは仮定しない。データ契約・転載範囲・更新周期を確認 |
+| B | **SUUMO／LIFULL HOME'S／at home**、検索エンジン（例：Brave Search API） | 公開掲載ページの発見、掲載元へ誘導 | 検索エンジンのスニペットは空室の証拠でも正規の配信フィードでもない。個別サイトのロボット制限、利用規約、再掲載・写真利用許諾を確認 |
+| B | **国交省 不動産情報ライブラリ API** | 災害・学校・医療・都市計画・過去の不動産取引価格 | 利用申請→承認→APIキー。サーバー側で利用し、頻度制御・キャッシュ必須。**現在募集中の物件APIではない** |
+| B | **OSM + Overpass API** | 建物、道路、店舗、スーパー、生活施設 | オープンな地物データであり、募集中の部屋・家賃は含まれない。公開Overpassは負荷制限あり |
+| B | **Google Places / Geocoding API** または契約済み地名検索 | 会社名・住所・施設名の検索、座標付与 | キー／課金／保存・表示条件を確認。住所と企業名は別種の検索として扱う |
+| B | **Google Routes API: Compute Route Matrix** | 車・徒歩・電車等の複数地点への距離・時間 | 従量課金。交通手段別の要素数上限あり。リクエスト・表示・保存条件を確認 |
+| B | **駅すぱあと API** | 日本の公共交通、範囲探索、通勤時刻・運賃・乗換 | APIキー／契約。`search/multipleRange`、`search/course/extreme`等が有用 |
+| C | **国土地理院 地理院タイル** | 地形・空中写真・標高など | レイヤーごとの出典と利用条件を確認 |
+| C | **デジタル庁 アドレス・ベース・レジストリ** | 住所文字列の標準化 | 住所データであり、単独で会社・物件の位置検索や空室情報にはならない |
+| C | **PLATEAU** | 建物形状・高さ・用途などの3D分析 | 地域ごとに提供情報・精度が異なる。将来拡張向け |
+| 検証用 | **国立情報学研究所（NII）LIFULL HOME'S／アットホームデータセット** | 検索・重複統合・推薦モデルの研究評価 | 研究利用申請・使用条件あり。過去データであり、現在の募集中物件として表示してはいけない |
+
+### 不動産情報ライブラリの具体的API ID
+
+- **XIT001／XPT001**：過去の取引価格・成約価格／位置情報付きポイント（賃貸の新着・空室情報ではない）。
+- **XKT002**：用途地域。
+- **XKT004／005／006／007／010／015**：小学校区／中学校区／学校／保育園・幼稚園／医療機関／駅別乗降客数。
+- **XKT013**：将来人口250mメッシュ。
+- **XKT025／026／027／028／029**：液状化傾向／洪水浸水想定／高潮／津波／土砂災害警戒区域。
+- **XGT001**：指定緊急避難場所。**更新年度や網羅率がAPIごとに異なる**ことを表示する。
+
+公式一覧： https://www.reinfolib.mlit.go.jp/help/apiManual
+
+補助：OSM公開Nominatimの無料APIは**合計1リクエスト/秒以下・適切なUser-Agent・出典表示・キャッシュ**が必要で、公開サービスを大量住所処理やクライアント側オートコンプリートの基盤にしてはならない。大量利用は有料プロバイダやセルフホストへ切替。OSMタイルサーバーも公開サービスの利用ポリシーを遵守する。
+
+## 4. 情報の正確性・法務上の必須仕様
+
+1. `物件（建物・住戸）` と `掲載広告` を分離し、同じ住戸が複数サイトにある場合は広告を紐付ける。`住所の正規化＋建物名＋階数＋号室＋面積`等で候補判定し、部屋番号不明のものを自動で同一住戸と断定しない。
+2. `source_url`, `source_name`, `source_record_id`, `retrieved_at`, `last_verified_at`, `availability_status`（confirmed／unknown／ended）, `geo_precision`（exact／building／approximate／unknown）を必須級の管理項目にする。取得できない値は `null`、AIの推測は別欄。
+3. `listing`の数値データは掲載元の明示情報のみを確定値とする。AIが住所・家賃・募集中であることを創作してはならない。本文スニペットのみからの抽出値は `unverified` として表示。
+4. 必須条件（家賃上限・半径など）の判定は決定的なプログラム／SQLで行う。所在地の精度が不十分な場合は「距離判定不能」とし、合格とみなさない。
+5. サイトごとに `robots.txt`、利用規約、API・データベース契約、ページ再配布・写真の著作権、地図上の再表示条件、キャッシュ保存期限、レート制限を確認する。アクセス制限の回避や無許可の大量取得は採用しない。
+6. 災害レイヤーは「リスクの参考」であり、安全・被害なしを保証しない。利用する地理情報に更新年月・出典を表示する。
+
+## 5. 実装構成とデータモデル
+
+- **UI**：React/TypeScript + MapLibre GL JS（半径・等時間圏・GeoJSONレイヤー・候補ピン）、サイドバー一覧、デスクトップ／モバイル対応。
+- **API**：FastAPI（Python）または Rust Axum。地点検索、物件収集アダプタ、正規化、距離・経路、AI評価を別モジュールにする。
+- **DB**：PostgreSQL + PostGIS（ST_DWithinによる距離フィルタ、GiSTインデックス）、Redis等のTTLキャッシュ、定期更新ワーカー。
+- **データモデル**：`place(id,name,address,lat,lon,kind,geo_precision)`、`unit(id,building_id,floor,room,area_m2,layout)`、`listing(id,unit_id,source,url,rent_yen,fee_yen,deposit_yen,key_money_yen,status,updated_at,retrieved_at,raw_evidence)`、`search_filter(origins,radii,time_limits,mode,price,layout,hard_requirements,soft_preferences)`、`provenance(field,source,observed_at,verification)`。
+- **検索処理**：`掲載取得 → JSON正規化 → 住所標準化 → 座標付与 → 重複候補照合 → PostGIS距離フィルタ → 経路APIの一括照会 → ハード条件確定 → ソフト評価 → 結果表示`。大量物件に対する経路API課金を避けるため、直線距離で粗く絞ってから経路計算。
+- **費用**：初期費用は `敷金＋礼金＋前家賃＋管理費＋仲介手数料＋保証料＋保険料＋鍵交換料等`を内訳表示。不明項目があれば「概算・不足項目あり」と明示。
+
+## 6. OpenAI Decisions API の活用
+
+**利用可能**：2026年10月時点で公開ベータ。`POST https://api.openai.com/v1/decisions`、`model: gpt-6-luna`。文字／画像を受け、`predicate`（確率）、`choice`（固定候補）、`score`（順序レベルの採点）を返す。**入力100万トークン当たり$0.10、出力トークンの課金なし**（現行ドキュメント上）。正規の物件検索APIではない。
+
+用途を限定する。
+
+- `choice`：検索結果を「具体的物件広告／物件一覧／物件と無関係／判定不能」に分類し、一覧抽出の優先順位を付ける。
+- `predicate`：掲載文に「ペット可」等が**明示されている可能性**の判定や、同一住戸かもしれない候補の抽出に使う。AIの確率は事実確認ではない。
+- `score`：ユーザーの曖昧な希望（静かそう・設備充実・暮らしやすい等）に対し、**確認済みの材料だけ**で軟らかいランキングを補助。厳密条件やハザード安全判定は任せない。
+- JSON構造への情報抽出・自然言語での比較理由は **Responses API の Structured Outputs**（またはルールベース抽出）を使用。Decisions APIだけで自由なJSON抽出や長文説明を生成しない。
+- 機密な正確な住所・利用者情報の送信は最小限。信頼度が低い分類は手動確認に回し、テストセットで適合率・見逃し率・API費用を測る。
+
+### Decisions API 最小実行例
+
+```bash
+# 環境変数 OPENAI_API_KEY を設定してから実行
+curl -sS https://api.openai.com/v1/decisions \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model":"gpt-6-luna",
+    "input":"○○マンション 3階 1K 25㎡ 賃料7.2万円 管理費5000円。所在地: 東京都...。詳細はこちら。",
+    "questions":[{
+      "type":"choice","name":"page_kind",
+      "instructions":"これは単一住戸の具体的な賃貸募集情報を含むテキストか。掲載中かどうかは判断しない。",
+      "choices":[
+        {"value":"detail","description":"単一住戸の具体的な募集条件がある"},
+        {"value":"list","description":"複数物件の一覧"},
+        {"value":"other","description":"不動産の具体的な掲載情報でない、または判定不能"}
+      ]
+    }]
+  }'
+```
+
+これはAPI呼び出しの形を示す**仮の入力例**。実際の物件取得・空室確認機能ではない。確定値の計算や距離抽出の最小実装は同梱の `filter_core.py` を参照。
+
+## 7. 段階的な実装と完了条件
+
+- **Phase 1（最優先）**：住所・会社・駅検索、任意半径、許可された物件データ1系統の実取得、掲載元リンク、重複統合、価格・間取り・面積による厳密フィルタ、結果ピンと一覧、取得失敗の可視化。**実在データを誤認させないことが合格条件**。
+- **Phase 2**：複数地点AND/OR、移動時間・等時間圏、経路マトリクス、初期費用、生活施設、国交省の災害レイヤー、保存・新着通知。
+- **Phase 3**：Decisions APIで検索結果分類・同一住戸候補の精査、Responses APIで説明、AI評価、相場比較、PLATEAU 3D、多角形検索、CSV/GeoJSON共有。
+
+**品質検証**：取得元100件の価格・住所・空室状態と表示値の一致率、重複統合の適合率、住所精度別の半径判定、複数拠点のAND/OR、時間帯別の交通所要時間、API失敗・rate limit・情報欠損・候補ゼロ件、支出/API原価、UIのモバイル動作をテストする。
+
+## 8. 公式資料・一次資料
+
+- [国土交通省 不動産情報ライブラリ 公開API一覧](https://www.reinfolib.mlit.go.jp/help/apiManual)
+- [国交省 XIT001 取引価格・成約価格API](https://www.reinfolib.mlit.go.jp/help/apiManual/xit001/)
+- [OpenAI Decisions API](https://developers.openai.com/api/docs/guides/decisions)
+- [OpenAI Decisions API リファレンス](https://developers.openai.com/api/reference/resources/decisions/methods/create/)
+- [Google Routes API / Route Matrix](https://developers.google.com/maps/documentation/routes/compute-route-matrix-over)
+- [駅すぱあと API](https://docs.ekispert.com/v1/api/)
+- [OpenStreetMap Nominatim利用ポリシー](https://operations.osmfoundation.org/policies/nominatim/)
+- [国土地理院 地理院タイル](https://maps.gsi.go.jp/help/use.html)
+- [デジタル庁 アドレス・ベース・レジストリ](https://www.digital.go.jp/policies/base_registry_address)
+- [国交省 PLATEAU](https://www.mlit.go.jp/plateau/)
+- [NII LIFULL HOME'Sデータセット（研究利用条件あり）](https://www.nii.ac.jp/dsc/idr/lifull/)
+- [NII アットホームデータセット（過去データ）](https://www.nii.ac.jp/dsc/idr/athome/)
+- [SUUMO 利用規約](https://suumo.jp/edit/kiyaku/)
