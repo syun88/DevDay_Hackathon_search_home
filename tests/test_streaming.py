@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import server
-from home_agent import AgentError, EventStream, HomeAgent, LiveTurn
+from home_agent import AGENT_CONFIG_VERSION, AgentError, EventStream, HomeAgent, LiveTurn
 from session_store import SessionStore, public_session
 
 
@@ -148,7 +148,7 @@ class StreamingLifecycleTest(unittest.TestCase):
         self.assertEqual(sum(1 for c in api.calls if c[0] == 'POST' and c[1].endswith('/events')), 1)
 
     def test_follow_up_subscribes_before_sending_input(self):
-        self.store.mutate(self.token, lambda s: s['_agent'].update(session_id='sess_1', config_version=5))
+        self.store.mutate(self.token, lambda s: s['_agent'].update(session_id='sess_1', config_version=AGENT_CONFIG_VERSION))
 
         class API:
             model = 'synthetic-model'

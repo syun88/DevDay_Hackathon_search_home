@@ -24,7 +24,7 @@ window.mountHomeChat = ({session, adapter}) => {
   };
   const progress={stopping:'処理を停止しています…',clearing:'会話と記憶を削除しています…',
     get_map_state:'地図を確認しています…',control_map:'地図を操作しています…',get_listing_details:'物件の詳細を確認しています…',search_public_housing:'公開データを地図に読み込んでいます…',thinking:'考えています…',writing:'回答を書いています…',resolve_place:'場所を確認しています…',set_origin:'起点を設定しています…',
-    update_search:'検索条件を更新しています…',search_listings:'実際の掲載ページを探しています…',get_commute:'道路の所要時間を推定しています…',
+    update_search:'検索条件を更新しています…',search_listings:'実際の掲載ページを探しています…',web_search:'ウェブを検索しています…',get_commute:'道路の所要時間を推定しています…',
     compare_listings:'候補を比較しています…',save_listing:'候補を保存しています…',
     remember_preference:'希望を覚えています…',forget_place:'記憶を更新しています…',
     undo_search:'条件を元に戻しています…',get_search_state:'現在の条件を確認しています…',
@@ -34,9 +34,9 @@ window.mountHomeChat = ({session, adapter}) => {
   const steps={get_map_state:'地図の状態を確認',control_map:'地図を操作',get_listing_details:'物件の詳細を確認',search_public_housing:'公開データを読み込み',
     get_search_state:'検索条件を確認',update_search:'検索条件を更新',resolve_place:'場所を検索',set_origin:'起点を設定',remember_preference:'希望を記憶',
     forget_place:'記憶を更新',search_listings:'掲載ページを検索',get_commute:'道路の所要時間を推定',compare_listings:'候補を比較',save_listing:'候補を保存',
-    remove_saved_listing:'保存済みを更新',undo_search:'条件を元に戻す'};
-  const outcomes={running:'実行中',done:'完了',error:'失敗',applied:'地図に反映済み',pending:'地図の反映待ち',stale_view:'手動の地図操作を優先',unavailable:'地図に表示できません'};
-  const mapTools=new Set(['control_map','search_public_housing','search_listings']);
+    remove_saved_listing:'保存済みを更新',undo_search:'条件を元に戻す',web_search:'ウェブを検索'};
+  const outcomes={running:'実行中',done:'完了',error:'失敗',applied:'地図に反映済み',pending:'地図の反映待ち',stale_view:'手動の地図操作を優先',unavailable:'地図に表示できません',empty:'結果なし'};
+  const mapTools=new Set(['control_map','search_public_housing','search_listings','web_search']);
   const suggestions=['千代田区の都営住宅を地図に表示して','東京駅から3km以内で1LDK、月15万円以内の賃貸を探して','選択中の物件の分かっている条件と不明点を教えて'];
   const mapPill=document.createElement('div');mapPill.className='map-agent-activity';mapPill.hidden=true;mapPill.setAttribute('aria-hidden','true');
   $('map')?.parentElement?.append(mapPill);
@@ -89,13 +89,20 @@ window.mountHomeChat = ({session, adapter}) => {
       if(match[1]||match[2]){const span=document.createElement(match[1]?'strong':'code');span.textContent=match[1]||match[2];root.append(span);}
       else {
         const address=match[4]||match[5];let allowed=false;
-        try {const url=new URL(address);const known=(session.snapshot?.public_records||[]).flatMap(i=>[i.official_url,i.source_url,i.data_url,i.license_url]);allowed=known.includes(address)||['suumo.jp','homes.co.jp','athome.co.jp','google.com','openstreetmap.org'].some(host=>url.hostname===host||url.hostname.endsWith('.'+host));}catch{}
+        try {const url=new URL(address);const known=knownUrls();allowed=known.includes(address)||['suumo.jp','homes.co.jp','athome.co.jp','google.com','openstreetmap.org'].some(host=>url.hostname===host||url.hostname.endsWith('.'+host));}catch{}
         if(allowed){const a=document.createElement('a');a.href=address;a.textContent=match[3]||address;a.target='_blank';a.rel='noopener noreferrer';root.append(a);}
         else root.append(document.createTextNode(match[0]));
       }
       index=match.index+match[0].length;
     }
     root.append(document.createTextNode(text.slice(index)));
+  }
+  // Links are clickable only when they came from official records or actual tool results.
+  function knownUrls(){
+    const s=session.snapshot||{};
+    return [...(s.public_records||[]).flatMap(i=>[i.official_url,i.source_url,i.data_url,i.license_url]),
+      ...(s.result_sets||[]).flatMap(r=>[...(r.items||[]).map(i=>i.url),...(r.discovery_links||[]).map(l=>l.url),...(r.source_search_links||[]).map(l=>l.url)]),
+      ...(s.saved_candidates||[]).map(i=>i.url)].filter(Boolean).flatMap(u=>{try{return [u,decodeURI(u),encodeURI(decodeURI(u))];}catch{return [u];}});
   }
   function renderText(root,text) {
     // A small Markdown subset built with DOM nodes; model HTML is never injected.
@@ -340,7 +347,7 @@ window.mountHomeChat = ({session, adapter}) => {
   const legacySearch=$('searchListings').onclick;
   $('searchListings').onclick=()=>enabled?send(document.documentElement.lang==='ja'?'現在の条件で掲載物件を検索してください。':'Search property listing pages using my current criteria.'):legacySearch();
   session.addEventListener('change',render);
-  window.addEventListener('home-language-change',()=>{lastMessages='';lastSuggestions='';render();});
+  window.addEventListener('home-language-change',()=>{lastMessages='';lastSuggestions='';lastResults=undefined;render();});
   fetch('/api/health').then(r=>r.json()).then(health=>{enabled=!!health.agent_enabled;if(!enabled)error('missing_key');else connectStream();render();}).catch(()=>error('network'));
   window.homeChat={send};pollSoon();
 };

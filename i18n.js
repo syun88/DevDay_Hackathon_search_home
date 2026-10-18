@@ -502,6 +502,17 @@ Object.assign(english, {
  '選択中の物件の分かっている条件と不明点を教えて':'What is known and unknown about the selected home?',
 });
 Object.assign(english, {'住所':'Address','資料基準日':'Data as of','はい':'Yes','いいえ':'No','築年数（年）':'Age (years)','ペット可':'Pets allowed','駐車場':'Parking'});
+Object.assign(english, {
+ 'ウェブを検索しています…':'Searching the web…','ウェブを検索':'Search the web','結果なし':'No results',
+ 'ウェブ検索「{0}」：{1}件のページ（検索で実際に見つかったページのみ）':'Web search “{0}”: {1} pages (only pages the search actually found)',
+ 'ウェブ検索「{0}」：該当ページは見つかりませんでした':'Web search “{0}”: no matching pages were found',
+ 'ウェブ検索は今回の上限に達したため実行していません':'Web search was not run: the per-message limit was reached',
+ 'ウェブ検索に失敗しました（{2}）。下の検索リンクをご利用ください':'Web search failed ({2}). Use the search links below.',
+ '個別の物件ページ':'Specific listing page','建物のページ':'Building page','検索・一覧ページ':'Search / list page','公的情報のページ':'Official information page','その他のページ':'Other page',
+ 'ウェブ検索で見つかったページです。内容・空室・費用は未確認です':'Found by web search. Contents, availability and fees are unverified',
+ '地図で概略位置を確認':'Show approximate area on map',
+ 'ウェブ検索で見つかったページ（{0}・{1}）の要約です。掲載元で最新の内容を確認してください。':'Summary of a page found by web search ({0} · {1}). Check the source for current details.',
+});
 const storageKey = 'property_map_language';
 let language = 'ja';
 try { if (localStorage.getItem(storageKey) === 'en') language = 'en'; } catch {}

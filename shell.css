@@ -68,3 +68,10 @@
 .chat-stop[hidden],.chat-send[hidden]{display:none}
 .shell-dock .dock-heading{width:100%;max-width:880px;margin:0 auto}
 @media(max-width:850px){.chat-suggestions{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-bottom:8px;padding-bottom:2px}.chat-suggestions::-webkit-scrollbar{display:none}.suggestion{white-space:nowrap;flex:none}}
+.agent-step[data-status=empty] .step-dot{background:#d99a1b}
+.web-search-status{font-size:12px;line-height:1.6;color:#33496b;background:#f3f7fd;border:1px solid #dfe8f5;border-radius:9px;padding:8px 10px;margin:0 0 8px}
+.web-result-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;color:#617490;margin:2px 0 6px;overflow-wrap:anywhere}
+.page-kind{display:inline-block;border-radius:999px;padding:2px 8px;font-weight:700;background:#eef2f7;color:#425675}
+.page-kind.listing_detail,.page-kind.building_page{background:#e7f5ee;color:#17694c}
+.page-kind.listing_search_page{background:#fff3e2;color:#8a4b12}
+.web-snippet{font-size:12px;line-height:1.6;color:#33435a;margin:4px 0;overflow-wrap:anywhere}

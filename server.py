@@ -30,6 +30,7 @@ from home_agent import HomeAgent, AgentError
 from listing_details import read_details
 from suumo_bridge import SuumoError, search as search_suumo, validate_search, validate_filters, validate_page, RENT_STEPS, PAGE_SIZE as SUUMO_PAGE_SIZE
 import public_housing
+import web_search
 
 BASE = Path(__file__).resolve().parent
 
@@ -402,7 +403,14 @@ def permitted_details(url):
     return read_details(url)
 
 
-HOME_AGENT = HomeAgent(SESSION_STORE, OPENAI_KEY, agent_listings, router=route_time, detail_reader=permitted_details, public_search=public_housing.search, public_geocode=public_housing.geocode)
+def agent_web_search(query, context=''):
+    # Same configured model as the agent. While SUUMO reuse is not permitted, SUUMO pages
+    # stay navigable links only: no rent, address or other values are extracted from them.
+    return web_search.search(OPENAI_KEY, HOME_AGENT.api.model, query, context,
+                             () if SUUMO_REUSE_PERMITTED else ('suumo.jp',))
+
+
+HOME_AGENT = HomeAgent(SESSION_STORE, OPENAI_KEY, agent_listings, router=route_time, detail_reader=permitted_details, public_search=public_housing.search, public_geocode=public_housing.geocode, web_search=agent_web_search)
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -645,7 +653,7 @@ class Handler(SimpleHTTPRequestHandler):
         if u.path == '/api/health':
             return self.respond(200,{'listings_enabled':True,'providers':['bing'] + (['brave'] if SEARCH_KEY else []),
                     'provider':'Brave Search API + Bing RSS' if SEARCH_KEY else 'Bing RSS (APIキー不要、利用制限あり)',
-                    'has_brave_key':bool(SEARCH_KEY), 'decisions_enabled':bool(OPENAI_KEY), 'agent_enabled':bool(OPENAI_KEY),
+                    'has_brave_key':bool(SEARCH_KEY), 'decisions_enabled':bool(OPENAI_KEY), 'agent_enabled':bool(OPENAI_KEY), 'web_search_enabled':bool(OPENAI_KEY),
                     'feed_enabled':bool(FEED_PATH or FEED_URL), 'routing_enabled':True,
                     'public_sources':['tokyo', 'tsubata'] + (['permitted'] if os.environ.get('PUBLIC_HOUSING_FEED_PATH') else []),
                     'suumo_reuse_permitted': SUUMO_REUSE_PERMITTED,
