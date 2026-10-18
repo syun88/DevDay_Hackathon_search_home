@@ -121,3 +121,19 @@ curl -sS https://api.openai.com/v1/decisions \
 - [NII LIFULL HOME'Sデータセット（研究利用条件あり）](https://www.nii.ac.jp/dsc/idr/lifull/)
 - [NII アットホームデータセット（過去データ）](https://www.nii.ac.jp/dsc/idr/athome/)
 - [SUUMO 利用規約](https://suumo.jp/edit/kiyaku/)
+
+
+## 9. 会話UIの初期実装 / Conversation foundation (issue #3, first slice)
+
+現在のHTML/JavaScriptと標準ライブラリのPythonサーバーを維持して実装する。React/PostGISへの移行はこの段階の前提にしない。
+
+- `session_store.py` is the canonical schema and persistence layer. Schema version 1 contains named origin A/B records, straight-line radii, listed-price cap in whole yen, layout/area/age filters, pet/parking requirements, listing search options and the composer draft. It does not yet represent total monthly cost, commute time or soft preferences.
+- `GET /api/session/schema` exposes machine-readable criteria/update schemas. `GET /api/session` establishes an HttpOnly, SameSite=Strict cookie. `POST /api/session` accepts partial criteria and draft updates with `expected_revision`.
+- SQLite updates run in a transaction with a revision comparison. Effective changes increment the revision; no-op updates do not. Stale writes return 409 with the current snapshot and never overwrite it.
+- The client queues edits made during a request. Chat chips and advanced controls use the same client draft; accepted server snapshots become the baseline. Save failures preserve the local draft; conflicts require explicitly loading the saved version.
+- Session records live in ignored `.local/sessions.sqlite3`. Only frontend assets are served over HTTP, excluding environment files, database files and Git metadata. Session mutation rejects cross-origin requests.
+- The existing browser-only property shortlist remains separate. This slice persists criteria and a composer draft, not conversation history, stable result references, named-place aliases, Undo or AI tool execution. Legacy map origins are not yet imported into a newly created session; existing saved candidates are preserved.
+- The EN/JP composer clearly indicates that AI messaging is not connected yet. Follow-up PRs will attach validated conversational tools to the same state contract.
+- Local-only boundaries: cookie lifetime is 30 days; automatic database retention cleanup and authenticated multi-user isolation remain future work.
+
+検証：価格単位の変換、チップと手動設定の同期、再読み込み復元、複数セッションの分離、同時更新・古いリビジョンの拒否、保存失敗からの復旧、EN/JP、モバイル表示、機密ファイル非公開を確認する。

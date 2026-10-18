@@ -12,6 +12,7 @@ Optional: BRAVE_SEARCH_API_KEY=... python3 property-server.py
 from __future__ import annotations
 
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.cookies import SimpleCookie, CookieError
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -20,8 +21,38 @@ from html import unescape
 from datetime import datetime, timezone
 import xml.etree.ElementTree as ET
 import os, json, re, socket, threading, time
+from session_store import SessionStore, RevisionConflict, CRITERIA_SCHEMA, UPDATE_SCHEMA, SCHEMA_VERSION
 
 BASE = Path(__file__).resolve().parent
+
+
+def load_env(path):
+    """Load simple KEY=value settings without overriding the process environment."""
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding='utf-8-sig').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if line.startswith('export '):
+            line = line[7:].lstrip()
+        key, separator, value = line.partition('=')
+        key, value = key.strip(), value.strip()
+        if not separator or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key):
+            continue
+        if value.startswith(('"', "'")):
+            quote = value[0]
+            end = value.find(quote, 1)
+            remainder = value[end + 1:].strip() if end != -1 else ''
+            if end == -1 or (remainder and not remainder.startswith('#')):
+                continue
+            value = value[1:end]
+        else:
+            value = value.split(' #', 1)[0].rstrip()
+        os.environ.setdefault(key, value)
+
+
+load_env(BASE / '.env')
 OPENAI_KEY = os.environ.get('OPENAI_API_KEY', '').strip()
 SEARCH_KEY = os.environ.get('BRAVE_SEARCH_API_KEY', '').strip()
 PORT = int(os.environ.get('PORT', '8765'))
@@ -31,6 +62,7 @@ CACHE_TTL = 120
 _cache: dict[str, tuple[float, dict]] = {}
 _cache_lock = threading.Lock()
 MAX_BYTES = 1_000_000
+SESSION_STORE = SessionStore(BASE / '.local' / 'sessions.sqlite3')
 
 
 def get_text(url: str, headers: dict | None = None, timeout=12) -> str:
@@ -231,17 +263,60 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(BASE), **kwargs)
 
-    def respond(self, code: int, obj: dict):
+    def send_head(self):
+        # Serve only frontend assets, never .env, Git metadata, or source files.
+        if urlparse(self.path).path not in ('/', '/index.html', '/i18n.js', '/session.js', '/workspace.js', '/workspace.css'):
+            self.send_error(404, 'Not found')
+            return None
+        return super().send_head()
+
+    def respond(self, code: int, obj: dict, cookie=None):
         payload = json.dumps(obj, ensure_ascii=False).encode('utf-8')
         self.send_response(code)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Content-Length', str(len(payload)))
+        if cookie:
+            self.send_header('Set-Cookie', cookie)
         self.end_headers()
         self.wfile.write(payload)
 
+    def session_id(self):
+        try:
+            cookies = SimpleCookie(self.headers.get('Cookie', ''))
+            token = cookies.get('search_session')
+            if token and re.fullmatch(r'[A-Za-z0-9_-]{43}', token.value):
+                return token.value
+        except CookieError:
+            pass
+        return None
+
+    def update_session(self):
+        host = self.headers.get('Host', '')
+        allowed_hosts = {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
+        if (host not in allowed_hosts or self.headers.get('Sec-Fetch-Site') == 'cross-site'
+                or self.headers.get('Origin', 'http://' + host) != 'http://' + host):
+            return self.respond(403, {'error': 'Same-origin request required'})
+        if self.headers.get('Content-Type', '').split(';')[0].lower() != 'application/json':
+            return self.respond(415, {'error': 'application/json required'})
+        try:
+            size = int(self.headers.get('Content-Length', '0'))
+            if not 2 <= size <= 16000:
+                return self.respond(413, {'error': 'Invalid body size'})
+            payload = json.loads(self.rfile.read(size))
+            session_id = self.session_id()
+            if not session_id or not SESSION_STORE.get(session_id):
+                return self.respond(404, {'error': 'Session not found; reload the page'})
+            return self.respond(200, SESSION_STORE.update(session_id, payload))
+        except RevisionConflict as exc:
+            return self.respond(409, {'error': 'revision_conflict', 'session': exc.session})
+        except (ValueError, UnicodeError):
+            return self.respond(400, {'error': 'Invalid session update'})
+
     def do_POST(self):
+        if urlparse(self.path).path == '/api/session':
+            return self.update_session()
         if urlparse(self.path).path != '/api/classify':
             return self.respond(404,{'error':'not found'})
         if not OPENAI_KEY:
@@ -266,6 +341,16 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path == '/api/session/schema':
+            return self.respond(200, {'schema_version': SCHEMA_VERSION, 'criteria': CRITERIA_SCHEMA,
+                                     'update': UPDATE_SCHEMA})
+        if u.path == '/api/session':
+            session_id = self.session_id()
+            session = SESSION_STORE.get(session_id) if session_id else None
+            if session:
+                return self.respond(200, session)
+            session_id, session = SESSION_STORE.create()
+            return self.respond(200, session, cookie=f'search_session={session_id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000')
         if u.path == '/':
             self.path = '/index.html'
             return super().do_GET()

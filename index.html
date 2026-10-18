@@ -9,8 +9,20 @@
 
 .marker.listing{background:#175cd3;border-radius:8px;font-size:11px;max-width:110px;overflow:hidden;text-overflow:ellipsis}.listing-price{font-size:15px;font-weight:850;color:#174bc9}.listing-details{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}.listing-details span{padding:3px 6px;background:#edf2fb;border-radius:5px;font-size:10px}.listing-ok{color:#08734d}.listing-uncertain{color:#98601d}.listing-out{color:#b3261e}.external-item.out-of-range{opacity:.6}.external-item p{overflow-wrap:anywhere}
 .header-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.language-toggle{display:flex;gap:2px;padding:3px;background:#eef3fa;border:1px solid var(--border);border-radius:9px}.language-toggle button{border:0;border-radius:6px;padding:5px 9px;background:transparent;color:#536279;font-size:11px;font-weight:750}.language-toggle button[aria-pressed="true"]{background:#fff;color:#1d4ed8;box-shadow:0 1px 4px #0001}html[lang="en"] .btn{white-space:normal}html[lang="en"] .sidebar .columns{grid-template-columns:repeat(2,minmax(0,1fr))}
-</style></head><body>
+</style><link rel="stylesheet" href="workspace.css"></head><body>
 <div class="wrap"><aside class="sidebar"><div class="header"><div class="header-top"><p class="kicker">PROPERTY DISTANCE FINDER</p><div class="language-toggle" role="group" aria-label="Language / 言語"><button type="button" data-language="en" lang="en" aria-pressed="false">EN</button><button type="button" data-language="ja" lang="ja" aria-pressed="true">JP</button></div></div><h1>住まいの地図</h1><p>住所・会社を検索 → 半径内の実在する建物・掲載ページを表示 → 条件比較</p></div><div class="scroll">
+<section class="conversation-intro" aria-labelledby="chatHeading">
+<h2 id="chatHeading">どんな暮らしを、見つけたいですか？</h2>
+<p>地図を見ながら、あなたに合う住まいを探しましょう。</p>
+<div class="chat-welcome">AIとの会話は次のアップデートで利用できます。今は下の条件を編集して、検索を始められます。</div>
+<div class="chat-composer"><label class="label" for="chatDraft">住まいの希望をメモ</label><textarea id="chatDraft" maxlength="2000" placeholder="例：東京駅の近くで、猫と暮らせる部屋を探したい" aria-describedby="chatAvailability" disabled></textarea><div class="composer-footer"><span id="chatAvailability">下書きは自動保存されます。AIへの送信は準備中です。</span><button class="btn small" type="button" disabled>準備中</button></div></div>
+<div class="criteria-heading"><h2 id="criteriaHeading">現在の検索条件</h2><span>クリックして編集</span></div>
+<div id="criteriaChips" class="criteria-chips" role="group" aria-labelledby="criteriaHeading"></div>
+<form id="criteriaEditor" class="criteria-editor" hidden><label id="criteriaEditLabel" for="criteriaEditValue"></label><div id="criteriaEditField"></div><p id="criteriaEditError" class="criteria-error" role="alert" hidden></p><div class="buttons"><button id="criteriaEditCancel" class="btn ghost small" type="button">キャンセル</button><button class="btn small" type="submit">適用</button></div></form>
+<p class="criteria-note">距離は直線距離です。家賃には管理費などを含みません。</p>
+<div id="sessionStatus" class="session-status" role="status" aria-live="polite" data-status="loading"><span id="sessionStatusText">検索条件を読み込み中…</span><button id="sessionRetry" type="button" hidden>再試行</button><button id="sessionReload" type="button" hidden>保存済みの条件を使う</button></div>
+</section>
+<details id="advancedPanel" class="advanced-panel"><summary>検索条件を編集・詳細設定</summary><div id="advancedContent" class="advanced-content">
 <section class="section"><h2>場所を横断検索 <span class="pill">住所・会社・駅名</span></h2>
 <div class="live-search">
 <div class="field"><input class="input" id="globalQuery" placeholder="例：ソニー本社 / 東京都港区港南1-7-1" autocomplete="off"><button class="btn" id="globalSearch">検索</button></div>
@@ -62,11 +74,15 @@
 <div class="field"><button class="btn ghost" id="importBtn" style="flex:1">CSV読み込み</button><button class="btn ghost" id="templateBtn" style="flex:1">CSVひな型</button><button class="btn ghost" id="exportBtn" style="flex:1">CSV出力</button></div>
 <input type="file" id="csvFile" style="display:none" accept=".csv,text/csv">
 </section>
-<section class="section"><div class="tabline"><h2>④ 保存済みの候補物件</h2><select class="input" id="sort" style="width:116px;padding:6px"><option value="distance">Aに近い順</option><option value="price">安い順</option><option value="area">広い順</option></select></div><div id="results" class="resultlist"><div class="empty">まだ候補物件がありません。公式の地図検索で物件を探し、上の「＋」ボタンから住所や家賃を登録してください。</div></div></section>
+</div></details>
+<section id="primaryResults" class="primary-results" aria-labelledby="listingHeading"><h2 id="listingHeading">掲載ページを探す</h2><div id="primarySearchAction"></div><div id="primarySearchStatus"></div><div id="primarySearchResults"></div><p class="criteria-note">検索結果の価格・空室は未確認です。掲載元で確認してください。</p></section>
+<section class="section saved-heading"><div class="tabline"><h2>保存済みの候補物件</h2><select class="input" id="sort" style="width:116px;padding:6px"><option value="distance">Aに近い順</option><option value="price">安い順</option><option value="area">広い順</option></select></div><div id="results" class="resultlist"><div class="empty">まだ候補物件がありません。公式の地図検索で物件を探し、上の「＋」ボタンから住所や家賃を登録してください。</div></div></section>
 <p class="footer">地図 © OpenStreetMap contributors。場所検索：OpenStreetMap Nominatim／国土地理院（検索できない場合）。地図タイルの通信が必要です。直線距離は球面上の2地点間で計算。実際の経路・募集条件はリンク先で再確認してください。</p>
 </div></aside><main class="mapcol"><div class="map" id="map"><div id="tiles" class="tiles"></div><svg class="overlays" id="overlay" aria-hidden="true"></svg><div id="pins" class="pins"></div></div><div class="map-top"><div class="map-chip" id="mapModeLabel">地図をドラッグして移動できます</div></div><div class="map-error" id="mapError">地図タイルを取得できません。通信環境を確認してください。地点・距離・候補情報の操作はできます。</div><div class="map-controls"><button id="zoomIn" title="拡大">＋</button><button id="zoomOut" title="縮小">−</button><button id="resetView" title="起点Aに戻る">⌖</button></div><div class="bottomhint" id="bottomHint">青：地点A　紫：地点B　黄：住所・会社　青緑：実在建物　緑：保存候補</div><div class="map-attrib">© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors</div><div id="toast" class="toast"></div></main></div>
 <div class="modalouter" id="modalOuter"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><h2 id="modalTitle">候補物件を登録</h2><p class="muted">地図をタップして座標を指定するか、住所から位置を検索できます。</p><div class="columns"><div class="control" style="grid-column:1/-1"><label class="label">物件名 *</label><input class="input" id="pName" placeholder="例：〇〇マンション 203号室"></div></div><div class="control"><label class="label">住所（位置検索にも使用）</label><div class="field"><input class="input" id="pAddress" placeholder="住所を入力"><button class="btn secondary small" id="geocodeProperty">位置検索</button></div></div><div class="columns"><div class="control"><label class="label">種別</label><select class="input" id="pType"><option value="rent">賃貸</option><option value="sale">売買</option></select></div><div class="control"><label class="label">家賃・価格（万円）</label><input class="input" id="pPrice" type="number" min="0" step="0.1"></div><div class="control"><label class="label">間取り</label><select class="input" id="pLayout"><option value="">未指定</option><option>1R</option><option>1K</option><option>1DK</option><option>1LDK</option><option>2K</option><option>2DK</option><option>2LDK</option><option>3LDK</option></select></div><div class="control"><label class="label">面積（㎡）</label><input class="input" id="pArea" type="number" min="0" step="0.1"></div><div class="control"><label class="label">築年数（年）</label><input class="input" id="pAge" type="number" min="0"></div><div class="control"><label class="label">設備</label><div class="checkrow"><label><input id="pPets" type="checkbox">ペット可</label><label><input id="pParking" type="checkbox">駐車場</label></div></div></div><div class="control"><label class="label">掲載元URL（任意）</label><input class="input" id="pUrl" type="url" placeholder="https://..."></div><div class="columns"><div class="control"><label class="label">緯度</label><input class="input" id="pLat" type="number" step="any" placeholder="住所検索で入力"></div><div class="control"><label class="label">経度</label><input class="input" id="pLon" type="number" step="any"></div></div><div class="buttons"><button id="modalCancel" class="btn ghost">キャンセル</button><button id="modalSave" class="btn">保存</button></div></div></div>
 <script src="i18n.js"></script>
+<script src="session.js"></script>
+<script src="workspace.js"></script>
 <script>
 (()=>{'use strict';
 const $=id=>document.getElementById(id), Earth=6371.0088, RAD=Math.PI/180;
@@ -75,7 +91,7 @@ const defaults={a:{name:'東京駅',lat:35.681236,lon:139.767125},b:null,ra:3,rb
 let state;try{state=Object.assign({},defaults,JSON.parse(localStorage.getItem('property_map_v2')||'{}'))}catch{state={...defaults}}
 if(!state.a||!Number.isFinite(Number(state.a.lat)))state.a={...defaults.a};if(!Array.isArray(state.properties))state.properties=[];
 let center={lat:state.a.lat,lon:state.a.lon}, zoom=12, mode='view', editId=null,activePointer=null,pointMoved=false,renderPending=false,tilesLoaded=0,tilesErrors=0,geoTime=0,tileCache=new Map();
-const persist=()=>{try{localStorage.setItem('property_map_v2',JSON.stringify(state))}catch{}};
+const persist=()=>{try{localStorage.setItem('property_map_v2',JSON.stringify({properties:state.properties}))}catch{}};
 const valid=(lat,lon)=>Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=85&&Math.abs(lon)<=180;
 const clamp=(v,lo,hi)=>Math.min(hi,Math.max(lo,v));
 const formatKm=n=>n<1?Math.round(n*1000)+'m':(n<10?n.toFixed(2):n.toFixed(1))+'km';
@@ -234,7 +250,7 @@ function renderExternalPages(){
 }
 async function getListingHealth(){
  if(location.protocol==='file:'){listingsReady=false;listingHealthChecked=true;setText($('listingsStatus'), () => t('検索結果を読み込むにはZIP内のサーバーを起動してください：python3 property-server.py。HTML単体で外部ページの内容を取得することはできません。'));return}
- try{const response=await fetch('/api/health',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('backend');const j=await response.json();listingsReady=!!j.listings_enabled;decisionsReady=!!j.decisions_enabled;listingHealthChecked=true;setText($('listingsStatus'), () => listingsReady?t("外部検索が有効：{0}。検索ボタンで掲載ページを取得します。", [t(j.provider)]):t('検索サーバーは起動していますが、検索エンジンが利用できません。'));if(!j.has_brave_key)$('listingProvider').querySelector('option[value="brave"]').disabled=true;
+ try{const response=await fetch('/api/health',{signal:AbortSignal.timeout(2500)});if(!response.ok)throw Error('backend');const j=await response.json();listingsReady=!!j.listings_enabled;decisionsReady=!!j.decisions_enabled;listingHealthChecked=true;setText($('listingsStatus'), () => listingsReady?t('掲載ページを検索できます。'):t('検索サーバーは起動していますが、検索エンジンが利用できません。'));if(!j.has_brave_key)$('listingProvider').querySelector('option[value="brave"]').disabled=true;
  }catch{listingsReady=false;listingHealthChecked=true;setText($('listingsStatus'), () => t('検索結果の取得にはローカルサーバーが必要です（README参照）。この画面だけを開いた場合は外部検索リンクをご利用ください。'))}
 }
 async function searchListingPages(){
@@ -278,5 +294,19 @@ window.addEventListener('home-language-change', () => {
   if(buildingHits.length)showBuildings();
   renderExternalPages();renderSoon();
 });
-sync();bind();renderSoon();})();
+sync();bind();renderSoon();
+window.mountSearchWorkspace({
+  getMapState: () => ({a:state.a,b:state.b,ra:state.ra,rb:state.rb}),
+  applyMapState: c => {
+    const moved=JSON.stringify(state.a)!==JSON.stringify(c.origin_a);
+    state.a={...c.origin_a};state.b=c.origin_b?{...c.origin_b}:null;
+    state.ra=c.radius_a_km;state.rb=c.radius_b_km;
+    if(moved){center={lat:state.a.lat,lon:state.a.lon};locationHits=[];buildingHits=[];propertyPageHits=[];
+      $('globalResults').replaceChildren();$('buildingResults').replaceChildren();}
+    sync();refreshPortals();renderExternalPages();if(buildingHits.length)showBuildings();renderSoon();
+  },
+  onAnchorChanged: notify => {const previous=setAnchor;setAnchor=(...args)=>{previous(...args);notify()};},
+  onRadiusChanged: notify => {const previous=changeRadius;changeRadius=(...args)=>{previous(...args);notify()};},
+});
+})();
 </script></body></html>
