@@ -116,6 +116,7 @@ class SessionStore:
             with db:
                 db.execute('CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
                 db.execute('CREATE TABLE IF NOT EXISTS archived_chats (owner TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner,id))')
+                db.execute('CREATE TABLE IF NOT EXISTS quotas (key TEXT PRIMARY KEY, used INTEGER NOT NULL)')
                 yield db
         finally:
             db.close()
@@ -197,6 +198,12 @@ class SessionStore:
                 db.execute('UPDATE sessions SET data=? WHERE id=?', (json.dumps(session), session_id))
         return session
 
+
+    def take_quota(self, key, limit):
+        """Atomically count one use of a shared allowance; False once the limit is reached."""
+        with self.connect() as db:
+            used = db.execute('INSERT INTO quotas VALUES (?, 1) ON CONFLICT(key) DO UPDATE SET used=quotas.used+1 RETURNING used', (key,)).fetchone()[0]
+        return used <= limit
 
     @staticmethod
     def chat_title(session):
@@ -286,6 +293,7 @@ class PostgresSessionStore(SessionStore):
                 connection.execute('CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
                 connection.execute('CREATE TABLE IF NOT EXISTS archived_chats (owner TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, '
                                    'data TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner,id))')
+                connection.execute('CREATE TABLE IF NOT EXISTS quotas (key TEXT PRIMARY KEY, used INTEGER NOT NULL)')
                 connection.commit()
                 self.ready = True
             # psycopg commits on success and rolls back on an exception when the block exits.

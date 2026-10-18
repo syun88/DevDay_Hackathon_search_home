@@ -78,6 +78,7 @@ _cache_lock = threading.Lock()
 _suumo_cache: dict[tuple[float, float, float, float | None, str | None, int], tuple[float, dict]] = {}
 MAX_BYTES = 1_000_000
 STREAM_SECONDS = 270 if os.environ.get('VERCEL') else 600
+DAILY_TURNS = int(os.environ.get('AGENT_DAILY_TURN_LIMIT') or 0)  # 0 = unlimited (local default)
 SESSION_STORE = open_store(BASE / '.local' / 'sessions.sqlite3')
 VALHALLA_URL = os.environ.get('VALHALLA_URL', 'https://valhalla1.openstreetmap.de').rstrip('/')
 WALKING_SPEED_KMH = 4.8
@@ -731,6 +732,11 @@ class Handler(SimpleHTTPRequestHandler):
                 result, outcome = SESSION_STORE.mutate(session_id, update_map)
                 if outcome.get('error'): return self.respond(409,outcome)
             elif action == 'chat':
+                current = SESSION_STORE.get(session_id)
+                new_turn = not any(m['id'] == payload.get('request_id') for m in current['conversation'])
+                # A shared daily allowance bounds spending on the server's API key when the app is public.
+                if new_turn and DAILY_TURNS and not SESSION_STORE.take_quota('agent-turns-' + datetime.now(timezone.utc).strftime('%Y-%m-%d'), DAILY_TURNS):
+                    return self.respond(429, {'error': 'daily_limit'})
                 result = HOME_AGENT.start(session_id, payload)
             elif action == 'cancel':
                 current = SESSION_STORE.get(session_id)

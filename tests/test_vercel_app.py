@@ -100,3 +100,11 @@ class StoreSelectionTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DailyLimitTest(unittest.TestCase):
+    def test_shared_daily_turn_allowance_is_atomic_and_bounded(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = SessionStore(Path(folder) / 's.sqlite3')
+            self.assertEqual([store.take_quota('turns-day', 2) for _ in range(3)], [True, True, False])
+            self.assertTrue(store.take_quota('turns-next-day', 2))
