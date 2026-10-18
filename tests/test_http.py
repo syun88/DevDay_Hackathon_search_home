@@ -124,3 +124,8 @@ class HttpTest(unittest.TestCase):
         with urlopen(self.base + '/public_housing.js', timeout=3) as response:
             self.assertEqual(response.status, 200)
             self.assertIn(b'root.publicHousing', response.read())
+
+    def test_walking_ui_module_is_served_with_the_restricted_static_allowlist(self):
+        with urlopen(self.base + '/walking.js', timeout=3) as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn(b'root.homeWalking', response.read())

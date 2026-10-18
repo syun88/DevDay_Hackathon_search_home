@@ -49,3 +49,13 @@ test('commute limits use route duration in seconds and require every selected or
  assert.equal(check({commute:[{duration_seconds:1801}]},{maxCommute:30}).match,false);
  assert.equal(check({commute:[{duration_seconds:null}]},{maxCommute:30}).match,false);
 });
+
+test('walking contours replace the radius without bypassing freshness, costs or location precision',()=>{
+ const filters={insideOnly:true,spatialCheck:()=>true,type:'rent',maxPrice:7.6};
+ assert.equal(check({},filters,()=>100).match,true);
+ assert.equal(check({}, {...filters,spatialCheck:()=>false}).match,false);
+ assert.equal(check({}, {...filters,spatialCheck:()=>null}).match,false);
+ assert.equal(check({geo_precision:'approximate'},filters).match,false);
+ assert.equal(check({management_fee_yen:null},filters).match,false);
+ assert.equal(check({availability_status:'ended'},filters).match,false);
+});
