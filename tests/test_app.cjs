@@ -4,6 +4,7 @@ const path=require('node:path');
 const vm=require('node:vm');
 const {test}=require('node:test');
 const core=require('../property_core.js');
+const publicHousing=require('../public_housing.js');
 const script=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
 
 class Element {
@@ -21,17 +22,19 @@ class Element {
  setPointerCapture(){}
  closest(){return null;}
  focus(){}
+ scrollIntoView(){}
  click(){this.onclick?.();}
 }
 
 function app(){
  const elements=new Map(),frames=[],requests=[];
  const element=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
- for(const id of ['insideOnly','listingOnlyWithin'])element(id).checked=true;
+ for(const id of ['insideOnly','listingOnlyWithin','publicSource_tokyo','publicSource_tsubata','publicSource_permitted','publicLayer_inventory','publicLayer_vacancy','publicLayer_recruitment','publicLayer_municipal'])element(id).checked=true;
+ element('publicProvider').value='tokyo';element('publicArea').value='千代田区';
  element('commuteMode').value='foot';
  const storage=new Map();
  const context={
-  window:{propertyCore:core,homeI18n:{t:(text,values=[])=>String(text).replace(/\{(\d+)\}/g,(_,index)=>values[index]??''),setText:(node,render)=>{node.textContent=render();}},addEventListener(){}},
+  window:{propertyCore:core,publicHousing,homeI18n:{t:(text,values=[])=>String(text).replace(/\{(\d+)\}/g,(_,index)=>values[index]??''),setText:(node,render)=>{node.textContent=render();}},addEventListener(){}},
   document:{getElementById:element,createElement:()=>new Element(),createDocumentFragment:()=>new Element(),querySelectorAll:()=>[],addEventListener(){}},
   localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)},
   location:{protocol:'http:'},requestAnimationFrame:callback=>frames.push(callback),setInterval(){},setTimeout:()=>1,clearTimeout(){},
@@ -42,9 +45,12 @@ function app(){
    if(url==='/api/import')body={results:context.records,rejected:0,provider:'feed'};
    if(url==='/api/route')body={status:'ok',duration_seconds:600,distance_meters:600,checked_at:new Date().toISOString(),source:'TEST ONLY route'};
    if(url.startsWith('/api/listings?'))body={results:[],discovery_links:[{url:'https://suumo.jp/test-only',source:'suumo.jp'}],provider:'bing'};
+   if(url.startsWith('/api/public-housing?'))body={records:context.publicRecords,municipalities:['千代田区'],total:context.publicRecords.length,ended_excluded:0,next_offset:null};
+   if(url==='/api/public-geocode')body={lat:35.681236,lon:139.767125,geo_precision:'approximate'};
    return {ok:true,json:async()=>body};
-  },records:[],
+  },records:[],publicRecords:[],
  };
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,'..','public_housing.js'),'utf8'),context);
  vm.runInNewContext(script,context);
  function flush(){while(frames.length)frames.shift()();}
  async function importRecord(overrides={}){
@@ -116,4 +122,31 @@ test('search discovery shows source links without resurrecting stale snippets',a
  const harness=app();harness.flush();await harness.element('searchListings').onclick();harness.flush();
  assert.ok(harness.element('discoveryLinks').textContent.includes('最新情報は掲載元で確認：suumo.jp'),harness.element('listingsStatus').textContent+' '+JSON.stringify(harness.requests));
  assert.ok(harness.element('listingsStatus').textContent.includes('募集は0件'));
+});
+
+test('public records load, geocode and render pins without claiming current availability',async()=>{
+ const harness=app();harness.context.publicRecords=[{id:'tokyo:test-only',source:'tokyo',name:'TEST ONLY public inventory',address:'TEST ONLY',layer:'inventory',kind:'rent',price_yen:null,geo_precision:'unknown',data_as_of:'2025-03-31',fetched_at:new Date().toISOString(),official_url:'https://example.com/test-only',license:'TEST ONLY',license_url:'https://example.com/permission',availability_status:'unknown'}];
+ await harness.element('publicLoad').onclick();harness.flush();
+ assert.ok(harness.element('publicResults').textContent.includes('現在の募集状況は未確認'));
+ assert.ok(harness.element('publicResults').textContent.includes('2025-03-31'));
+ assert.ok(harness.allNodes(harness.element('pins')).some(node=>node.className?.includes('public inventory')));
+ harness.element('publicSource_tokyo').checked=false;harness.element('publicSource_tokyo').listeners.change[0]();harness.flush();
+ assert.ok(!harness.element('publicResults').textContent.includes('TEST ONLY public inventory'));
+ assert.ok(!harness.allNodes(harness.element('pins')).some(node=>node.className?.includes('public inventory')));
+ harness.element('publicSource_tokyo').checked=true;harness.element('publicUseFilters').checked=true;
+ harness.element('publicUseFilters').listeners.change[0]();harness.flush();
+ assert.ok(!harness.element('publicResults').textContent.includes('TEST ONLY public inventory'));
+ harness.element('includeUnknown').checked=true;harness.element('includeUnknown').listeners.input[0]();harness.flush();
+ assert.ok(harness.element('publicResults').textContent.includes('TEST ONLY public inventory'));
+});
+
+test('public filtering rejects far approximate pins, expired offers and budget mismatches',()=>{
+ const record={kind:'sale',price_yen:3200000,layer:'municipal',availability_status:'reported_open',geo_precision:'approximate',lat:36,lon:136};
+ const filters={includeUnknown:true,insideOnly:true,type:'sale',maxPrice:'320'};
+ const origins=[{lat:35,lon:139,radius:3}];
+ assert.equal(publicHousing.check(record,core,filters,origins,()=>400).match,false);
+ assert.equal(publicHousing.check(record,core,filters,origins,()=>2).match,true);
+ assert.equal(publicHousing.check(record,core,{...filters,maxPrice:'319'},origins,()=>2).match,false);
+ const old={...record,layer:'recruitment',availability_status:'confirmed',official_url:'https://example.com/test-only',last_verified_at:new Date(Date.now()-3600001).toISOString()};
+ assert.equal(publicHousing.check(old,core,filters,origins,()=>2).match,false);
 });

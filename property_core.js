@@ -20,10 +20,9 @@ function monthlyPrice(record){
  const management=number(record.management_fee_yen),mandatory=number(record.mandatory_fee_yen);
  return price==null||management==null||mandatory==null?null:(Math.round(price*10000)+management+mandatory)/10000;
 }
-function evaluate(record,filters,origins,distance,now=Date.now()){
+function evaluateConditions(record,filters,origins,distance){
  const failures=[],unknown=[];
  for(const name of ['maxPrice','minArea','maxAge','maxCommute'])if(filters[name]!=null&&filters[name]!==''&&number(filters[name])==null)failures.push('数値条件が不正');
- if(!fresh(record,now))failures.push('確認日時・募集状況');
  if(filters.type&&record.type!==filters.type)failures.push('種別');
  const price=number(filters.maxPrice);
  if(price!=null){
@@ -55,7 +54,12 @@ function evaluate(record,filters,origins,distance,now=Date.now()){
  }
  return {failures,unknown,match:failures.length===0&&(filters.includeUnknown||unknown.length===0)};
 }
-const api={number,fresh,safeUrl,monthlyPrice,evaluate,MAX_AGE_MS};
+function evaluate(record,filters,origins,distance,now=Date.now()){
+ const result=evaluateConditions(record,filters,origins,distance);
+ if(!fresh(record,now)){result.failures.unshift('確認日時・募集状況');result.match=false;}
+ return result;
+}
+const api={number,fresh,safeUrl,monthlyPrice,evaluate,evaluateConditions,MAX_AGE_MS};
 if(typeof module==='object'&&module.exports)module.exports=api;
 else root.propertyCore=api;
 })(typeof window==='object'?window:globalThis);
