@@ -529,9 +529,9 @@ def agent_listings(place, kind, details, provider='auto'):
             raw = search_suumo(lat, lon, radius, cap, layout)
             result['coverage'] = {'source': 'SUUMO map prototype', 'origin': origin,
                                   'requested_radius_km': details.get('radius_km'), 'query_radius_km': radius,
-                                  'max_inspected': 5, 'within_radius_verified': False,
+                                  'max_inspected': 20, 'max_leads': 5, 'within_radius_verified': False,
                                   'citywide': False, 'supports_detached_house_filter': False}
-            for row in raw['results']:
+            for row in raw['results'][:20]:
                 known = row.get('known_monthly_subtotal_jpy')
                 # Even when one fee is missing, known rent alone is a lower bound.
                 lower_bound = (row.get('rent_jpy') or 0) + (row.get('management_fee_jpy') or 0)
@@ -547,6 +547,8 @@ def agent_listings(place, kind, details, provider='auto'):
                                   'area':row['area_sqm'], 'layout':row['layout'], 'address':row['address']},
                     'limitations': ['availability unknown', 'other monthly fees unknown', 'exact location and radius unverified',
                                     'building type and other requested requirements unverified']})
+                if len(result['leads']) >= 5:
+                    break
         except (ValueError, KeyError, TypeError):
             result['errors'].append('SUUMO prototype supports Tokyo origins only and selected layouts; no citywide inventory is available.')
         except SuumoError as exc:

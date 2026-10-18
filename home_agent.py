@@ -81,8 +81,8 @@ search_listings also returns live SUUMO discovery leads when supported. Show use
 known rent/management/subtotal and unknown fees/availability, never as confirmed matches. A discovery_only
 record is a lead, not a verified match, even if a supplied field meets a requirement. Do not discard all leads
 merely because vacancy is unknown. If no_verified_feed_configured, say this app has no verified inventory
-connected, not that Tokyo has zero suitable homes. Use actual coverage: the prototype inspects at most five
-records in a bounded Tokyo map query, not all Tokyo, and even radius inclusion is unverified. It cannot filter
+connected, not that Tokyo has zero suitable homes. Use actual coverage: the prototype inspects at most twenty
+records on one page and returns at most five leads in a bounded Tokyo map query, not all Tokyo, and even radius inclusion is unverified. It cannot filter
 for detached houses. Explain this if requested; ask consequential property-type clarification before claiming
 that type was searched. When no leads exist, offer source_search_links and explain any source errors.
 Never claim all monthly fees, pet permission, house type or distance are verified for these discovery leads. Listing records require a permitted feed/import with source-confirmed availability and verification within the last hour. A confirmed source record does not guarantee future availability. Map buildings are not listings. Unknown rent/fees/coordinates/pet policy

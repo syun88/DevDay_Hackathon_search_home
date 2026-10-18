@@ -192,6 +192,19 @@ class AgentDiscoveryTest(unittest.TestCase):
         self.assertEqual(result['leads'],[])
         self.assertEqual(len(result['source_search_links']),3)
 
+    def test_manual_pagination_does_not_expand_agent_output_without_a_bound(self):
+        raw = self.raw()
+        template = raw['results'][0]
+        raw['results'] = [{**template, 'source_id':str(number), 'source_url':f'https://suumo.jp/chintai/{number}/'} for number in range(20)]
+        with patch.object(server,'FEED_PATH',''), patch.object(server,'FEED_URL',''), patch.object(server,'search_suumo',return_value=raw) as search:
+            result = server.agent_listings('Tokyo','rent',self.details())
+        self.assertEqual(len(result['leads']), 5)
+        self.assertEqual(result['leads'][0]['url'], 'https://suumo.jp/chintai/0/')
+        self.assertEqual(result['leads'][-1]['url'], 'https://suumo.jp/chintai/4/')
+        self.assertEqual(result['coverage']['max_inspected'], 20)
+        self.assertEqual(result['coverage']['max_leads'], 5)
+        search.assert_called_once()
+
     def test_missing_management_fee_does_not_hide_known_rent_or_invent_total(self):
         with patch.object(server,'FEED_PATH',''),patch.object(server,'FEED_URL',''),patch.object(server,'search_suumo',return_value=self.raw(165000,None)):
             result=server.agent_listings('Tokyo','rent',self.details())
