@@ -1,5 +1,6 @@
 """No network access required."""
 import json
+import time
 import unittest
 from unittest.mock import patch, MagicMock
 from http.server import ThreadingHTTPServer
@@ -73,6 +74,9 @@ class FilterTest(unittest.TestCase):
 
 class SuumoHttpTest(unittest.TestCase):
     def setUp(self):
+        permission = patch.object(server, 'SUUMO_REUSE_PERMITTED', True)
+        permission.start()
+        self.addCleanup(permission.stop)
         server._suumo_cache.clear()
         self.httpd = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
         self.worker = Thread(target=self.httpd.serve_forever, daemon=True)
@@ -106,6 +110,14 @@ class SuumoHttpTest(unittest.TestCase):
             self.assertFalse(self.get(query.replace('35.681236', '35.681237'))[1]['cached'])
             self.assertFalse(self.get(query.replace('radius_km=1', 'radius_km=1.001'))[1]['cached'])
         self.assertEqual(search.call_count, 6)
+
+    def test_unpermitted_suumo_never_contacts_upstream_or_serves_cached_data(self):
+        server._suumo_cache[(35.681236, 139.767125, 1, None, None)] = (time.monotonic(), {'results': ['TEST ONLY cached']})
+        with patch.object(server, 'SUUMO_REUSE_PERMITTED', False), patch.object(server, 'search_suumo') as search:
+            status, body = self.get('lat=35.681236&lon=139.767125&radius_km=1')
+        self.assertEqual(status, 403)
+        self.assertNotIn('results', body)
+        search.assert_not_called()
 
     def test_invalid_input_and_upstream_failure_do_not_search_or_cache(self):
         query = 'lat=35.681236&lon=139.767125&radius_km=1'
