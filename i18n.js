@@ -1,0 +1,303 @@
+// Interface translations. Listing content and Japanese search queries remain source data.
+(() => {
+'use strict';
+const english = {
+  "東京駅": "Tokyo Station",
+  "地点A：": "Point A: ",
+  "地点B：": "Point B: ",
+  "{0}万{1}": "{0} × ¥10,000{1}",
+  "/月": "/month",
+  "物件": "Property",
+  "条件に合う候補はありません。距離・家賃などの条件を変更してください。": "No candidates match. Adjust the distance, price or other filters.",
+  "候補物件は未登録です。上の「＋」から住所・家賃・掲載URLを登録すると比較できます。": "No saved candidates. Use “＋” above to add an address, price and listing URL.",
+  "万円": " × ¥10,000",
+  "価格未入力": "Price not entered",
+  "Aから{0}{1}｜{2}｜{3}㎡｜築{4}年": "{0} from A{1} | {2} | {3} m² | {4} years old",
+  "・Bから": " / from B: ",
+  "間取り不明": "Layout unknown",
+  "地図": "Map",
+  "道順": "Directions",
+  "編集": "Edit",
+  "削除": "Delete",
+  "この候補を削除しますか？": "Delete this candidate?",
+  "掲載元": "Listing source",
+  "地図上の地点": "Map location",
+  "座標を設定できません": "Unable to set coordinates",
+  "地図をドラッグして移動できます": "Drag the map to move",
+  "地名・会社名・住所は2文字以上入力してください": "Enter at least 2 characters for a place, company or address",
+  "位置情報の検索に失敗しました（": "Location search failed (",
+  "検索中": "Searching…",
+  "場所が見つかりません。会社名ではなく所在地で試してください": "Place not found. Try the address instead of the company name",
+  "検索": "Search",
+  "地図をクリックして地点Aを指定": "Click the map to set point A",
+  "地図をクリックして地点Bを指定": "Click the map to set point B",
+  "地図をクリックして物件の位置を指定": "Click the map to set the property location",
+  "地図操作モード": "Map navigation mode",
+  "集合住宅（名称未登録）": "Apartment building (unnamed)",
+  "住所データなし": "No address data",
+  "候補物件を編集": "Edit candidate",
+  "候補物件を登録": "Add candidate",
+  "物件名を入力してください": "Enter a property name",
+  "緯度・経度が必要です。住所の「位置検索」か地図上のクリックで設定してください": "Latitude and longitude are required. Use “Find location” or click the map",
+  "URLは https:// または http:// で入力してください": "Enter a URL starting with https:// or http://",
+  "物件を登録しました": "Candidate saved",
+  "住所を入力してください": "Enter an address",
+  "住所が見つかりません": "Address not found",
+  "座標を取得しました。地図で正しい位置か確認してください": "Coordinates found. Check the location on the map",
+  "位置検索": "Find location",
+  "物件名": "Property name",
+  "東京都千代田区丸の内1-9-1": "1-9-1 Marunouchi, Chiyoda-ku, Tokyo",
+  "CSVひな型には形式確認用の架空の例が含まれます。実際の募集物件ではありません": "The CSV template contains a fictional format example, not an actual listing",
+  "CSVに ": "CSV requires a ",
+  " 列が必要です。ひな型を確認してください": " column. Check the template",
+  "件の物件を取り込みました": " properties imported",
+  "CSVエラー：": "CSV error: ",
+  "未指定": "Not set",
+  "地図上で指定": "Selected on map",
+  "地図をタップして登録、または再度＋から座標を入力してください": "Tap the map to add a candidate, or enter coordinates using ＋",
+  "売買": "For sale",
+  "賃貸": "For rent",
+  "万円以下": " × ¥10,000 or less",
+  "㎡以上": " m² or more",
+  "ペット可": "Pets allowed",
+  "駐車場": "Parking",
+  "築": "Age: ",
+  "年以内": " years or less",
+  "{0} 周辺 {1}": "{0} nearby {1}",
+  "{0}を「{1}」に設定しました": "Set {0} to “{1}”",
+  "一致する場所はありません。住所、駅名や略称をお試しください。": "No matching places. Try an address, station name or abbreviation.",
+  "{0}件見つかりました。黄ピンで地図にも表示しています。": "Found {0} places. Yellow pins show them on the map.",
+  "地図へ": "Show on map",
+  "地点Aに指定": "Set as point A",
+  "地点Bに指定": "Set as point B",
+  "住所・会社・駅名を2文字以上入力してください。": "Enter at least 2 characters for an address, company or station.",
+  "公開地図データを検索中…": "Searching public map data…",
+  "検索に失敗：": "Search failed: ",
+  "。別の表記を試すか、地図をクリックして指定してください。": ". Try another spelling or click the map to set a location.",
+  "国土地理院 HTTP ": "GSI HTTP ",
+  "（国土地理院・概略位置）": " (GSI, approximate location)",
+  "OpenStreetMapから集合住宅を照会中…": "Looking up apartment buildings on OpenStreetMap…",
+  "サーバーが応答しません": "The server is not responding",
+  "建物情報を取得できません：": "Unable to load buildings: ",
+  "。時間をおいて再検索するか、物件サイトをご利用ください。": ". Try again later or use a property website.",
+  "半径内の集合住宅を探す": "Find apartments within radius",
+  "建物データがありません。地点A・半径を変えてお試しください。": "No building data. Try changing point A or the radius.",
+  "地図データ {0}件取得・現在の半径内 {1}件（{2}kmまで照会）。これは空室・募集物件の件数ではありません。{3}": "Retrieved {0} buildings; {1} within the current radius (searched up to {2} km). These are not vacancies or advertised units. {3}",
+  "半径を広げた場合は再検索してください。": "Search again after increasing the radius.",
+  "地点Aから{0}｜{1}": "{0} from point A | {1}",
+  "地図で確認": "View on map",
+  "候補に登録": "Add candidate",
+  "地図データ": "Map data",
+  "掲載情報を探す": "Find listing information",
+  "{0} {1} (site:suumo.jp OR site:homes.co.jp) 賃貸": "{0} {1} (site:suumo.jp OR site:homes.co.jp) rent",
+  "一覧は近い60件を表示。地図は最大220件を表示します。": "The list shows the nearest 60 buildings; the map shows up to 220.",
+  "家賃": "Rent",
+  "価格条件外": "Outside price limit",
+  "面積": "Area",
+  "面積条件外": "Below minimum area",
+  "築年数": "Building age",
+  "築年数条件外": "Outside age limit",
+  "間取り": "Layout",
+  "間取り条件外": "Layout does not match",
+  "指定半径外": "Outside radius",
+  "位置": "Location",
+  "掲載文に住所がありません。掲載元の住所を確認してください。": "No address in the listing snippet. Check the source listing.",
+  "住所検索 ": "Address search ",
+  "住所の概略位置（国土地理院）": "Approximate address location (GSI)",
+  "住所を地図に変換できません：": "Unable to locate the address on the map: ",
+  "位置は概略です。保存前に所在地と金額を確認してください。": "The location is approximate. Verify the address and price before saving.",
+  "掲載サイトの住所を確認し、位置検索で確定してください。": "Check the address on the listing website and use Find location to confirm.",
+  "万円/月": " × ¥10,000/month",
+  "価格不明": "Price unknown",
+  "{0}㎡": "{0} m²",
+  "築{0}年": "{0} years old",
+  "住所（索引抜粋）：{0}": "Address (search snippet): {0}",
+  "地点Aから約{0}／{1}・建物所在地と異なる場合があります": "About {0} from point A / {1}; may differ from the building location",
+  "推定位置": "Estimated location",
+  "住所の座標が未確認のため、距離条件との一致は未判定": "Coordinates are unverified; distance criteria cannot be checked",
+  "検索条件と不一致の可能性：": "May not match filters: ",
+  "・": " / ",
+  "未確認：": "Unverified: ",
+  "紹介文なし": "No description",
+  "掲載元を開く": "Open listing",
+  "住所を地図で探す": "Find address on map",
+  "候補に取り込む": "Import candidate",
+  "AIで広告を分類": "Classify listing with AI",
+  "Decisions APIで分類中…": "Classifying with Decisions API…",
+  "単一物件の広告らしい": "Likely a single property listing",
+  "物件一覧らしい": "Likely a list of properties",
+  "物件広告と判断できない": "Cannot identify as a property listing",
+  "AI分類（参考・空室未確認）：": "AI classification (advisory; vacancy unverified): ",
+  "判定不能": "Unable to classify",
+  " / 信頼度 {0}%": " / Confidence {0}%",
+  "AI分類を利用できません：": "AI classification unavailable: ",
+  "{0}｜{1}｜検索の抜粋・掲載日/空室未確認": "{0} | {1} | Search snippet; listing date and vacancy unverified",
+  "取得日時不明": "Retrieval time unknown",
+  "検索で発見 {0}件／位置を概略推定 {1}件／半径内の可能性 {2}件／半径外 {3}件／位置不明 {4}件": "Found {0} pages / {1} approximate locations / {2} possibly within radius / {3} outside / {4} unknown locations",
+  "検索結果を読み込むにはZIP内のサーバーを起動してください：python3 property-server.py。HTML単体で外部ページの内容を取得することはできません。": "Start the included server to load search results: python3 server.py. Standalone HTML cannot fetch external pages.",
+  "外部検索が有効：{0}。検索ボタンで掲載ページを取得します。": "External search enabled: {0}. Use Search listings to fetch pages.",
+  "検索サーバーは起動していますが、検索エンジンが利用できません。": "The search server is running, but the search engine is unavailable.",
+  "検索結果の取得にはローカルサーバーが必要です（README参照）。この画面だけを開いた場合は外部検索リンクをご利用ください。": "A local server is required to fetch results (see README). You can also use the external search links.",
+  "先に同梱サーバーを起動してください。設定不要のBing RSS検索を試せます。": "Start the included server first. Bing RSS search works without API keys.",
+  "実際の不動産サイトへのリンクを検索しています…": "Searching for links to property listings…",
+  "{0}の検索結果から{1}件取得。元サイトの募集・空室・価格の最新性は未確認です。": "Retrieved {1} results from {0}. Current availability, vacancy and prices are unverified.",
+  "掲載ページが見つかりませんでした。{0}": "No listing pages found. {0}",
+  "検索地域・条件を変えて再検索してください。": "Try another area or different filters.",
+  "検索結果を取得できません：": "Unable to fetch results: ",
+  "。掲載元サイトへの外部リンクも使えます。": ". You can also use the links to listing websites.",
+  "掲載ページを検索": "Search listings",
+  "地点": "Location",
+  " / 地点Aから": " / from point A: ",
+  "万": " × ¥10,000",
+  "掲載情報": "Listing",
+  "地点Aが変わりました。新しい地域で掲載物件を再検索してください。": "Point A changed. Search again for listings in the new area.",
+  "地点Aを変更しました。「半径内の集合住宅を探す」で新しい地点から再検索してください。": "Point A changed. Use “Find apartments within radius” to search the new location.",
+  "建物の検索結果をクリアしました。": "Building search results cleared.",
+  "Search Home | 物件・通勤距離・地域を探す": "Search Home | Find homes, areas and commute distances",
+  "住まいの地図": "Home Map",
+  "住所・会社を検索 → 半径内の実在する建物・掲載ページを表示 → 条件比較": "Search an address or company → explore nearby buildings and listing pages → compare your options",
+  "場所を横断検索": "Search places",
+  "住所・会社・駅名": "Address, company or station",
+  "例：ソニー本社 / 東京都港区港南1-7-1": "e.g. Sony headquarters / 1-7-1 Konan, Minato-ku, Tokyo",
+  "検索結果を地図にピン表示します。結果から地点A・Bを選択できます。": "Results appear as map pins. Choose a result as point A or B.",
+  "検索語を入力して「検索」を押してください。": "Enter a search term and press Search.",
+  "Google マップで会社・住所を探す ↗": "Find a company or address on Google Maps ↗",
+  "① 起点を選ぶ": "① Choose starting points",
+  "最大2か所": "Up to 2 locations",
+  "地点A・勤務先など": "Point A · workplace, etc.",
+  "地図で指定": "Pick on map",
+  "会社・駅・住所を検索": "Search a company, station or address",
+  "地点B・別の会社など": "Point B · another workplace, etc.",
+  "2か所目を追加（任意）": "Add a second location (optional)",
+  "地点Bからの距離でも絞り込む": "Also filter by distance from point B",
+  "Aから": "From A",
+  "Bから": "From B",
+  "円は直線距離です。地図上を押して地点を指定できます。会社名で見つからない場合は住所検索、またはGoogle マップ検索をお試しください。": "Circles show straight-line distance. Click the map to set a point. If a company name is not found, try its address or Google Maps.",
+  "② 物件を条件で絞る": "② Filter properties",
+  "最大家賃・価格": "Maximum rent / price",
+  "例：8": "e.g. 8",
+  "最小面積（㎡）": "Minimum area (m²)",
+  "例：25": "e.g. 25",
+  "すべて": "All",
+  "築年数（上限・年）": "Maximum building age (years)",
+  "指定なし": "Any",
+  "用途・物件種別": "Property type",
+  "賃貸価格は万円/月、売買価格は万円。金額条件は種別を指定して利用してください。": "Rent is in ¥10,000/month; sale prices are in ¥10,000. Select a property type before filtering by price.",
+  "駐車場あり": "Parking available",
+  "範囲内のみ": "Within radius only",
+  "条件に合う候補物件": "Matching candidates",
+  "③ 検索結果を地図に表示": "③ Show search results on map",
+  "近くの集合住宅（OpenStreetMap）": "Nearby apartments (OpenStreetMap)",
+  "実在する地図上の建物データを取得して地図と一覧に表示します。": "Fetch real building data and display it on the map and in a list.",
+  "賃貸募集・空室情報ではありません。": "This is not rental or vacancy information.",
+  "消去": "Clear",
+  "未検索。表示件数はOpenStreetMapの登録状況に依存します。": "Not searched yet. Coverage depends on OpenStreetMap data.",
+  "募集物件の掲載ページを検索": "Find property listing pages",
+  "SUUMO・HOME’S・at homeの検索エンジン掲載結果を読み込み、タイトル・家賃・間取り・面積（判読可能な項目のみ）と出典を表示します。空室・位置は要確認です。": "Search engine results from SUUMO, HOME’S and at home, with titles, rent, layout, area (when readable) and sources. Verify availability and location.",
+  "検索地域（空欄なら地点Aの名前）": "Search area (defaults to point A’s name)",
+  "物件を検索する地域": "Area to search for properties",
+  "追加キーワード（例：南向き・駅徒歩10分）": "Extra keywords (e.g. south-facing, 10-minute walk to station)",
+  "検索エンジン": "Search engine",
+  "検索：自動（Braveがあれば優先／なければBing）": "Search: automatic (Brave if configured, otherwise Bing)",
+  "Bing RSS（APIキー不要）": "Bing RSS (no API key needed)",
+  "Brave Search API（キーがある場合）": "Brave Search API (requires a key)",
+  "利用可能な検索連携を確認中…": "Checking available search services…",
+  "OPENAI_API_KEYをサーバーに設定すると、取得した掲載ページをボタンからDecisions APIで分類できます（任意・費用発生）。": "Set OPENAI_API_KEY on the server to classify retrieved listing pages with the Decisions API using a button (optional; charges apply).",
+  "位置判明分は半径内のみ表示": "Show located results within radius only",
+  "SUUMOで検索": "Search SUUMO",
+  "掲載元で空室・条件を確認": "Check availability and details at the source",
+  "HOME'Sで検索": "Search HOME'S",
+  "公式サイトを開く": "Open official website",
+  "Webで物件検索": "Search the web for properties",
+  "現在の検索条件を反映": "Uses your current search filters",
+  "at homeで検索": "Search at home",
+  "検索結果からの家賃・間取り・面積抽出は推定です。住所が判明したときだけ位置の概略ピンを表示します。現在の空室や正確な場所・条件は必ず掲載元で確認してください。": "Rent, layout and area extracted from search snippets are estimates. Approximate map pins appear only when an address is available. Always verify current availability, exact location and conditions at the source.",
+  "＋ 見つけた物件を候補登録": "＋ Add a property candidate",
+  "CSV読み込み": "Import CSV",
+  "CSVひな型": "CSV template",
+  "CSV出力": "Export CSV",
+  "④ 保存済みの候補物件": "④ Saved candidates",
+  "Aに近い順": "Nearest to A",
+  "安い順": "Lowest price",
+  "広い順": "Largest area",
+  "まだ候補物件がありません。公式の地図検索で物件を探し、上の「＋」ボタンから住所や家賃を登録してください。": "No candidates yet. Find properties using official map searches, then use ＋ above to save their addresses and rents.",
+  "地図 © OpenStreetMap contributors。場所検索：OpenStreetMap Nominatim／国土地理院（検索できない場合）。地図タイルの通信が必要です。直線距離は球面上の2地点間で計算。実際の経路・募集条件はリンク先で再確認してください。": "Map © OpenStreetMap contributors. Place search: OpenStreetMap Nominatim / GSI (fallback). Map tiles require internet access. Distances are calculated between two points on a sphere. Verify routes and listing details at the source.",
+  "地図タイルを取得できません。通信環境を確認してください。地点・距離・候補情報の操作はできます。": "Unable to load map tiles. Check your connection. Location, distance and candidate controls are still available.",
+  "拡大": "Zoom in",
+  "縮小": "Zoom out",
+  "起点Aに戻る": "Return to point A",
+  "青：地点A　紫：地点B　黄：住所・会社　青緑：実在建物　緑：保存候補": "Blue: A · Purple: B · Yellow: places · Teal: buildings · Green: saved",
+  "地図をタップして座標を指定するか、住所から位置を検索できます。": "Tap the map to set coordinates, or find the location from an address.",
+  "物件名 *": "Property name *",
+  "例：〇〇マンション 203号室": "e.g. Example Apartments, Room 203",
+  "住所（位置検索にも使用）": "Address (also used to find location)",
+  "住所を入力": "Enter address",
+  "種別": "Type",
+  "家賃・価格（万円）": "Rent / price (× ¥10,000)",
+  "面積（㎡）": "Area (m²)",
+  "築年数（年）": "Building age (years)",
+  "設備": "Amenities",
+  "掲載元URL（任意）": "Listing URL (optional)",
+  "緯度": "Latitude",
+  "住所検索で入力": "Filled by address search",
+  "経度": "Longitude",
+  "キャンセル": "Cancel",
+  "保存": "Save",
+  "Bing RSS (APIキー不要、利用制限あり)": "Bing RSS (no API key; usage limits apply)"
+};
+const storageKey = 'property_map_language';
+let language = 'ja';
+try { if (localStorage.getItem(storageKey) === 'en') language = 'en'; } catch {}
+const bindings = new Map();
+function t(key, values = []) {
+  const text = language === 'en' ? (english[key] ?? key) : key;
+  return String(text).replace(/\{(\d+)\}/g, (match, index) => values[index] ?? match);
+}
+// Retain a render function so messages already on screen can switch languages too.
+function setText(element, render) {
+  bindings.set(element, render);
+  element.textContent = render();
+  if (bindings.size > 500) {
+    for (const node of bindings.keys()) if (!node.isConnected) bindings.delete(node);
+  }
+}
+const staticText = [];
+const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
+while (walker.nextNode()) {
+  const node = walker.currentNode;
+  if (node.parentElement.closest('script, style, #nameA, #nameB, [data-language]')) continue;
+  const key = node.nodeValue.trim();
+  if (Object.hasOwn(english, key)) staticText.push([node, node.nodeValue, key]);
+}
+const attributes = [];
+for (const element of document.querySelectorAll('[placeholder], [title], [aria-label]')) {
+  for (const attr of ['placeholder', 'title', 'aria-label']) {
+    const key = element.getAttribute(attr);
+    if (key && Object.hasOwn(english, key)) attributes.push([element, attr, key]);
+  }
+}
+function applyLanguage() {
+  document.documentElement.lang = language;
+  for (const [node, original, key] of staticText) {
+    if (node.isConnected) node.nodeValue = original.replace(key, () => t(key));
+  }
+  for (const [element, attr, key] of attributes) element.setAttribute(attr, t(key));
+  for (const [element, render] of bindings) {
+    if (element.isConnected) element.textContent = render();
+    else bindings.delete(element);
+  }
+  for (const button of document.querySelectorAll('[data-language]')) {
+    button.setAttribute('aria-pressed', String(button.dataset.language === language));
+  }
+}
+for (const button of document.querySelectorAll('[data-language]')) {
+  button.addEventListener('click', () => {
+    language = button.dataset.language;
+    try { localStorage.setItem(storageKey, language); } catch {}
+    applyLanguage();
+    window.dispatchEvent(new Event('home-language-change'));
+  });
+}
+window.homeI18n = {t, setText};
+applyLanguage();
+})();
