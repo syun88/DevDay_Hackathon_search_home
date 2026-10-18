@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 import xml.etree.ElementTree as ET
 import os, json, re, math, threading, time
 from listing_feed import normalize_feed
+from suumo_bridge import SuumoError, search as search_suumo, validate_search, validate_filters
 
 BASE = Path(__file__).resolve().parent
 OPENAI_KEY = os.environ.get('OPENAI_API_KEY', '').strip()
@@ -33,6 +34,7 @@ USER_AGENT = 'PropertyFinderLocal/2.0 (+browser-side user initiated search)'
 CACHE_TTL = 120
 _cache: dict[str, tuple[float, dict]] = {}
 _cache_lock = threading.Lock()
+_suumo_cache: dict[tuple[float, float, float, float | None, str | None], tuple[float, dict]] = {}
 MAX_BYTES = 1_000_000
 _route_lock = threading.Lock()
 _last_route_request = 0.0
@@ -352,6 +354,29 @@ class Handler(SimpleHTTPRequestHandler):
                     'has_brave_key':bool(SEARCH_KEY), 'decisions_enabled':bool(OPENAI_KEY),
                     'feed_enabled':bool(FEED_PATH or FEED_URL), 'routing_enabled':True,
                     'listing_max_age_seconds':3600})
+        if u.path == '/api/suumo-search':
+            q = parse_qs(u.query, keep_blank_values=True)
+            if not {'lat', 'lon', 'radius_km'} <= set(q) or not set(q) <= {'lat', 'lon', 'radius_km', 'max_rent_man', 'layout'} or any(len(v) != 1 for v in q.values()):
+                return self.respond(400, {'error': 'lat, lon, radius_km を1つずつ指定してください'})
+            try:
+                lat, lon, radius = validate_search(float(q['lat'][0]), float(q['lon'][0]), float(q['radius_km'][0]))
+                max_rent, layout = validate_filters(float(q['max_rent_man'][0]) if 'max_rent_man' in q else None,
+                                                    q['layout'][0] if 'layout' in q else None)
+            except ValueError as exc:
+                return self.respond(400, {'error': str(exc)})
+            key = (lat, lon, radius, max_rent, layout)
+            with _cache_lock:
+                cached = _suumo_cache.get(key)
+                if cached and time.monotonic() - cached[0] < 120:
+                    return self.respond(200, {**cached[1], 'cached': True})
+            try:
+                result = search_suumo(lat, lon, radius, max_rent, layout)
+            except SuumoError as exc:
+                return self.respond(502, {'error': str(exc), 'code': exc.code})
+            with _cache_lock:
+                if len(_suumo_cache) >= 20: _suumo_cache.clear()
+                _suumo_cache[key] = (time.monotonic(), result)
+            return self.respond(200, {**result, 'cached': False})
         if u.path != '/api/listings':
             if u.path not in ('/index.html', '/i18n.js', '/property_core.js'):
                 return self.respond(404, {'error':'not found'})
