@@ -35,7 +35,7 @@ function app({rangeMode='distance',geolocation,secureContext=true}={}){
  element('commuteMode').value='foot';
  const storage=new Map();
  const context={
-  window:{isSecureContext:secureContext,propertyCore:core,publicHousing,homeWalking:walking,homeI18n:{t:(text,values=[])=>String(text).replace(/\{(\d+)\}/g,(_,index)=>values[index]??''),setText:(node,render)=>{node.textContent=render();}},addEventListener(){}},
+  window:{mountSearchWorkspace(){},isSecureContext:secureContext,propertyCore:core,publicHousing,homeWalking:walking,homeI18n:{t:(text,values=[])=>String(text).replace(/\{(\d+)\}/g,(_,index)=>values[index]??''),setText:(node,render)=>{node.textContent=render();}},addEventListener(){}},
   document:{getElementById:element,createElement:()=>new Element(),createDocumentFragment:()=>new Element(),querySelectorAll:()=>[],addEventListener(){}},
   // Existing radius/filter tests start with the straight-line preference.
   localStorage:{getItem:key=>storage.get(key)||(key==='property_map_v2'?JSON.stringify({rangeMode}):null),setItem:(key,value)=>storage.set(key,value)},

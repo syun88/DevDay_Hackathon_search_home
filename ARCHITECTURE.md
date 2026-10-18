@@ -137,3 +137,34 @@ curl -sS https://api.openai.com/v1/decisions \
 - [NII LIFULL HOME'Sデータセット（研究利用条件あり）](https://www.nii.ac.jp/dsc/idr/lifull/)
 - [NII アットホームデータセット（過去データ）](https://www.nii.ac.jp/dsc/idr/athome/)
 - [SUUMO 利用規約](https://suumo.jp/edit/kiyaku/)
+
+
+## 9. 会話型エージェントの実装 / Conversational agent (issue #3)
+
+既存のHTML/JavaScriptと標準ライブラリのPythonサーバーを維持する。チャットを主画面とし、手動設定は折りたたんで残す。
+
+### State and memory
+- Schema version 3 migrates existing search sessions on read. Previous fee-exclusive budgets become a historical memory note and the active cap is cleared for reconfirmation. New fields share unknown-condition display, road commute mode/limit and feed selection with the existing controls. SQLite stores the shared criteria, draft, user/assistant messages, explicit preference memory, named places, five result snapshots, saved candidates and twenty prior criteria snapshots.
+- Prices use whole yen and include management and mandatory monthly fees for rentals. Missing fees remain unknown. The agent and manual controls use the merged listing-source verification rules (one hour), exact-location requirements and road commute limits. Road estimates use the same OSRM routing function; train times and live traffic are unsupported.
+- A provider session ID stays private on the server. Configuration upgrades create a new provider session with recent local conversation and structured memory, preserving earlier provider IDs for deletion on clear. Reusing the same OpenAI Agents API session preserves conversation context; structured local memory remains authoritative alongside current manual edits.
+- The browser receives public state through a cookie-bound session. Provider IDs, original submission envelopes, instructions and tool-result journals are excluded.
+
+### Agent runtime
+- `home_agent.py` uses the Agents API REST endpoints with `OpenAI-Beta: agents=v1`, a configurable model, and `environment: none`. No arbitrary code execution, sandbox, unrestricted browsing or third-party messaging tool is exposed.
+- A chat POST durably records the logical submission before a background worker begins. Submission keys are scoped to the local session; provider input is saved before sending so a recovery reuses the same request.
+- Workers poll required actions and root turn outcomes, execute only validated application tools, return tool results and retrieve final assistant messages from saved items. A completed root turn, rather than idle state alone, establishes completion. Item pagination is handled.
+- Allowed tools read/update criteria, resolve real places, set/remember origins, remember/forget explicit preferences, search listing pages, compare/save/remove stable candidates, estimate road commute for retrieved exact-coordinate candidates, and undo criteria changes.
+- Server-side validation and revision checks protect criteria. Tool side effects and replay results commit in one SQLite transaction. A stale write returns current state instead of overwriting manual edits. A search completed against obsolete criteria is rejected.
+- In-progress work resumes after reload or server restart. Cancellation and remote/local history deletion are themselves persisted lifecycle operations. Uncertain errors require resuming or stopping the previous turn before a new message can start.
+
+### Results and interface
+- Agent search results have stable listing IDs and immutable result-set IDs/order, so references such as “the second one” can be resolved explicitly. Old result sets remain available for comparison within the bounded history.
+- Search snippets become discovery links only, with no extracted prices or property records. Candidate data comes from the existing permitted feed path. Deterministic evidence checks include monthly fees, freshness, exact coordinates, both required origins and route duration. Comparisons recheck evidence when snapshots age. Approximate geocoding never becomes an exact location claim. The merged SUUMO prototype remains available manually and now powers the agent’s no-feed discovery fallback. Records are tagged discovery_only, receive stable references and appear separately from verified candidate filtering, with unknown vacancy/other fees/location. A known rent-plus-management lower bound above the requested total cap excludes a lead. No lead gets a verified timestamp or map coordinates. Source failures and unsupported areas return explicit errors and working source-search links. Coverage metadata records the requested versus bounded query radius and five-record inspection limit; the agent must not claim a citywide search.
+- The original map occupies the upper workspace and a resizable chat dock sits beneath it. A collapsible left sidebar holds saved chats and explicit memory; advanced controls and results open as drawers. SQLite archives each chat under its cookie owner. Switching is atomic, increases the owner revision and is blocked during pending provider operations. Chat, editable chips and the advanced panel share one criteria state. With a configured AI key, the primary search button asks the agent to search the current state. Keyless manual search remains available.
+- Messages render through a small DOM-based Markdown subset without HTML injection. The UI shows actual tool progress, errors, Stop/Retry, remembered preferences and saved listing pages.
+- Clear chat & memory deletes the remote agent session before clearing local history and memory. New search also resets criteria; saved candidates are retained. A remote deletion failure remains visible.
+
+### Boundaries and validation
+- Exact personal places are sent to OpenAI only as part of the requested search context/tools; API keys remain server-side. External listing text is treated as untrusted data.
+- The server remains localhost-only. Cookie lifetime is 30 days; authenticated multi-user isolation and automatic retention cleanup are not implemented. Legacy manual candidates remain in browser storage.
+- Offline tests cover schemas, atomic revisions, HTTP/session isolation, idempotent submission/tool replay, persisted memory, stale results, stable references, saving/comparison, Undo, cancellation and deletion. Browser/live API checks cover bilingual conversation, state changes, memory after reload, real search, Japanese Undo and lifecycle recovery.

@@ -12,20 +12,57 @@ Optional: BRAVE_SEARCH_API_KEY=... python3 property-server.py
 from __future__ import annotations
 
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.cookies import SimpleCookie, CookieError
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from pathlib import Path
+from copy import deepcopy
+from hashlib import sha256
+from uuid import uuid4
 from html import unescape
 from datetime import datetime, timezone
 from contextlib import contextmanager
 import xml.etree.ElementTree as ET
 import os, json, re, math, threading, time
 from listing_feed import normalize_feed
-from suumo_bridge import SuumoError, search as search_suumo, validate_search, validate_filters, validate_page
+from session_store import SessionStore, RevisionConflict, CRITERIA_SCHEMA, UPDATE_SCHEMA, SCHEMA_VERSION, public_session
+from home_agent import HomeAgent, AgentError
+from listing_details import read_details
+from suumo_bridge import SuumoError, search as search_suumo, validate_search, validate_filters, validate_page, RENT_STEPS, PAGE_SIZE as SUUMO_PAGE_SIZE
 import public_housing
+import web_search
 
 BASE = Path(__file__).resolve().parent
+
+
+def load_env(path):
+    """Load simple KEY=value settings without overriding the process environment."""
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding='utf-8-sig').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if line.startswith('export '):
+            line = line[7:].lstrip()
+        key, separator, value = line.partition('=')
+        key, value = key.strip(), value.strip()
+        if not separator or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key):
+            continue
+        if value.startswith(('"', "'")):
+            quote = value[0]
+            end = value.find(quote, 1)
+            remainder = value[end + 1:].strip() if end != -1 else ''
+            if end == -1 or (remainder and not remainder.startswith('#')):
+                continue
+            value = value[1:end]
+        else:
+            value = value.split(' #', 1)[0].rstrip()
+        os.environ.setdefault(key, value)
+
+
+load_env(BASE / '.env')
 OPENAI_KEY = os.environ.get('OPENAI_API_KEY', '').strip()
 SEARCH_KEY = os.environ.get('BRAVE_SEARCH_API_KEY', '').strip()
 FEED_PATH = os.environ.get('LISTINGS_FEED_PATH', '').strip()
@@ -39,6 +76,7 @@ _cache: dict[str, tuple[float, dict]] = {}
 _cache_lock = threading.Lock()
 _suumo_cache: dict[tuple[float, float, float, float | None, str | None, int], tuple[float, dict]] = {}
 MAX_BYTES = 1_000_000
+SESSION_STORE = SessionStore(BASE / '.local' / 'sessions.sqlite3')
 VALHALLA_URL = os.environ.get('VALHALLA_URL', 'https://valhalla1.openstreetmap.de').rstrip('/')
 WALKING_SPEED_KMH = 4.8
 WALKING_FERRY_BOARDING_SECONDS = 43200
@@ -498,11 +536,93 @@ def decision_classify(title: str, description: str) -> dict:
     if choice not in ('detail','list','other'):choice='unknown'
     return {'choice':choice,'confidence':answer.get('confidence'),'is_verified':False}
 
+def agent_listings(place, kind, details, provider='auto'):
+    if provider == 'feed' or (provider == 'auto' and (FEED_PATH or FEED_URL)):
+        result = load_feed()
+        result['results'] = [r for r in result['results'] if r['kind'] == kind]
+        result['inventory_status'] = 'configured_verified_feed'
+        return result
+    # Discovery is useful even without verified vacancy inventory. Keep leads separate
+    # from matching candidates and never reinterpret fetched_at as verified_at.
+    result = {'results': [], 'leads': [], 'discovery_links': [], 'errors': [],
+              'provider': 'discovery', 'inventory_status': 'no_verified_feed_configured'}
+    origin = details.get('origin', {})
+    if provider == 'auto' and kind == 'rent' and origin and SUUMO_REUSE_PERMITTED:
+        try:
+            radius = min(details.get('radius_km', 2), 2)
+            lat, lon, radius = validate_search(origin['lat'], origin['lon'], radius)
+            budget = details.get('max_price_yen')
+            # The upstream slider is coarse. Search the next supported step and
+            # reject known over-budget subtotals locally, without changing criteria.
+            cap = next((x for x in RENT_STEPS if x * 10000 >= budget), None) if budget is not None else None
+            layout = details.get('layout') or None
+            validate_filters(cap, layout)
+            raw = search_suumo(lat, lon, radius, cap, layout)
+            result['coverage'] = {'source': 'SUUMO map prototype', 'origin': origin,
+                                  'requested_radius_km': details.get('radius_km'), 'query_radius_km': radius,
+                                  'max_inspected': SUUMO_PAGE_SIZE, 'page': 1, 'within_radius_verified': False,
+                                  'citywide': False, 'supports_detached_house_filter': False}
+            for row in raw['results']:
+                known = row.get('known_monthly_subtotal_jpy')
+                # Even when one fee is missing, known rent alone is a lower bound.
+                lower_bound = (row.get('rent_jpy') or 0) + (row.get('management_fee_jpy') or 0)
+                if budget is not None and lower_bound > budget: continue
+                result['leads'].append({
+                    'title': row.get('name') or 'SUUMO ' + row['source_id'], 'url': row['source_url'], 'source': 'SUUMO',
+                    'kind': 'rent', 'discovery_only': True, 'availability_status': 'unknown',
+                    'last_verified_at': None, 'retrieved_at': raw['fetched_at'],
+                    'lat': None, 'lon': None, 'geo_precision': 'unknown',
+                    'known_monthly_subtotal_yen': known,
+                    'extracted': {'price': row['rent_jpy']/10000 if row['rent_jpy'] is not None else None,
+                                  'management_fee_yen':row['management_fee_jpy'], 'mandatory_fee_yen':None,
+                                  'area':row['area_sqm'], 'layout':row['layout'], 'address':row['address'],
+                                  **{k:row.get(k) or None for k in ('floor','age_text','transport','deposit','key_money')}},
+                    'limitations': ['availability unknown', 'other monthly fees unknown', 'exact location and radius unverified',
+                                    'building type and other requested requirements unverified']})
+        except (ValueError, KeyError, TypeError):
+            result['errors'].append('SUUMO prototype supports Tokyo origins only and selected layouts; no citywide inventory is available.')
+        except SuumoError as exc:
+            result['errors'].append('SUUMO discovery unavailable: ' + exc.code)
+    if not SUUMO_REUSE_PERMITTED:
+        result['errors'].append('SUUMO reuse is not configured; use licensed public layers or source search links.')
+    if not result['leads']:
+        discovered = fetch_listings(place, kind, details, provider)
+        result['discovery_links'] = [{'url': r['url'], 'source': r['source']} for r in discovered.get('results', [])]
+        result['errors'].extend(discovered.get('errors', []))
+    # Always give a working source search path, even when an index returns nothing.
+    query = ' '.join(str(x) for x in (place, '賃貸' if kind == 'rent' else '売買', details.get('layout'), details.get('keywords')) if x)
+    result['source_search_links'] = [{'source': name, 'url': 'https://www.google.com/search?' + urlencode({'q': 'site:' + host + ' ' + query})}
+                                     for name, host in [('SUUMO', 'suumo.jp'), ("HOME’S", 'homes.co.jp'), ('at home', 'athome.co.jp')]]
+    return result
+
+
+def permitted_details(url):
+    if not SUUMO_REUSE_PERMITTED: raise ValueError('Source reuse is not configured; use known fields and official source link')
+    return read_details(url)
+
+
+def agent_web_search(query, context=''):
+    # Same configured model as the agent. While SUUMO reuse is not permitted, SUUMO pages
+    # stay navigable links only: no rent, address or other values are extracted from them.
+    return web_search.search(OPENAI_KEY, HOME_AGENT.api.model, query, context,
+                             () if SUUMO_REUSE_PERMITTED else ('suumo.jp',))
+
+
+HOME_AGENT = HomeAgent(SESSION_STORE, OPENAI_KEY, agent_listings, router=route_time, detail_reader=permitted_details, public_search=public_housing.search, public_geocode=public_housing.geocode, web_search=agent_web_search)
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(BASE), **kwargs)
 
-    def respond(self, code: int, obj: dict):
+    def send_head(self):
+        # Serve only frontend assets, never .env, Git metadata, or source files.
+        if urlparse(self.path).path not in ('/', '/index.html', '/i18n.js', '/session.js', '/workspace.js', '/workspace.css', '/chat.js', '/shell.js', '/shell.css', '/property_core.js', '/public_housing.js', '/map_agent.js', '/map_agent.css', '/walking.js'):
+            self.send_error(404, 'Not found')
+            return None
+        return super().send_head()
+
+    def respond(self, code: int, obj: dict, cookie=None):
         payload = json.dumps(obj, ensure_ascii=False).encode('utf-8')
         try:
             self.send_response(code)
@@ -510,13 +630,192 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Content-Length', str(len(payload)))
+            if cookie:
+                self.send_header('Set-Cookie', cookie)
             self.end_headers()
             self.wfile.write(payload)
         except (BrokenPipeError, ConnectionResetError):
             # Range changes and tab closes can disconnect even an error response.
             self.close_connection = True
 
+    def session_id(self):
+        try:
+            cookies = SimpleCookie(self.headers.get('Cookie', ''))
+            token = cookies.get('search_session')
+            if token and re.fullmatch(r'[A-Za-z0-9_-]{43}', token.value):
+                return token.value
+        except CookieError:
+            pass
+        return None
+
+    def remember_native_results(self, result):
+        # Import/feed UI and chat share the same normalized records and stable IDs.
+        owner = self.session_id()
+        if not owner or not SESSION_STORE.get(owner): return result
+        for item in result.get('results',[]):
+            item['id']='listing_'+sha256((item['url']+'\0'+item.get('source_record_id','')).encode()).hexdigest()[:16]
+        def save(s):
+            snapshot={'id':'results_'+uuid4().hex[:16],'criteria':deepcopy(s['criteria']),
+                      'items':deepcopy(result.get('results',[])[:30]),'provider':result.get('provider','feed'),
+                      'created_at':datetime.now(timezone.utc).isoformat(),'note':'Imported via the original UI; source verification and unknown costs remain explicit.'}
+            for item in snapshot['items']: item['match']=__import__('home_agent').evidence(item,s['criteria'])
+            snapshot['counts']={'retrieved':len(snapshot['items']),'leads':0,'confirmed':sum(i['match']['status']=='confirmed' for i in snapshot['items'])}
+            s['result_sets']=(s['result_sets']+[snapshot])[-5:]
+        SESSION_STORE.mutate(owner,save)
+        return result
+
+    def update_session(self, action='session'):
+        host = self.headers.get('Host', '')
+        allowed_hosts = {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
+        if (host not in allowed_hosts or self.headers.get('Sec-Fetch-Site') == 'cross-site'
+                or self.headers.get('Origin', 'http://' + host) != 'http://' + host):
+            return self.respond(403, {'error': 'Same-origin request required'})
+        if self.headers.get('Content-Type', '').split(';')[0].lower() != 'application/json':
+            return self.respond(415, {'error': 'application/json required'})
+        try:
+            size = int(self.headers.get('Content-Length', '0'))
+            if not 2 <= size <= 16000:
+                return self.respond(413, {'error': 'Invalid body size'})
+            payload = json.loads(self.rfile.read(size))
+            if not isinstance(payload, dict):
+                raise ValueError('JSON object required')
+            session_id = self.session_id()
+            if not session_id or not SESSION_STORE.get(session_id):
+                return self.respond(404, {'error': 'Session not found; reload the page'})
+            if action == 'session':
+                result = SESSION_STORE.update(session_id, payload)
+            elif action == 'map':
+                import map_agent
+                refs = payload.get('public_records',[])
+                if not isinstance(refs,list) or len(refs)>500: raise ValueError('Invalid public references')
+                records=[]
+                for ref in refs:
+                    if not isinstance(ref,dict) or set(ref)!={'id','source'}: raise ValueError('Invalid reference')
+                    item=next((r for r in public_housing.load(ref['source'])['records'] if r['id']==ref['id']),None)
+                    if not item: raise ValueError('Unknown official record')
+                    records.append({**item, **public_housing.cached_position(item['address'])})
+                if 'public_version' in payload and type(payload['public_version']) is not int: raise ValueError('Invalid public version')
+                def update_map(s):
+                    stored = s.get('public_records', [])
+                    key = lambda r: (r.get('source'), r['id'])
+                    owned = {key(r): r for r in stored}
+                    def keep_position(record):
+                        # Coordinates validated earlier are owned session data; the
+                        # in-memory geocode cache may have expired or restarted.
+                        old = owned.get(key(record))
+                        if old and old.get('lat') is not None and record.get('lat') is None:
+                            return {**record, **{k: old[k] for k in ('lat', 'lon', 'geo_precision', 'geocode_label') if k in old}}
+                        return record
+                    incoming = [keep_position(r) for r in records]
+                    version = s.get('public_version', 0)
+                    if [key(r) for r in incoming] != [key(r) for r in stored] and payload.get('public_version', version) != version:
+                        # A list built on an older version (before an agent load or a reset)
+                        # must not replace the newer set; the browser adopts the stored one.
+                        incoming = stored
+                    outcome = map_agent.report({**s,'public_records':incoming},payload)
+                    if not outcome.get('error'):
+                        if [key(r) for r in incoming] != [key(r) for r in stored]:
+                            s['public_version'] = version + 1
+                        s['public_records']=incoming
+                        # report mutates the nested owned map state and command.
+                    return outcome
+                result, outcome = SESSION_STORE.mutate(session_id, update_map)
+                if outcome.get('error'): return self.respond(409,outcome)
+            elif action == 'chat':
+                result = HOME_AGENT.start(session_id, payload)
+            elif action == 'cancel':
+                current = SESSION_STORE.get(session_id)
+                if payload.get('request_id') != current['chat'].get('request_id'):
+                    return self.respond(409, {'error': 'request_changed', 'session': public_session(current)})
+                result = HOME_AGENT.cancel(session_id, payload.get('request_id'))
+            elif action in ('new_chat', 'switch_chat'):
+                if action == 'switch_chat' and not isinstance(payload.get('chat_id'), str):
+                    raise ValueError('Chat ID required')
+                result = SESSION_STORE.switch_chat(session_id, payload.get('expected_revision'), payload.get('chat_id') if action == 'switch_chat' else None)
+            elif action == 'resume':
+                result = HOME_AGENT.recover(session_id, payload.get('request_id'))
+            elif action == 'reset':
+                if (type(payload.get('expected_revision')) is not int
+                        or type(payload.get('reset_search', False)) is not bool):
+                    raise ValueError('Invalid reset')
+                result = HOME_AGENT.reset(session_id, payload['expected_revision'], payload.get('reset_search', False))
+            HOME_AGENT.notify(session_id)
+            return self.respond(200, public_session(result))
+        except RevisionConflict as exc:
+            return self.respond(409, {'error': 'revision_conflict', 'session': public_session(exc.session)})
+        except AgentError as exc:
+            return self.respond(409 if str(exc) == 'busy' else 503, {'error': str(exc)})
+        except (ValueError, UnicodeError):
+            return self.respond(400, {'error': 'Invalid session update'})
+
+    def stream_chat(self):
+        """Server-sent events with streamed assistant text, tool activity and saved-state changes."""
+        host = self.headers.get('Host', '')
+        if (host not in {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
+                or self.headers.get('Sec-Fetch-Site') == 'cross-site'):
+            return self.respond(403, {'error': 'Same-origin request required'})
+        session_id = self.session_id()
+        session = SESSION_STORE.get(session_id) if session_id else None
+        if not session:
+            return self.respond(404, {'error': 'Session not found; reload the page'})
+        HOME_AGENT.resume(session_id)
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.close_connection = True
+        def send(name, data):
+            self.wfile.write(f'event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n'.encode('utf-8'))
+        seen, state, sent, started = (-1, -1), None, {}, time.monotonic()
+        try:
+            self.wfile.write(b'retry: 1500\n\n'); self.wfile.flush()
+            while time.monotonic() - started < 600:
+                version = HOME_AGENT.wait_change(session_id, seen, 15)
+                changed, durable = version != seen, version[1] != seen[1]
+                seen = version
+                if durable:
+                    session = SESSION_STORE.get(session_id)
+                    if not session:
+                        break
+                    chat = session['chat']
+                    current = {'chat_id': session['chat_id'], 'revision': session['revision'],
+                               'map_revision': session['map_view']['revision'], 'status': chat.get('status'),
+                               'request_id': chat.get('request_id'), 'progress': chat.get('progress'),
+                               'error': chat.get('error'), 'recoverable': chat.get('recoverable')}
+                    if current != state:
+                        send('state', current); state = current
+                live = HOME_AGENT.live_view(session_id, session)
+                if live:
+                    key = (live['chat_id'], live['request_id'])
+                    if sent.get('key') != key:
+                        sent = {'key': key}
+                    payload, previous = {'chat_id': key[0], 'request_id': key[1]}, sent.get('text')
+                    # Coalesced, offset-checked appends; anything else replaces the whole text.
+                    if previous is None or not live['text'].startswith(previous):
+                        payload['text'] = live['text']
+                    elif len(live['text']) > len(previous):
+                        payload.update(offset=len(previous), delta=live['text'][len(previous):])
+                    for field in ('activity', 'note'):
+                        if sent.get(field) != live[field]:
+                            payload[field] = live[field]
+                    if len(payload) > 2:
+                        send('live', payload)
+                        sent.update(text=live['text'], activity=live['activity'], note=live['note'])
+                if not changed:
+                    self.wfile.write(b': keepalive\n\n')
+                self.wfile.flush()
+                time.sleep(.05)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+
     def do_POST(self):
+        action = {'/api/map': 'map', '/api/chat': 'chat', '/api/chat/cancel': 'cancel', '/api/chat/reset': 'reset', '/api/chat/resume': 'resume', '/api/chats/new': 'new_chat', '/api/chats/switch': 'switch_chat'}.get(urlparse(self.path).path)
+        if action:
+            return self.update_session(action)
+        if urlparse(self.path).path == '/api/session':
+            return self.update_session()
         endpoint = urlparse(self.path).path
         if endpoint not in ('/api/classify', '/api/import', '/api/route', '/api/public-geocode'):
             return self.respond(404,{'error':'not found'})
@@ -533,7 +832,7 @@ class Handler(SimpleHTTPRequestHandler):
             if endpoint == '/api/import':
                 if payload.get('permitted') is not True:
                     raise ValueError('利用許可の確認が必要です')
-                return self.respond(200, normalize_feed(payload.get('records')))
+                return self.respond(200, self.remember_native_results(normalize_feed(payload.get('records'))))
             if endpoint == '/api/route':
                 return self.respond(200, route_time(payload))
             if endpoint == '/api/public-geocode':
@@ -551,13 +850,31 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path == '/api/chat/stream':
+            return self.stream_chat()
+        if u.path == '/api/chats':
+            session_id = self.session_id()
+            if not session_id or not SESSION_STORE.get(session_id):
+                return self.respond(404, {'error': 'Session not found'})
+            return self.respond(200, {'chats': SESSION_STORE.list_chats(session_id)})
+        if u.path == '/api/session/schema':
+            return self.respond(200, {'schema_version': SCHEMA_VERSION, 'criteria': CRITERIA_SCHEMA,
+                                     'update': UPDATE_SCHEMA})
+        if u.path == '/api/session':
+            session_id = self.session_id()
+            session = SESSION_STORE.get(session_id) if session_id else None
+            if session:
+                HOME_AGENT.resume(session_id)
+                return self.respond(200, public_session(session))
+            session_id, session = SESSION_STORE.create()
+            return self.respond(200, public_session(session), cookie=f'search_session={session_id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000')
         if u.path == '/':
             self.path = '/index.html'
             return super().do_GET()
         if u.path == '/api/health':
             return self.respond(200,{'listings_enabled':True,'providers':['bing'] + (['brave'] if SEARCH_KEY else []),
                     'provider':'Brave Search API + Bing RSS' if SEARCH_KEY else 'Bing RSS (APIキー不要、利用制限あり)',
-                    'has_brave_key':bool(SEARCH_KEY), 'decisions_enabled':bool(OPENAI_KEY),
+                    'has_brave_key':bool(SEARCH_KEY), 'decisions_enabled':bool(OPENAI_KEY), 'agent_enabled':bool(OPENAI_KEY), 'web_search_enabled':bool(OPENAI_KEY),
                     'walking_enabled':True, 'feed_enabled':bool(FEED_PATH or FEED_URL), 'routing_enabled':True,
                     'public_sources':['tokyo', 'tsubata'] + (['permitted'] if os.environ.get('PUBLIC_HOUSING_FEED_PATH') else []),
                     'suumo_reuse_permitted': SUUMO_REUSE_PERMITTED,
@@ -620,7 +937,7 @@ class Handler(SimpleHTTPRequestHandler):
                 # A user may select another range before a large response ends.
                 return
         if u.path != '/api/listings':
-            if u.path not in ('/index.html', '/i18n.js', '/property_core.js', '/public_housing.js', '/walking.js'):
+            if u.path not in ('/index.html', '/i18n.js', '/property_core.js', '/public_housing.js', '/session.js', '/chat.js', '/workspace.js', '/workspace.css', '/shell.js', '/shell.css', '/map_agent.js', '/map_agent.css', '/walking.js'):
                 return self.respond(404, {'error':'not found'})
             return super().do_GET()
         q = parse_qs(u.query)
@@ -637,7 +954,7 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 result = load_feed()
                 result['results'] = [record for record in result['results'] if record['kind'] == kind]
-                return self.respond(200, result)
+                return self.respond(200, self.remember_native_results(result))
             except (ValueError, OSError, HTTPError, URLError) as exc:
                 return self.respond(502, {'error':'許可済み募集データを取得できません: '+type(exc).__name__})
         details = {'layout':v('layout',10), 'keywords':v('keywords',65)}

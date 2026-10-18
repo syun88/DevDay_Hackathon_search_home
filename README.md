@@ -22,6 +22,22 @@
 
 Use **EN / JP** in the header to switch the interface language. Your choice is remembered in this browser; addresses and source listing text stay in their original language.
 
+## 会話で住まいを探す / Chat with your home-search agent
+
+EN/JPのチャットで、場所・予算・間取り・こだわりを伝えて検索できます。「予算だけ下げて」「職場の近く」「2番目を保存」「さっきの変更を戻して」と会話を続けられます。条件チップと詳細設定も同じ検索状態を使います。
+
+Describe your location, budget and preferences in English or Japanese. The assistant can update criteria, resolve places, search real listing pages, compare/save retrieved candidates and undo a criteria change. The original map sits above the chat dock; drag the divider to resize it. The left rail opens saved chats, results, remembered preferences and **Advanced** settings. The original white/blue styling and map interactions are retained.
+
+- **Required for chat:** `OPENAI_API_KEY` with Agents API read/write and model inference access. The app uses the [OpenAI Agents API](https://developers.openai.com/api/docs/guides/agents-api/quickstart) directly through HTTPS, with `environment: none`; no sandbox or extra Python package is needed. `OPENAI_AGENT_MODEL` defaults to `gpt-6.1-sol` for new conversations.
+- **Memory:** The same remote agent session retains conversation context. Explicit preferences and named places (such as your office), local message history, up to five result snapshots, saved candidates and twenty criteria revisions persist in `.local/sessions.sqlite3`. Reloading or restarting the server restores the conversation. Use the sidebar to create or switch saved chats; each chat keeps its own criteria, conversation, memory and results. Saved legacy manual candidates retain their existing browser storage.
+- **Actions and recovery:** Messages use stable submission IDs. Tool side effects and their results are journaled together so recovery does not apply a change twice. Stop cancels the remote turn. Retry resumes uncertain work; failed actions are never presented as successful. Manual changes are protected by revision checks.
+- **Privacy controls:** “Clear chat & memory” deletes the remote session and local conversation/memory, retaining criteria and saved candidates. “New search” also resets criteria. These operations complete asynchronously; a failed remote deletion is shown as an error rather than a successful clear.
+- **Limits:** Maps, geocoding and Bing listing discovery work without extra keys; Brave is optional. Search-engine results provide discovery links only. Without a verified feed, chat also uses the bounded Tokyo SUUMO prototype to return real source leads with known rent/management fees. These appear separately as unverified leads, with source links; vacancy, other fees, building type and precise location remain unknown. The prototype inspects at most five records in a query of at most 2 km and does not search all Tokyo. Unsupported areas or source failures still return source-search links rather than implying no homes exist. Current candidates require a permitted source feed/import with confirmed availability verified within one hour. Rental budgets include rent, management and mandatory monthly fees; missing fees stay unknown. Road walking/bike/car estimates use OSRM without another API key; train commute and live traffic are unsupported. Zero results remain zero. The separate SUUMO prototype remains available under Advanced, with its original unverified-data warnings.
+- **Upgrades:** Earlier prototype budgets excluded fees. Schema v3 preserves such a cap as a historical note and asks for a new total budget instead of silently reusing it. Agent configuration changes start a fresh provider session with recent local context; clearing that chat deletes its current and previous provider sessions.
+- **Local app:** Browser profiles receive separate HttpOnly, SameSite=Strict session cookies; tabs share one session. This is not an authenticated multi-user service. Cookies expire after 30 days; automatic database retention cleanup is not implemented. Environment and database files are ignored by Git and blocked from HTTP access.
+
+例 / Example: “Remember that I have a cat named Mochi. Find a 1K rental near Tokyo Station under ¥100,000 including monthly fees.” Then: “Change only the budget to ¥85,000,” “What is my cat’s name?” or “Undo the last change.” Pet/cat permission remains unverified until supported by the source.
+
 ## 起動
 
 Python 3.10+ が必要（追加パッケージ不要）。
@@ -32,6 +48,10 @@ python3 server.py
 ```
 
 Linux: `./start-linux.sh` / Windows: `start-windows.bat` でも起動可能。
+
+任意のAPIキーは `.env.example` を `.env` にコピーして設定できます。サーバーは起動時に `.env` を読み込みます（環境変数の指定を優先）。編集後はサーバーを再起動してください。`.env` はGit管理対象外です。
+
+Optional keys: copy `.env.example` to `.env`, fill in your keys, then restart the server. The file loads automatically; existing environment variables take priority. `.env` is ignored by Git.
 
 任意のAPIキー:
 
@@ -83,6 +103,11 @@ VALHALLA_URL=http://127.0.0.1:8002 python3 server.py
 
 都営の空き住戸PDFは自動転載許諾を確認できないため**公式リンクのみ**です。空き住戸数・確認済み募集は別レイヤーを持ち、許諾済みフィードを設定したときだけ実データを表示します。UR/JKKの実データAPIや全国全自治体の網羅取得は未接続です。利用条件・接続範囲・フィード形式は [公的住宅データ](docs/public-housing.md) を参照してください。
 
+- `home_agent.py`: Agents API client, durable conversation worker, validated search/memory/save/Undo tools
+- `chat.js`: chat history, progress, cancellation, recovery and memory controls
+- `session_store.py`: shared criteria schema, SQLite sessions and atomic revision checks
+- `session.js`: queued session updates, draft persistence, conflict/error recovery
+- `workspace.js` / `workspace.css`: bilingual chat shell, editable chips and advanced panel
 - `index.html`: レスポンシブ地図UI（依存ライブラリなし）、地点A/B、徒歩道路網・距離円、外部検索、候補保存、CSV
 - `walking.js`: GeoJSON描画・範囲判定・道路延長・参考面積、取得の間引きと古い応答の排除
 - `server.py`: localhost専用HTTPサーバー、徒歩API・キャッシュ、Bing RSS/Brave検索、正規化と出典、任意Decisions API分類
@@ -105,6 +130,15 @@ VALHALLA_URL=http://127.0.0.1:8002 python3 server.py
 - `POST /api/route` (`{"origin":{"lat":35,"lon":139},"destination":{"lat":35.01,"lon":139},"mode":"foot"}`): 無料道路経路。`foot` / `bike` / `car`。経路なしの場合は `duration_seconds:null`
 - `GET /api/public-housing?source=tokyo&area=千代田区&offset=0`: 公式公開CSVの参考資料。`source` は `tokyo` / `tsubata` / 設定時の `permitted`。20件単位
 - `POST /api/public-geocode` (`{"source":"tokyo","id":"取得結果のid"}`): 公開住所の概略位置照会。任意URLや任意住所は受け付けない
+
+- `GET /api/session`: create or restore the cookie-bound search session (no API key)
+- `POST /api/session`: update with `{"expected_revision":0,"criteria":{"max_price_yen":100000}}`; returns 409 if another update has already advanced the revision
+- `GET /api/session/schema`: versioned criteria and partial-update schemas (schema version 2)
+- `POST /api/chat`: submit `{request_id,message,expected_revision,language}`; returns a persisted running session immediately
+- `GET /api/session`: poll progress, messages, memory and result snapshots; resumes interrupted workers
+- `POST /api/chat/resume`: resume an uncertain turn with its `request_id`
+- `POST /api/chat/cancel`: stop the current `request_id`
+- `POST /api/chat/reset`: clear remote/local chat and memory with `{expected_revision,reset_search}`; `reset_search: true` also resets criteria
 
 ## テスト
 

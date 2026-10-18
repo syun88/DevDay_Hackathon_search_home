@@ -105,7 +105,11 @@ function mount(hooks){
  $('publicProvider').onchange=()=>{generation++;next=null;$('publicNext').disabled=true;$('publicLoad').disabled=false;$('publicArea').value=$('publicProvider').value==='tokyo'?'千代田区':'';};
  $('publicArea').oninput=()=>{generation++;next=null;$('publicNext').disabled=true;$('publicLoad').disabled=false;};
  for(const id of ['publicUseFilters',...Object.keys(sources).map(value=>'publicSource_'+value),...Object.keys(layers).map(value=>'publicLayer_'+value)])$(id).addEventListener('change',refresh);
- return {renderList,renderPins(add){
+ return {renderList, getState(){return {records:[...records.values()],visible:visible().sort((a,b)=>Number(b.id===selectedId)-Number(a.id===selectedId)),selectedId};},
+ select(id){const record=records.get(id);if(!record||!visible().some(item=>item.id===id))return false;choose(record);return true;},
+ replaceRecords(items){records.clear();for(const record of items)records.set(record.id,record);refresh();},
+ importRecords(items){for(const record of items){records.set(record.id,record);if($('publicSource_'+record.source))$('publicSource_'+record.source).checked=true;if($('publicLayer_'+record.layer))$('publicLayer_'+record.layer).checked=true;}refresh();},
+ renderPins(add){
   const groups=new Map();
   for(const record of visible().filter(record=>Number.isFinite(record.lat)&&Number.isFinite(record.lon)).slice(0,500)){
    const position=record.lat+','+record.lon;
@@ -115,7 +119,7 @@ function mount(hooks){
   for(const group of groups.values()){
    const record=group[0];
    const label=group.length>1?group.length+t('件の公開資料'):record.price_yen==null?t('価格未確認'):(record.price_yen/10000).toLocaleString()+t(record.kind==='rent'?'万/月':'万');
-   add({...record,name:group.map(item=>item.name).join(' / ')},'public '+record.layer,label,()=>choose(group[(group.findIndex(item=>item.id===selectedId)+1)%group.length]));
+   add({...record,name:group.map(item=>item.name).join(' / '),group_ids:group.map(item=>item.id)},'public '+record.layer,label,()=>choose(group[(group.findIndex(item=>item.id===selectedId)+1)%group.length]));
   }
  }};
 }
