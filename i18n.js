@@ -408,6 +408,20 @@ Object.assign(english, {
 });
 Object.assign(english, {'利用許諾が未設定のため接続を停止しています。公式検索リンクをご利用ください。':'Connection disabled: reuse permission is not configured. Use official search links.','未検索。半径は0.1〜2km、地点Aは東京都内にしてください。':'Not searched. Set a 0.1–2 km radius and an origin in Tokyo.'});
 Object.assign(english, {'件の公開資料':' public records'});
+Object.assign(english, {
+  "現在地": "Current location",
+  "現在地を地点Aに設定": "Use current location as point A",
+  "取得中…": "Locating…",
+  "現在地を取得中…ブラウザの位置情報の利用を許可してください。": "Getting your location… Please allow location access in your browser.",
+  "現在地の取得にはHTTPSまたはlocalhostで開いてください。": "Open this app over HTTPS or localhost to use your current location.",
+  "このブラウザは位置情報に対応していません。住所検索か地図で指定してください。": "This browser does not support geolocation. Search for an address or select a point on the map.",
+  "位置情報が許可されていません。ブラウザのサイト設定で位置情報を許可して再試行してください。": "Location access is not allowed. Allow it in your browser site settings and try again.",
+  "現在地を取得できませんでした。端末の位置情報設定や通信環境を確認して再試行してください。": "Could not get your location. Check your device location settings and connection, then try again.",
+  "現在地の取得がタイムアウトしました。もう一度お試しください。": "Getting your location timed out. Please try again.",
+  "現在地を取得できませんでした。住所検索か地図で指定してください。": "Could not get your location. Search for an address or select a point on the map.",
+  "取得した現在地は地図の表示範囲外か、不正な座標です。住所検索か地図で指定してください。": "Your location is outside the map coverage or has invalid coordinates. Search for an address or select a point on the map.",
+  "現在地を地点Aに設定しました。地図で位置を確認してください。": "Your current location is now point A. Check the location on the map."
+});
 const storageKey = 'property_map_language';
 let language = 'ja';
 try { if (localStorage.getItem(storageKey) === 'en') language = 'en'; } catch {}

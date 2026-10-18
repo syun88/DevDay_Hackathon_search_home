@@ -27,7 +27,7 @@ class Element {
  click(){this.onclick?.();}
 }
 
-function app({rangeMode='distance'}={}){
+function app({rangeMode='distance',geolocation,secureContext=true}={}){
  const elements=new Map(),frames=[],requests=[];
  const element=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
  for(const id of ['insideOnly','listingOnlyWithin','publicSource_tokyo','publicSource_tsubata','publicSource_permitted','publicLayer_inventory','publicLayer_vacancy','publicLayer_recruitment','publicLayer_municipal'])element(id).checked=true;
@@ -35,11 +35,11 @@ function app({rangeMode='distance'}={}){
  element('commuteMode').value='foot';
  const storage=new Map();
  const context={
-  window:{propertyCore:core,publicHousing,homeWalking:walking,homeI18n:{t:(text,values=[])=>String(text).replace(/\{(\d+)\}/g,(_,index)=>values[index]??''),setText:(node,render)=>{node.textContent=render();}},addEventListener(){}},
+  window:{isSecureContext:secureContext,propertyCore:core,publicHousing,homeWalking:walking,homeI18n:{t:(text,values=[])=>String(text).replace(/\{(\d+)\}/g,(_,index)=>values[index]??''),setText:(node,render)=>{node.textContent=render();}},addEventListener(){}},
   document:{getElementById:element,createElement:()=>new Element(),createDocumentFragment:()=>new Element(),querySelectorAll:()=>[],addEventListener(){}},
   // Existing radius/filter tests start with the straight-line preference.
   localStorage:{getItem:key=>storage.get(key)||(key==='property_map_v2'?JSON.stringify({rangeMode}):null),setItem:(key,value)=>storage.set(key,value)},
-  location:{protocol:'http:'},requestAnimationFrame:callback=>frames.push(callback),setInterval(){},setTimeout:()=>1,clearTimeout(){},
+  navigator:{geolocation},location:{protocol:'http:'},requestAnimationFrame:callback=>frames.push(callback),setInterval(){},setTimeout:()=>1,clearTimeout(){},
   URL,URLSearchParams,AbortSignal,AbortController,confirm:()=>true,
   fetch:async(url,options)=>{
    requests.push({url,options});
@@ -209,4 +209,72 @@ test('coincident public locations remain individually selectable from a grouped 
  assert.ok(harness.element('publicResults').children[0].textContent.startsWith('TEST ONLY one'));
  pin().onclick({stopPropagation(){}});harness.flush();
  assert.ok(harness.element('publicResults').children[0].textContent.startsWith('TEST ONLY two'));
+});
+
+
+test('the map current-location button requests only on click and updates point A, its pin and walking range',async()=>{
+ const calls=[];
+ const harness=app({rangeMode:'walk',geolocation:{getCurrentPosition:(...args)=>calls.push(args)}});
+ await harness.settleWalking();assert.equal(calls.length,0);
+ const button=harness.element('mapLocateMe'),sidebarButton=harness.element('locateMe');
+ button.click();sidebarButton.click();button.click();
+ assert.equal(calls.length,1);assert.equal(button.disabled,true);assert.equal(sidebarButton.disabled,true);
+ assert.match(harness.element('currentLocationStatus').textContent,/取得中/);
+ assert.equal(harness.storage.has('property_map_v2'),false);
+ calls[0][0]({coords:{latitude:34.6937,longitude:135.5023}});
+ harness.flush();
+ assert.ok(harness.element('pins').children.some(pin=>pin.title==='現在地'&&pin.style.left==='450px'&&pin.style.top==='350px'));
+ await harness.settleWalking();
+ const saved=JSON.parse(harness.storage.get('property_map_v2'));
+ assert.equal(saved.a.lat,34.6937);assert.equal(saved.a.lon,135.5023);
+ assert.equal(saved.a.name,'現在地');assert.equal(saved.b,null);
+ assert.equal(harness.element('nameA').textContent,'現在地');
+ assert.equal(button.disabled,false);assert.equal(button.textContent,'⌖');
+ assert.equal(sidebarButton.disabled,false);assert.equal(sidebarButton.textContent,'現在地');
+ assert.match(harness.element('currentLocationStatus').textContent,/地点Aに設定しました/);
+ const query=new URLSearchParams(harness.requests.filter(r=>r.url.startsWith('/api/walking-area?')).at(-1).url.split('?')[1]);
+ assert.equal(query.get('lat'),'34.6937');assert.equal(query.get('lon'),'135.5023');
+});
+
+for(const [code,message] of [[1,'サイト設定'],[2,'端末の位置情報設定'],[3,'タイムアウト'],[0,'住所検索']]){
+ test(`geolocation error ${code} preserves the origin and allows retry`,()=>{
+  const calls=[];
+  const harness=app({geolocation:{getCurrentPosition:(...args)=>calls.push(args)}});
+  const before=harness.element('nameA').textContent,button=harness.element('mapLocateMe');
+  button.click();calls[0][1]({code});harness.flush();
+  assert.equal(harness.element('nameA').textContent,before);
+  assert.equal(harness.storage.has('property_map_v2'),false);
+  assert.equal(harness.element('currentLocationStatus').hidden,false);
+  assert.ok(harness.element('currentLocationStatus').textContent.includes(message));
+  assert.equal(button.disabled,false);
+  assert.equal(harness.element('locateMe').disabled,false);
+  harness.element('locateMe').click();assert.equal(calls.length,2);
+  calls[1][0]({coords:{latitude:35,longitude:139}});harness.flush();
+  assert.equal(JSON.parse(harness.storage.get('property_map_v2')).a.lat,35);
+ });
+}
+
+test('unsupported and insecure browsers explain how to proceed without requesting location',()=>{
+ let calls=0;
+ const unsupported=app();unsupported.element('locateMe').click();
+ assert.match(unsupported.element('currentLocationStatus').textContent,/対応していません/);
+ const insecure=app({secureContext:false,geolocation:{getCurrentPosition:()=>calls++}});
+ insecure.element('locateMe').click();
+ assert.match(insecure.element('currentLocationStatus').textContent,/HTTPSまたはlocalhost/);
+ assert.equal(calls,0);assert.equal(insecure.storage.has('property_map_v2'),false);
+});
+
+test('invalid geolocation coordinates and synchronous API failures leave point A intact',()=>{
+ for(const coords of [{latitude:NaN,longitude:139},{latitude:90,longitude:139},{latitude:35,longitude:181}]){
+  const harness=app({geolocation:{getCurrentPosition:success=>success({coords})}});
+  harness.element('locateMe').click();
+  assert.match(harness.element('currentLocationStatus').textContent,/不正な座標/);
+  assert.equal(harness.storage.has('property_map_v2'),false);
+  assert.equal(harness.element('locateMe').disabled,false);
+ }
+ const harness=app({geolocation:{getCurrentPosition:()=>{throw Error('test only')}}});
+ harness.element('locateMe').click();
+ assert.match(harness.element('currentLocationStatus').textContent,/取得できません/);
+ assert.equal(harness.element('locateMe').disabled,false);
+ assert.equal(harness.storage.has('property_map_v2'),false);
 });
