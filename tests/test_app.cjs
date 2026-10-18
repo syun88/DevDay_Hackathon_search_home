@@ -108,7 +108,7 @@ test('saving an imported candidate keeps its fee breakdown and source verificati
  assert.equal(saved.management_fee_yen,5000);assert.equal(saved.mandatory_fee_yen,0);assert.ok(core.fresh(saved));
  assert.equal(harness.element('matchCount').textContent,'1 / 1');
  harness.element('type').value='rent';harness.element('maxPrice').value='7.4';
- harness.element('maxPrice').listeners.input[0]();harness.flush();
+ for(const listener of harness.element('maxPrice').listeners.input)listener();harness.flush();
  assert.equal(harness.element('matchCount').textContent,'0 / 1');
 });
 

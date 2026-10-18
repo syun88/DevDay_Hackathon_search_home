@@ -1,5 +1,21 @@
 # Search Home — 地図 × 物件検索 × 通勤圏
 
+## SUUMO接続のローカル試作（このブランチ限定）
+
+この機能はローカル技術検証用で、公開サービスとしての利用許可は未取得です。`main` の `46da8ada` から分岐し、既存の地図UIに明示的な **「SUUMOの賃貸データを取得」** ボタンを追加しました。起動は `PORT=8771 python3 server.py`、画面は `http://127.0.0.1:8771/` です。APIキーは不要です。
+
+ボタンを押すと、ブラウザーは同一オリジンの `GET /api/suumo-search?lat=...&lon=...&radius_km=...&max_rent_man=15&layout=1K` のみを呼びます。家賃上限と間取りは指定した場合だけ送ります。ローカルサーバーがSUUMOの公開地図ページからその時点の匿名検索パラメーターを受け取り、賃貸地図へ **最大5件の1リクエスト** を送ります。ページ由来の値はサーバー内でのみ使い、ブラウザーやログに返しません。成功結果は同じ中心・半径・家賃上限・間取りについて120秒キャッシュします。検索は東京都内中心、半径0.1〜2kmに限定します。
+
+家賃上限は公開地図スクリプトの `CHINRYOMAX`（万円）、間取りは公開地図HTMLの `CINM` チェックボックス値と同スクリプトのチェック済み項目送信から対応付けました。例えば15万円は `CHINRYOMAX=15`、1Kは `CINM=02` です。家賃上限は公開地図スライダーの選択値のみ受け付けます。サーバーは返った各物件でも賃料・間取りを照合し、不明値や条件外は除外します。家賃上限は**賃料**の上限であり、管理費などを足した月額総額の上限ではありません。
+
+表示するのはSUUMO応答のうち住所が東京都で始まる物件だけです。都外住所は件数だけ示し、応答の地図座標は使用しません。家賃・管理費は別々に表示し、小計は**判明している月額項目のみ**です。空室、掲載元の更新日、他の費用、正確な位置、指定半径内かどうかは未確認です。SUUMOがHTTP 200でエラーJSONを返しても検索失敗として表示し、保存済みのサンプルを代用しません。
+
+2026-10-18のライブ検証で、画面から条件を送信して実データを表示し、1件を掲載元と照合しました。生レスポンス・掲載情報の複製・認証値はこのリポジトリに含めません。
+
+**条件の限界**: SUUMO試作結果には賃貸、上限家賃、間取り（指定時）、住所先頭が東京都であることを適用します。検索結果は先頭最大5件です。地点Aと半径は上流の地図検索範囲に渡しますが、レスポンスの座標に不一致を見つけたため、各住戸が指定半径内かは独立に確認していません。画面上部の最小面積・築年数・ペット可・駐車場・地点Bなどの絞り込みは、SUUMO結果には適用されません。これらは保存済み候補と別の掲載ページ探索に使う条件です。したがってSUUMO試作結果を「半径内を含めすべての条件に合う物件」と解釈しないでください。
+
+
+
 住所・会社名・駅名から起点を検索し、周辺の建物と、掲載元が1時間以内に募集確認した候補を地図上で比較するローカルWebアプリ。**実物件を架空データで補完しません。** 通常の地図クリックでは起点を動かさず、地点指定モードで変更します。
 
 ヘッダーの **EN / JP** ボタンで表示言語を切り替えられます。選択はブラウザーに保存されます。住所・掲載元の文章・検索条件は元の言語を維持します。
@@ -10,16 +26,17 @@ Use **EN / JP** in the header to switch the interface language. Your choice is r
 
 EN/JPのチャットで、場所・予算・間取り・こだわりを伝えて検索できます。「予算だけ下げて」「職場の近く」「2番目を保存」「さっきの変更を戻して」と会話を続けられます。条件チップと詳細設定も同じ検索状態を使います。
 
-Describe your location, budget and preferences in English or Japanese. The assistant can update criteria, resolve places, search real listing pages, compare/save retrieved candidates and undo a criteria change. Manual controls remain under **Advanced**.
+Describe your location, budget and preferences in English or Japanese. The assistant can update criteria, resolve places, search real listing pages, compare/save retrieved candidates and undo a criteria change. The original map sits above the chat dock; drag the divider to resize it. The left rail opens saved chats, results, remembered preferences and **Advanced** settings. The original white/blue styling and map interactions are retained.
 
 - **Required for chat:** `OPENAI_API_KEY` with Agents API read/write and model inference access. The app uses the [OpenAI Agents API](https://developers.openai.com/api/docs/guides/agents-api/quickstart) directly through HTTPS, with `environment: none`; no sandbox or extra Python package is needed. `OPENAI_AGENT_MODEL` defaults to `gpt-6.1-sol` for new conversations.
-- **Memory:** The same remote agent session retains conversation context. Explicit preferences and named places (such as your office), local message history, up to five result snapshots, saved candidates and twenty criteria revisions persist in `.local/sessions.sqlite3`. Reloading or restarting the server restores the conversation. Saved legacy manual candidates retain their existing browser storage.
+- **Memory:** The same remote agent session retains conversation context. Explicit preferences and named places (such as your office), local message history, up to five result snapshots, saved candidates and twenty criteria revisions persist in `.local/sessions.sqlite3`. Reloading or restarting the server restores the conversation. Use the sidebar to create or switch saved chats; each chat keeps its own criteria, conversation, memory and results. Saved legacy manual candidates retain their existing browser storage.
 - **Actions and recovery:** Messages use stable submission IDs. Tool side effects and their results are journaled together so recovery does not apply a change twice. Stop cancels the remote turn. Retry resumes uncertain work; failed actions are never presented as successful. Manual changes are protected by revision checks.
 - **Privacy controls:** “Clear chat & memory” deletes the remote session and local conversation/memory, retaining criteria and saved candidates. “New search” also resets criteria. These operations complete asynchronously; a failed remote deletion is shown as an error rather than a successful clear.
-- **Limits:** Maps, geocoding and Bing listing discovery work without extra keys; Brave is optional. Listing snippets and approximate locations are unverified, and zero results remain zero. Rent caps exclude management fees. Train/walking commute times and verified vacancies require additional data services and are not claimed by this app.
+- **Limits:** Maps, geocoding and Bing listing discovery work without extra keys; Brave is optional. Search-engine results provide discovery links only. Current candidates require a permitted source feed/import with confirmed availability verified within one hour. Rental budgets include rent, management and mandatory monthly fees; missing fees stay unknown. Road walking/bike/car estimates use OSRM without another API key; train commute and live traffic are unsupported. Zero results remain zero. The separate SUUMO prototype remains available under Advanced, with its original unverified-data warnings.
+- **Upgrades:** Earlier prototype budgets excluded fees. Schema v3 preserves such a cap as a historical note and asks for a new total budget instead of silently reusing it. Agent configuration changes start a fresh provider session with recent local context; clearing that chat deletes its current and previous provider sessions.
 - **Local app:** Browser profiles receive separate HttpOnly, SameSite=Strict session cookies; tabs share one session. This is not an authenticated multi-user service. Cookies expire after 30 days; automatic database retention cleanup is not implemented. Environment and database files are ignored by Git and blocked from HTTP access.
 
-例 / Example: “Remember that I have a cat named Mochi. Find a 1K rental near Tokyo Station under ¥100,000 in listed rent.” Then: “Change only the budget to ¥85,000,” “What is my cat’s name?” or “Undo the last change.” Pet/cat permission remains unverified until supported by the source.
+例 / Example: “Remember that I have a cat named Mochi. Find a 1K rental near Tokyo Station under ¥100,000 including monthly fees.” Then: “Change only the budget to ¥85,000,” “What is my cat’s name?” or “Undo the last change.” Pet/cat permission remains unverified until supported by the source.
 
 ## 起動
 
@@ -75,6 +92,7 @@ BRAVE_SEARCH_API_KEY=... OPENAI_API_KEY=... python3 server.py
 
 - `GET /api/health`: 機能・APIキー設定状態（キー自体は返さない）
 - `GET /api/listings?place=渋谷区&kind=rent&provider=auto&layout=1K`: 設定済みフィードの新しい募集、または検索エンジンの掲載元リンク。検索索引から抽出した価格は返さない
+- `GET /api/suumo-search?lat=35.681236&lon=139.767125&radius_km=1&max_rent_man=15&layout=1K`: ローカル試作の明示的なSUUMO匿名検索。家賃・間取りを上流へ渡し、先頭最大5件を再検証して表示する。都外住所と未確認座標を除外
 - `POST /api/classify` (`{"title":"...","description":"..."}`): 任意AI分類。`OPENAI_API_KEY`がある場合のみ
 - `POST /api/import` (`{"permitted":true,"records":[...]}`): 許可済みデータを検証・正規化。最大1MB・500件
 - `POST /api/route` (`{"origin":{"lat":35,"lon":139},"destination":{"lat":35.01,"lon":139},"mode":"foot"}`): 無料道路経路。`foot` / `bike` / `car`。経路なしの場合は `duration_seconds:null`
